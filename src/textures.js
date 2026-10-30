@@ -251,14 +251,29 @@ export function glowTex() {
   g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return tex(c, true, false);
 }
 
+// A cluster of leaves on a transparent background, for tree crowns.
+export function leafTex() {
+  const S = 256, [c, g] = mk(S); const rnd = mulberry32(61);
+  g.clearRect(0, 0, S, S);
+  for (let i = 0; i < 260; i++) {
+    const r = Math.sqrt(rnd()) * S * 0.46, a = rnd() * 6.28;
+    const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, len = 10 + rnd() * 12;
+    const l = 0.55 + rnd() * 0.45;
+    g.fillStyle = `rgb(${(60 + rnd() * 30) * l | 0},${(105 + rnd() * 50) * l | 0},${(35 + rnd() * 20) * l | 0})`;
+    g.save(); g.translate(x, y); g.rotate(rnd() * 6.28);
+    g.beginPath(); g.ellipse(0, 0, len / 2, len / 4.5, 0, 0, 6.28); g.fill(); g.restore();
+  }
+  return tex(c, true, false);
+}
+
 export function frondTex() {
   const [c, g] = mk(64, 256);
   g.clearRect(0, 0, 64, 256);
-  g.strokeStyle = '#5f6b2a'; g.lineWidth = 3; g.beginPath(); g.moveTo(32, 0); g.lineTo(32, 256); g.stroke();
+  g.strokeStyle = '#8a8a4a'; g.lineWidth = 3; g.beginPath(); g.moveTo(32, 0); g.lineTo(32, 256); g.stroke();
   for (let y = 6; y < 250; y += 7) {
     const len = 30 * Math.sin(Math.PI * (y / 256)) + 4;
     for (const s of [-1, 1]) {
-      g.strokeStyle = y % 14 ? '#3e5a22' : '#4f6c2a'; g.lineWidth = 3.2;
+      g.strokeStyle = y % 14 ? '#5d8a32' : '#75a040'; g.lineWidth = 3.4;
       g.beginPath(); g.moveTo(32, y); g.quadraticCurveTo(32 + s * len * 0.6, y + 6, 32 + s * len, y + 16); g.stroke();
     }
   }

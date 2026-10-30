@@ -5,12 +5,15 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { $, clamp, damp, lerp, wrapAngle, LOW_POWER, fmtTime } from './util.js';
 import { settings, save } from './store.js';
 import { setAnisotropy } from './textures.js';
 import { buildSky, placeSun } from './sky.js';
-import { buildCity, surfaceAt, SP, N, EDGE, laneOffset, queryColliders } from './city.js';
-import { makeHeroCar, setPaint, PAINTS, HERO_DIMS } from './carModel.js';
+import { buildCity, surfaceAt, SP, N, EDGE, laneOffset, queryColliders, signalState, showSignals } from './city.js';
+import { buildTerrain } from './terrain.js';
+import { TOD, TOD_NAME } from './tod.js';
+import { makeHeroCar, setPaint, PAINTS, HERO_DIMS, drawCluster } from './carModel.js';
 import { Vehicle } from './vehicle.js';
 import { collideStatic, collideTraffic } from './collide.js';
 import { Traffic } from './traffic.js';
@@ -30,7 +33,7 @@ const quality = settings.quality || (LOW_POWER ? 'medium' : 'high');
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality === 'low', powerPreference: 'high-performance', stencil: false });
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.6;
+renderer.toneMappingExposure = TOD.exposure;
 renderer.shadowMap.enabled = quality !== 'low';
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.info.autoReset = false;
@@ -41,12 +44,14 @@ let resScale = 1;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 12000);
 
-// Post-processing: bloom, a speed blur, vignette and a warm grade, then ACES.
+// Post-processing: ambient occlusion (High), bloom, a speed blur, vignette and
+// a colour grade, then ACES.
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) } },
+  uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) },
+    uSat: { value: TOD.grade.sat }, uContrast: { value: TOD.grade.contrast }, uWarm: { value: TOD.grade.warm }, uSunset: { value: TOD_NAME === 'sunset' ? 1 : 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uBlur; uniform vec2 uCenter; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float uBlur; uniform vec2 uCenter; uniform float uSat, uContrast, uWarm, uSunset; varying vec2 vUv;
     void main(){
       vec2 dir = vUv - uCenter; float d = length(dir);
       vec3 col = texture2D(tDiffuse, vUv).rgb;
@@ -55,19 +60,39 @@ const GradeShader = {
         for (int i = 1; i < 8; i++) acc += texture2D(tDiffuse, vUv - dir * s * float(i)).rgb;
         col = acc / 8.0;
       }
-      float vig = smoothstep(1.05, 0.3, d);
-      col *= mix(0.62, 1.0, vig);
+      float vig = smoothstep(1.1, 0.3, d);
+      col *= mix(mix(0.78, 0.62, uSunset), 1.0, vig);
       float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      col = mix(col * vec3(0.96, 0.93, 1.07), col * vec3(1.05, 1.0, 0.93), smoothstep(0.0, 0.8, l));
+      col = mix(col, mix(col * vec3(0.96, 0.93, 1.07), col * vec3(1.05, 1.0, 0.93), smoothstep(0.0, 0.8, l)), uSunset);
+      // Saturation, contrast around mid-grey (in linear light) and a touch of warmth.
+      col = max(vec3(0.0), mix(vec3(l), col, uSat));
+      col = 0.18 * pow(col / 0.18, vec3(uContrast));
+      col *= vec3(1.0 + uWarm, 1.0, 1.0 - uWarm);
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
-let composer = null, bloom = null, grade = null;
+let composer = null, bloom = null, grade = null, gtao = null;
 if (quality !== 'low') {
   const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: quality === 'high' ? 4 : 2 });
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
-  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.42, 0.55, 0.92);
+  if (quality === 'high') {
+    try {
+      gtao = new GTAOPass(scene, camera, 4, 4);
+      gtao.blendIntensity = 0.85;
+      // Leave out see-through things (clouds, leaf cards, glows), which the
+      // occlusion pass would otherwise treat as solid squares.
+      const hideBase = gtao.overrideVisibility.bind(gtao);
+      gtao.overrideVisibility = function () {
+        hideBase();
+        this.scene.traverse(o => { const m = o.material; if (m && !Array.isArray(m) && (m.transparent || m.alphaTest > 0 || !m.depthWrite)) o.visible = false; });
+      };
+      gtao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1.2, scale: 1.2, samples: 12 });
+      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+      composer.addPass(gtao);
+    } catch (e) { gtao = null; }
+  }
+  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), TOD.lampsOn ? 0.42 : 0.22, 0.55, TOD.lampsOn ? 0.92 : 1.6);
   composer.addPass(bloom);
   grade = new ShaderPass(GradeShader); composer.addPass(grade);
   composer.addPass(new OutputPass());
@@ -97,6 +122,7 @@ async function build() {
   sky = buildSky(scene, renderer, quality);
   loadMsg('Building the city…'); await nextFrame();
   city = buildCity(scene, quality);
+  buildTerrain(scene, !TOD.lampsOn);
   loadMsg('Starting the traffic…'); await nextFrame();
   traffic = new Traffic(scene, city.parked, quality === 'high');
   carMesh = makeHeroCar(settings.color);
@@ -119,7 +145,7 @@ function applyAids() {
 // ---------------------------------------------------------------------------
 // Game state
 // ---------------------------------------------------------------------------
-const game = { state: 'loading', prev: null, route: null, next: 0, t: 0, cdT: 0, camMode: settings.camera || 0, shake: 0, menuT: 0, garage: false, splits: [] };
+const game = { state: 'loading', prev: null, route: null, next: 0, t: 0, cdT: 0, camMode: settings.cam ?? 0, shake: 0, menuT: 0, garage: false, splits: [] };
 let carY = 0.0, camYaw = START.h, pitch = 0, roll = 0, pitchV = 0, rollV = 0;
 
 function setState(s) {
@@ -132,6 +158,7 @@ function setState(s) {
   const touch = (input.lastDevice === 'touch' || (LOW_POWER && input.lastDevice === 'keyboard')) && driving;
   $('touch').classList.toggle('hidden', !touch);
   document.body.classList.toggle('touchmode', touch);
+  $('cam-name').textContent = CAMS[game.camMode] || '';
   document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
   if (s !== 'race' && s !== 'countdown') hud && hud.race(null);
   if (hud) hud.resize();
@@ -206,7 +233,14 @@ function togglePause() {
 }
 input.on('pause', togglePause);
 input.on('back', () => { if (game.state === 'paused') togglePause(); });
-input.on('camera', () => { if (game.state !== 'menu') { game.camMode = (game.camMode + 1) % 4; settings.camera = game.camMode; save(); hud.toast(['CHASE CAMERA', 'FAR CHASE', 'HOOD CAMERA', 'BUMPER CAMERA'][game.camMode], 1.2); } });
+const CAMS = ['WIDE CHASE', 'CLOSE CHASE', 'DRIVER VIEW', 'HOOD CAMERA', 'BUMPER CAMERA'];
+function nextCamera() {
+  if (game.state === 'menu') return;
+  game.camMode = (game.camMode + 1) % CAMS.length; settings.cam = game.camMode; save();
+  hud.toast(CAMS[game.camMode], 1.2); $('cam-name').textContent = CAMS[game.camMode];
+}
+input.on('camera', nextCamera);
+$('cam-btn').addEventListener('click', e => { e.stopPropagation(); nextCamera(); });
 input.on('reset', () => { if (game.state === 'free' || game.state === 'race') respawnOnRoad(); });
 input.on('shiftUp', () => { if (!car.auto) car.shift(1); });
 input.on('shiftDown', () => { if (!car.auto) car.shift(-1); });
@@ -258,6 +292,7 @@ function garagePanel() {
 }
 
 const SETTINGS = [
+  { key: 'tod', label: 'Time of day', opts: [['day', 'Day'], ['sunset', 'Sunset']], reload: true },
   { key: 'quality', label: 'Graphics', opts: [['high', 'High'], ['medium', 'Medium'], ['low', 'Low']], reload: true },
   { key: 'units', label: 'Speed', opts: [['kmh', 'km/h'], ['mph', 'mph']] },
   { key: 'auto', label: 'Gearbox', opts: [[true, 'Automatic'], [false, 'Manual']] },
@@ -273,8 +308,9 @@ const SETTINGS = [
 ];
 function settingsPanel(el) {
   const q = settings.quality || quality;
+  const cur = k => (k === 'quality' ? q : k === 'tod' ? TOD_NAME : settings[k]);
   const rows = SETTINGS.map(s => `<div class="row"><label>${s.label}</label><div class="seg">${s.opts.map(([v, t]) =>
-    `<button data-s="${s.key}" data-v='${JSON.stringify(v)}' class="${(s.key === 'quality' ? q : settings[s.key]) === v ? 'on' : ''}">${t}</button>`).join('')}</div></div>`).join('');
+    `<button data-s="${s.key}" data-v='${JSON.stringify(v)}' class="${cur(s.key) === v ? 'on' : ''}">${t}</button>`).join('')}</div></div>`).join('');
   const w = settings.wheel || {};
   el.innerHTML = `<h2>SETTINGS</h2>${rows}
     <div class="row"><label>Steering wheel & pedals<br><span class="hint" id="wheel-state">${w.gas ? 'Set up' : 'Not set up'}</span></label><div class="seg"><button id="wheel-setup">Set up</button><button id="wheel-clear">Clear</button></div></div>`;
@@ -382,6 +418,11 @@ function updateCarMesh(dt, alpha) {
   const ud = carMesh.userData;
   ud.body.rotation.set(pitch, 0, roll);
   ud.body.position.y = Math.sin(performance.now() / 70) * 0.0015 * Math.min(1, car.speed / 30);
+  ud.cockpit.wheel.rotation.z = car.steer * 7;
+  if (game.camMode === 2 && game.state !== 'menu') {
+    const gear = car.gear === -1 ? 'R' : String(car.gear);
+    drawCluster(ud.cockpit, car.rpm, car.speed * 3.6, gear, settings.units);
+  }
   for (const w of ud.wheels) {
     if (w.front) w.steer.rotation.y = -car.steer;
     w.spin.rotation.x = car.wheelAng;
@@ -407,16 +448,18 @@ function updateCamera(dt, pose) {
     camLook.set(pose.x + (game.garage ? 0 : f[0] * 2.5), carY + 0.65, pose.z + (game.garage ? 0 : f[1] * 2.5));
     camera.position.copy(camPos); camera.lookAt(camLook); camInit = false;
   } else if (game.camMode <= 1) {
-    const far = game.camMode === 1;
+    // Wide chase (the default: higher and further back, so you see more of the
+    // road) or the close chase.
+    const wide = game.camMode === 0;
     const vel = car.worldVel(), velH = Math.atan2(vel[0], vel[1]);
     let target = pose.h;
     if (spd > 4 && car.vx > 0) target += clamp(wrapAngle(velH - pose.h), -0.6, 0.6) * 0.45;
     if (car.vx < -2) target = pose.h;
     if (lookBack) target += Math.PI;
     if (!camInit) { camYaw = target; camInit = true; }
-    camYaw += wrapAngle(target - camYaw) * (1 - Math.exp(-dt * (lookBack ? 30 : 6.5)));
-    let dist = far ? 8.2 : 5.9, ht = far ? 2.5 : 1.62;
-    dist += clamp(spd * 0.012, 0, 0.9);
+    camYaw += wrapAngle(target - camYaw) * (1 - Math.exp(-dt * (lookBack ? 30 : wide ? 5 : 6.5)));
+    let dist = wide ? 8.8 : 5.9, ht = wide ? 3.1 : 1.62;
+    dist += clamp(spd * (wide ? 0.016 : 0.012), 0, wide ? 1.4 : 0.9);
     // Pull in if a building is in the way.
     for (let k = 0; k < 5; k++) {
       const cx = pose.x - Math.sin(camYaw) * dist, cz = pose.z - Math.cos(camYaw) * dist;
@@ -425,12 +468,25 @@ function updateCamera(dt, pose) {
       dist *= 0.7;
     }
     camPos.set(pose.x - Math.sin(camYaw) * dist, carY + ht, pose.z - Math.cos(camYaw) * dist);
-    camLook.set(pose.x + Math.sin(camYaw) * 4, carY + (far ? 1.0 : 0.95), pose.z + Math.cos(camYaw) * 4);
+    const ahead = wide ? 7 : 4;
+    camLook.set(pose.x + Math.sin(camYaw) * ahead, carY + (wide ? 1.15 : 0.95), pose.z + Math.cos(camYaw) * ahead);
     camera.position.copy(camPos); camera.lookAt(camLook);
-    fov = 58 + clamp(spd * 0.11, 0, 16) + (car.nitroOn ? 6 : 0);
+    fov = (wide ? 62 : 58) + clamp(spd * 0.1, 0, 15) + (car.nitroOn ? 6 : 0);
+  } else if (game.camMode === 2) {
+    // From the driver's seat, moving with the body as it pitches and rolls.
+    const cp = carMesh.userData.cockpit, body = carMesh.userData.body;
+    carMesh.updateMatrixWorld(true);
+    body.localToWorld(camera.position.copy(cp.eye));
+    lookV.copy(cp.eye); lookV.z += lookBack ? -20 : 20; lookV.y -= lookBack ? 0 : 0.9;
+    if (lookBack) lookV.x = cp.eye.x;
+    body.localToWorld(lookV);
+    camera.up.set(0, 1, 0); camera.lookAt(lookV);
+    camera.rotateZ(-roll * 0.5);
+    fov = 70 + clamp(spd * 0.06, 0, 8);
+    camInit = false;
   } else {
     // Hood or bumper camera, fixed to the body.
-    const hood = game.camMode === 2;
+    const hood = game.camMode === 3;
     const off = hood ? new THREE.Vector3(0, 1.2, 0.05) : new THREE.Vector3(0, 0.5, 2.42);
     off.applyEuler(carMesh.userData.body.rotation).applyAxisAngle(THREE.Object3D.DEFAULT_UP, pose.h);
     camera.position.set(pose.x + off.x, carY + off.y, pose.z + off.z);
@@ -531,7 +587,10 @@ function tick(dt) {
       acc -= STEP; n++;
     }
     if (n === 8) acc = 0;
-    traffic.update(dt, car);
+    game.clock = (game.clock || 0) + dt;
+    const sig = signalState(game.clock);
+    if (sig.Z !== game.sigZ || sig.X !== game.sigX) { game.sigZ = sig.Z; game.sigX = sig.X; showSignals(sig); }
+    traffic.update(dt, car, sig);
     if (st === 'race' || st === 'countdown') raceUpdate(dt);
   }
   const alpha = st === 'paused' ? 1 : acc / STEP;
@@ -577,7 +636,7 @@ function tick(dt) {
 function simulate(secs, inp) {
   for (let t = 0; t < secs; t += STEP) {
     physics(STEP, { ...NO_INPUT, ...inp });
-    if (Math.round(t / STEP) % 4 === 0) traffic.update(STEP * 4, car);
+    if (Math.round(t / STEP) % 4 === 0) traffic.update(STEP * 4, car, signalState(game.clock = (game.clock || 0) + STEP * 4));
     if (game.state === 'race') { game.t += STEP; const cp = game.route.cps[game.next]; if (cp && inCheckpoint(cp, car.x, car.z)) { game.next++; if (game.next >= game.route.cps.length) { finishRace(); break; } } }
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;

@@ -101,6 +101,10 @@
     font-size: 30px; text-shadow: 0 2px 12px rgba(0,0,0,0.7); text-align: center; white-space: nowrap; }
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
   #countdown { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-weight: 900; font-size: 140px; text-shadow: 0 4px 24px rgba(0,0,0,0.6); }
+  #cam-btn { position: absolute; left: max(16px, env(safe-area-inset-left)); top: max(16px, env(safe-area-inset-top)); pointer-events: auto; display: flex; align-items: center; gap: 8px;
+    background: rgba(12,10,20,0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 8px 14px; font-weight: 700; font-size: 14px; letter-spacing: 1px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  #cam-btn .ic { font-size: 18px; color: var(--accent); }
+  body.touchmode #cam-btn { display: none; }
   #title-card { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-weight: 700; font-size: 14px; letter-spacing: 3px; opacity: 0.6; text-transform: uppercase; }
 
   /* ---------- Touch controls ---------- */
@@ -115,7 +119,7 @@
   #t-nitro { right: max(22px, env(safe-area-inset-right)); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 168px); width: 104px; height: 64px; color: var(--cyan); }
   #t-hand { right: calc(max(22px, env(safe-area-inset-right)) + 118px); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 116px); width: 96px; height: 64px; }
   #touch .small { top: max(14px, env(safe-area-inset-top)); width: 54px; height: 54px; border-radius: 14px; font-size: 20px; }
-  #t-pause { left: max(14px, env(safe-area-inset-left)); } #t-cam { left: calc(max(14px, env(safe-area-inset-left)) + 64px); } #t-reset { left: calc(max(14px, env(safe-area-inset-left)) + 128px); }
+  #t-pause { left: max(14px, env(safe-area-inset-left)); } #t-cam { left: calc(max(14px, env(safe-area-inset-left)) + 64px); } #t-reset { left: calc(max(14px, env(safe-area-inset-left)) + 158px); }
   body.touchmode #dial { left: max(14px, env(safe-area-inset-left)); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 112px); width: min(26vh, 200px); height: min(26vh, 200px); }
   body.touchmode.tilt #dial { bottom: 10px; }
   body.tilt #t-left, body.tilt #t-right { display: none; }
@@ -144,6 +148,7 @@
   <div id="nav" class="hidden"><div id="nav-arrow"></div><div id="nav-dist"></div></div>
   <div id="toast"></div>
   <div id="countdown"></div>
+  <button id="cam-btn" title="Change camera (C)"><span class="ic">◉</span> <span id="cam-name"></span></button>
 </div>
 
 <div id="touch" class="hidden">
@@ -154,7 +159,7 @@
   <div class="tb" id="t-nitro" data-k="nitro">NOS</div>
   <div class="tb" id="t-hand" data-k="hand">DRIFT</div>
   <div class="tb small" id="t-pause" data-tap="pause">❚❚</div>
-  <div class="tb small" id="t-cam" data-tap="camera">◉</div>
+  <div class="tb small" id="t-cam" data-tap="camera" style="width:84px;font-size:14px">◉ CAM</div>
   <div class="tb small" id="t-reset" data-tap="reset">↺</div>
 </div>
 

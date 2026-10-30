@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import * as T from './textures.js';
 import { mulberry32, fbm, clamp } from './util.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { TOD } from './tod.js';
 
 export const SP = 180;            // distance between road centre lines
 export const N = 4;               // lines run from -N to N on both axes
@@ -129,7 +130,7 @@ export function buildCity(scene, quality) {
   const gbAsphalt = new GB(), gbWalk = new GB(), gbCurb = new GB(), gbPark = new GB(true), gbMark = new GB(true);
   const gbGlass = new GB(true), gbApt = new GB(true), gbShop = new GB(true), gbRoof = new GB(true), gbSign = new GB();
   const gbProps = new GB(true), gbLot = new GB();
-  const trees = [], palms = [], lamps = [], parked = [], billboards = [], gantries = [];
+  const trees = [], palms = [], lamps = [], parked = [], billboards = [], gantries = [], hedges = [], poles = [], wires = [];
 
   // --- Floors -------------------------------------------------------------
   gbAsphalt.flat(-EDGE, -EDGE, EDGE, EDGE, 0, 10);
@@ -171,6 +172,11 @@ export function buildCity(scene, quality) {
         const yaw = s.axis === 'x' ? (s.out < 0 ? -Math.PI / 2 : Math.PI / 2) : (s.out < 0 ? Math.PI : 0);
         const [x, z] = s.axis === 'x' ? [p, t] : [t, p];
         lamps.push([x, z, yaw, CURB]);
+        // Wooden power poles along the back of the pavement on streets.
+        if (!blvd && s.out > 0 && n % 2 === 0) {
+          const pp = s.c - s.out * 4.3, [px, pz] = s.axis === 'x' ? [pp, t] : [t, pp];
+          poles.push([px, pz, s.axis === 'x' ? 0 : Math.PI / 2, CURB, s]);
+        }
         // Trees or palms between lamps.
         if (n < nLamps - 1) {
           const tm = t + (len - 16) / (nLamps - 1) / 2, pt = s.c - s.out * 2.6;
@@ -210,14 +216,6 @@ export function buildCity(scene, quality) {
   for (const { lot, faces, zone, d } of lotsAll) {
     const onBlvd = faces.some(f => isBlvd(f.line));
     if (!faces.length && zone === 'out' && rnd() < 0.6) { parkingLot(lot); continue; }
-    const g = 1.0 + rnd() * 1.6;
-    const b = { x0: lot.x0 + g, z0: lot.z0 + g, x1: lot.x1 - g, z1: lot.z1 - g };
-    // Shops build right up to the pavement.
-    for (const f of faces) {
-      if (f.dir[0] < 0) b.x0 = lot.x0 + 0.3; if (f.dir[0] > 0) b.x1 = lot.x1 - 0.3;
-      if (f.dir[1] < 0) b.z0 = lot.z0 + 0.3; if (f.dir[1] > 0) b.z1 = lot.z1 - 0.3;
-    }
-    if (b.x1 - b.x0 < 6 || b.z1 - b.z0 < 6) continue;
     let style, h;
     const r = rnd();
     if (zone === 'down') { style = 'glass'; h = 45 + Math.pow(rnd(), 1.4) * 125 * clamp(1.25 - d / 260, 0.4, 1); if (r < 0.15) { style = 'apt'; h = 30 + rnd() * 30; } }
@@ -230,6 +228,22 @@ export function buildCity(scene, quality) {
       else { style = 'apt'; h = 7 + Math.floor(rnd() * 3) * 3.5; }
     }
     if (!faces.length && style === 'shop') { style = 'apt'; h = 7 + rnd() * 7; }
+    const g = 1.0 + rnd() * 1.6;
+    const b = { x0: lot.x0 + g, z0: lot.z0 + g, x1: lot.x1 - g, z1: lot.z1 - g };
+    // Shops and towers build right up to the pavement; apartments sit behind a hedge.
+    const front = style === 'apt' && zone !== 'down' ? 3.6 : 0.3;
+    for (const f of faces) {
+      if (f.dir[0] < 0) b.x0 = lot.x0 + front; if (f.dir[0] > 0) b.x1 = lot.x1 - front;
+      if (f.dir[1] < 0) b.z0 = lot.z0 + front; if (f.dir[1] > 0) b.z1 = lot.z1 - front;
+      if (front > 1) {
+        // Hedge along the lot edge, with a gap for the path in the middle.
+        const e = f.dir[0] < 0 ? lot.x0 + 0.9 : f.dir[0] > 0 ? lot.x1 - 0.9 : f.dir[1] < 0 ? lot.z0 + 0.9 : lot.z1 - 0.9;
+        const [a0, a1] = f.dir[0] !== 0 ? [lot.z0 + 1, lot.z1 - 1] : [lot.x0 + 1, lot.x1 - 1];
+        const mid = (a0 + a1) / 2;
+        for (const [p0, p1] of [[a0, mid - 1.5], [mid + 1.5, a1]]) if (p1 - p0 > 1) hedges.push(f.dir[0] !== 0 ? [e, (p0 + p1) / 2, 1.0, p1 - p0] : [(p0 + p1) / 2, e, p1 - p0, 1.0]);
+      }
+    }
+    if (b.x1 - b.x0 < 6 || b.z1 - b.z0 < 6) continue;
     addBuilding(b, style, h, faces);
   }
 
@@ -258,12 +272,40 @@ export function buildCity(scene, quality) {
       }
     }
     addCollider({ type: 'box', x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 });
+    if (style === 'apt' && h >= 10) balconies(b, h, faces);
     if (style === 'shop' && faces.length) {
       for (const f of faces.slice(0, 2)) shopSign(b, f, h);
       const f = faces[0];
       if (isBlvd(f.line) && rnd() < 0.3) poleSign(b, f);
     }
     if (style !== 'glass' && faces.length && billboards.length < 10 && rnd() < 0.05) billboard(b, faces[0], h);
+  }
+
+  // Balconies with glass railings on each floor of the street-facing sides.
+  function balconies(b, h, faces) {
+    const slab = new THREE.Color(0.93, 0.92, 0.9), rail = new THREE.Color(0.55, 0.62, 0.68);
+    for (const f of faces) {
+      const along = f.dir[0] !== 0 ? [b.z0, b.z1] : [b.x0, b.x1];
+      const len = along[1] - along[0]; if (len < 8) continue;
+      const nb = Math.max(1, Math.floor(len / 9)), bw = Math.min(6, len / nb - 2);
+      for (let fl = 1; fl * 3.5 < h - 2; fl++) {
+        const y = CURB + fl * 3.5 - 0.15;
+        for (let k = 0; k < nb; k++) {
+          const c = along[0] + (k + 0.5) * len / nb, a0 = c - bw / 2, a1 = c + bw / 2, D = 1.3;
+          if (f.dir[0] !== 0) {
+            const x = f.dir[0] < 0 ? b.x0 : b.x1, xo = x + f.dir[0] * D, [p0, p1] = [Math.min(x, xo), Math.max(x, xo)];
+            gbProps.box(p0, a0, p1, a1, y, y + 0.18, 4, slab);
+            const xr = xo - f.dir[0] * 0.05;
+            gbProps.box(Math.min(xr, xo), a0, Math.max(xr, xo), a1, y + 0.18, y + 1.15, 4, rail);
+          } else {
+            const z = f.dir[1] < 0 ? b.z0 : b.z1, zo = z + f.dir[1] * D, [p0, p1] = [Math.min(z, zo), Math.max(z, zo)];
+            gbProps.box(a0, p0, a1, p1, y, y + 0.18, 4, slab);
+            const zr = zo - f.dir[1] * 0.05;
+            gbProps.box(a0, Math.min(zr, zo), a1, Math.max(zr, zo), y + 0.18, y + 1.15, 4, rail);
+          }
+        }
+      }
+    }
   }
 
   function signUV() {
@@ -364,6 +406,7 @@ export function buildCity(scene, quality) {
       }
       if (m === 0) { rect(s0, s1, -0.25, -0.1, 0.012, Y); rect(s0, s1, 0.1, 0.25, 0.012, Y); }
       else {
+        for (const side of [-1, 1]) rect(s0, s1, side * (m + 0.25), side * (m + 0.4), 0.012, Y);
         // Raised median, planted with palms.
         const a0 = aA + 7, a1 = aB - 7;
         if (axis === 'x') { gbPark.flat(C - m, a0, C + m, a1, MEDIAN_H, 18, WHITE); gbCurb.walls(C - m, a0, C + m, a1, 0, MEDIAN_H, 4.5, 4.5, WHITE); }
@@ -381,7 +424,7 @@ export function buildCity(scene, quality) {
   const add = (gb, mat, cast = false, recv = true) => {
     const m = new THREE.Mesh(gb.geometry(), mat); m.castShadow = cast && shadows; m.receiveShadow = recv && shadows; group.add(m); return m;
   };
-  add(gbAsphalt, new THREE.MeshStandardMaterial({ color: 0xb8b4c6, map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: new THREE.Vector2(0.6, 0.6), roughness: 1, metalness: 0.0, envMapIntensity: 0.9 }));
+  add(gbAsphalt, new THREE.MeshStandardMaterial({ color: TOD.road, map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: new THREE.Vector2(0.6, 0.6), roughness: 1, metalness: 0.0, envMapIntensity: 0.9 }));
   add(gbLot, new THREE.MeshStandardMaterial({ color: 0x8a8486, map: asp.map, roughnessMap: asp.roughnessMap, roughness: 1 }));
   add(gbWalk, new THREE.MeshStandardMaterial({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: 0.92 }));
   add(gbCurb, new THREE.MeshStandardMaterial({ color: 0xc8c0bc, map: con.map, roughness: 0.9 }));
@@ -392,28 +435,26 @@ export function buildCity(scene, quality) {
     map: f.map, emissiveMap: f.emissiveMap, roughnessMap: f.roughnessMap, emissive: 0xffffff, emissiveIntensity: ei,
     vertexColors: true, metalness: metal, roughness: rough,
   });
-  add(gbGlass, facMat(facG, 0.55, 1, 1.15), true);
-  add(gbApt, facMat(facA, 0.0, 1, 1.2), true);
-  add(gbShop, facMat(facS, 0.0, 1, 2.0), true);
+  add(gbGlass, facMat(facG, 0.6, 1, TOD.windows), true);
+  add(gbApt, facMat(facA, 0.0, 1, TOD.windows * 1.05), true);
+  add(gbShop, facMat(facS, 0.0, 1, TOD.lampsOn ? 2.0 : 0.45), true);
   add(gbRoof, new THREE.MeshStandardMaterial({ map: T.roofTex(), vertexColors: true, roughness: 0.95 }), true);
   add(gbProps, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.2 }), true);
   const atlas = T.signAtlas();
-  add(gbSign, new THREE.MeshStandardMaterial({ map: atlas, emissiveMap: atlas, emissive: 0xffffff, emissiveIntensity: 2.4, roughness: 0.5, side: THREE.DoubleSide }), false, false);
-
-  // Big ground beyond the city.
-  const gtex = T.ground(); gtex.repeat.set(1, 1);
-  const gnd = new THREE.Mesh(new THREE.PlaneGeometry(24000, 24000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x9a8c78, map: gtex, roughness: 1 }));
-  gnd.geometry.attributes.uv.array.forEach((v, i, a) => { a[i] = v * 1000; });
-  gnd.position.y = -0.03; gnd.receiveShadow = shadows; group.add(gnd);
+  add(gbSign, new THREE.MeshStandardMaterial({ map: atlas, emissiveMap: atlas, emissive: 0xffffff, emissiveIntensity: TOD.signs, roughness: 0.5, side: THREE.DoubleSide }), false, false);
 
   buildTrees(group, trees, shadows && quality === 'high');
   buildPalms(group, palms, shadows && quality === 'high');
   buildLamps(group, lamps, shadows);
   buildGantries(group, gantries, shadows);
+  buildHedges(group, hedges, shadows);
+  buildPoles(group, poles, shadows);
+  buildSignals(group, shadows);
   buildBillboards(group, billboards);
   for (const t of trees) addCollider({ type: 'circ', x: t[0], z: t[1], r: 0.45 });
   for (const p of palms) addCollider({ type: 'circ', x: p[0], z: p[1], r: 0.4 });
   for (const l of lamps) addCollider({ type: 'circ', x: l[0], z: l[1], r: 0.25 });
+  for (const p of poles) addCollider({ type: 'circ', x: p[0], z: p[1], r: 0.25 });
 
   return { group, parked };
 }
@@ -431,29 +472,54 @@ function subdivide(r, max, rnd, out) {
 // ---------------------------------------------------------------------------
 const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v3 = new THREE.Vector3(), s3 = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
 
-function blobTree() {
-  const parts = [];
+// A broadleaf tree: a dark core with leaf cards (alpha-tested quads with a
+// leaf texture) spread over it, so the outline is leafy, not blobby.
+function leafTree() {
   const rnd = mulberry32(12);
-  for (const [x, y, z, r] of [[0, 4.7, 0, 2.4], [1.3, 4.2, 0.6, 1.8], [-1.2, 4.4, -0.5, 1.9]]) {
-    const ico = new THREE.IcosahedronGeometry(r, 1); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
+  const core = [], cards = [];
+  const blobs = [[0, 4.8, 0, 2.3], [1.3, 4.3, 0.6, 1.7], [-1.2, 4.5, -0.5, 1.8], [0.2, 5.8, -0.2, 1.5]];
+  for (const [x, y, z, r] of blobs) {
+    const ico = new THREE.IcosahedronGeometry(r * 0.72, 1); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
     const g = mergeVertices(ico);
     const p = g.attributes.position, c = [];
     for (let i = 0; i < p.count; i++) {
       v3.fromBufferAttribute(p, i);
-      const n = fbm(v3.x * 0.9 + x, v3.y * 0.9 + y + v3.z * 0.7, 3, 5);
-      v3.multiplyScalar(0.8 + n * 0.45);
       p.setXYZ(i, v3.x + x, v3.y * 0.85 + y, v3.z + z);
-      const sh = 0.75 + (v3.y / r) * 0.25 + rnd() * 0.08;
-      c.push(0.16 * sh, 0.26 * sh, 0.11 * sh);
+      c.push(0.07, 0.11, 0.045);
     }
-    g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
-    g.computeVertexNormals();
-    parts.push(g);
+    g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(p.count * 2).fill(0.02), 2));
+    g.computeVertexNormals(); core.push(g);
+    // Cards over the surface, facing outward-ish, with normals pointing out from the crown.
+    for (let k = 0; k < 13; k++) {
+      const u = rnd() * 2 - 1, a = rnd() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+      const n = new THREE.Vector3(s * Math.cos(a), u * 0.8 + 0.2, s * Math.sin(a)).normalize();
+      const size = 1.6 + rnd() * 1.2;
+      const card = new THREE.PlaneGeometry(size, size);
+      const q2 = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+      card.applyQuaternion(q2).rotateY(0).translate(x + n.x * r * 0.85, y + n.y * r * 0.75, z + n.z * r * 0.85);
+      // Normals point away from the crown centre, for soft, rounded lighting.
+      const np = card.attributes.position, nn = card.attributes.normal, cc = [];
+      for (let i = 0; i < np.count; i++) {
+        const d = new THREE.Vector3(np.getX(i) - x, np.getY(i) - y + 0.5, np.getZ(i) - z).normalize();
+        nn.setXYZ(i, d.x, d.y, d.z);
+        const sh = 0.85 + rnd() * 0.3; cc.push(sh, sh, sh);
+      }
+      card.setAttribute('color', new THREE.Float32BufferAttribute(cc, 3));
+      cards.push(card);
+    }
   }
-  const trunk = new THREE.CylinderGeometry(0.16, 0.26, 4, 6, 1, true).translate(0, 2, 0);
-  const tc = []; for (let i = 0; i < trunk.attributes.position.count; i++) tc.push(0.25, 0.19, 0.14);
+  const trunk = new THREE.CylinderGeometry(0.16, 0.28, 4.2, 6, 1, true).translate(0, 2.1, 0);
+  const tc = []; for (let i = 0; i < trunk.attributes.position.count; i++) tc.push(0.3, 0.24, 0.18);
   trunk.setAttribute('color', new THREE.Float32BufferAttribute(tc, 3));
-  return mergeGeoms([trunk, ...parts]);
+  trunk.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(trunk.attributes.position.count * 2).fill(0.02), 2));
+  return { core: mergeGeomsUV([trunk, ...core]), cards: mergeGeomsUV(cards) };
+}
+
+function mergeGeomsUV(list) {
+  const g = mergeGeoms(list), uv = [];
+  for (const x of list) { const a = x.attributes.uv; for (let i = 0; i < a.count; i++) uv.push(a.getX(i), a.getY(i)); }
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
 }
 
 function mergeGeoms(list) {
@@ -507,11 +573,11 @@ function tint(meshes, fn) {
 }
 
 function buildTrees(group, list, cast) {
-  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
-  const ms = instanced(group, blobTree(), mat, list, (t, rnd) => {
-    q.setFromAxisAngle(up, rnd() * 6.28); s3.setScalar(t[2]); v3.set(t[0], t[3], t[1]); m4.compose(v3, q, s3);
-  }, cast);
-  tint(ms, (c, i) => { const r = mulberry32(i)(); c.setRGB(0.85 + r * 0.35, 0.9 + r * 0.2, 0.8 + r * 0.2); });
+  const t = leafTree();
+  const place = (it, rnd) => { q.setFromAxisAngle(up, rnd() * 6.28); s3.setScalar(it[2]); v3.set(it[0], it[3], it[1]); m4.compose(v3, q, s3); };
+  instanced(group, t.core, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }), list, place, cast);
+  const ms = instanced(group, t.cards, new THREE.MeshStandardMaterial({ map: T.leafTex(), vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.85 }), list, place, cast);
+  tint(ms, (c, i) => { const r = mulberry32(i)(); c.setRGB(0.8 + r * 0.35, 0.88 + r * 0.2, 0.75 + r * 0.2); });
 }
 
 function buildPalms(group, list, cast) {
@@ -546,7 +612,7 @@ function buildPalms(group, list, cast) {
   fr.setIndex(idx); fr.computeVertexNormals();
   const place = (t, rnd) => { q.setFromAxisAngle(up, rnd() * 6.28); s3.setScalar(t[2]); v3.set(t[0], t[3], t[1]); m4.compose(v3, q, s3); };
   instanced(group, trunk, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }), list, place, cast);
-  const fm = instanced(group, fr, new THREE.MeshStandardMaterial({ map: T.frondTex(), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85, color: 0x9fb07a }), list, place, cast);
+  const fm = instanced(group, fr, new THREE.MeshStandardMaterial({ map: T.frondTex(), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.8, color: 0xd8e8b0 }), list, place, cast);
   tint(fm, (c, i) => { const r = mulberry32(i + 7)(); c.setRGB(0.8 + r * 0.3, 0.85 + r * 0.2, 0.7 + r * 0.2); });
 }
 
@@ -558,12 +624,114 @@ function buildLamps(group, list, cast) {
   const place = (l) => { q.setFromAxisAngle(up, l[2]); s3.setScalar(1); v3.set(l[0], l[3], l[1]); m4.compose(v3, q, s3); };
   instanced(group, geo, new THREE.MeshStandardMaterial({ color: 0x3a3c40, roughness: 0.5, metalness: 0.6 }), list, place, cast);
   const bulb = new THREE.SphereGeometry(0.3, 6, 4).scale(0.9, 0.35, 1.4).translate(0, 8.3, 2.9);
-  instanced(group, bulb, new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 5.6, 2.8) }), list, place, false);
+  instanced(group, bulb, TOD.lampsOn ? new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 5.6, 2.8) }) : new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.3 }), list, place, false);
+  if (!TOD.lampsOn) return;
   // Warm pools of light on the road under each lamp.
   const pool = new THREE.PlaneGeometry(14, 14).rotateX(-Math.PI / 2).translate(0, 0, 3);
   const pm = new THREE.MeshBasicMaterial({ map: T.glowTex(), color: new THREE.Color(0.32, 0.2, 0.1), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   const pl = instanced(group, pool, pm, list, (l) => { q.setFromAxisAngle(up, l[2]); s3.setScalar(1); v3.set(l[0], 0.03, l[1]); m4.compose(v3, q, s3); }, false);
   for (const m of pl) m.renderOrder = 1;
+}
+
+function buildHedges(group, list, cast) {
+  const g = new THREE.BoxGeometry(1, 1, 1, 4, 3, 4);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    v3.fromBufferAttribute(p, i);
+    const n = fbm(v3.x * 3 + 5, v3.y * 3 + v3.z * 3, 2, 3);
+    p.setXYZ(i, v3.x * (0.92 + n * 0.16), v3.y + 0.5 + (v3.y > 0 ? (n - 0.5) * 0.15 : 0), v3.z * (0.92 + n * 0.16));
+  }
+  g.computeVertexNormals();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x3f6a2c, roughness: 0.95 });
+  instanced(group, g, mat, list, (hd) => { q.identity(); s3.set(hd[2], 1.15, hd[3]); v3.set(hd[0], CURB, hd[1]); m4.compose(v3, q, s3); }, cast);
+}
+
+// Wooden power poles with three wires sagging between them.
+function buildPoles(group, list, cast) {
+  const pole = new THREE.CylinderGeometry(0.11, 0.16, 11, 7).translate(0, 5.5, 0);
+  const arm = new THREE.BoxGeometry(2.4, 0.12, 0.12).translate(0, 10.2, 0);
+  const tr = new THREE.CylinderGeometry(0.28, 0.28, 0.9, 8).translate(0.4, 8.8, 0.3);
+  const geo = mergeGeoms([pole, arm, tr]);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x5b4a3c, roughness: 0.9 });
+  instanced(group, geo, mat, list, (p) => { q.setFromAxisAngle(up, p[2]); s3.setScalar(1); v3.set(p[0], p[3], p[1]); m4.compose(v3, q, s3); }, cast);
+  // Wires between neighbours on the same pavement.
+  const pts = [];
+  for (let i = 1; i < list.length; i++) {
+    const a = list[i - 1], b = list[i];
+    if (a[4] !== b[4]) continue;
+    const ox = Math.cos(a[2]), oz = -Math.sin(a[2]);
+    for (const off of [-1.1, 0, 1.1]) {
+      const y0 = CURB + (off === 0 ? 10.6 : 10.28), S = 9;
+      for (let k = 0; k < S; k++) {
+        const t0 = k / S, t1 = (k + 1) / S;
+        const P = t => [a[0] + (b[0] - a[0]) * t + ox * off, y0 - 0.7 * 4 * t * (1 - t), a[1] + (b[1] - a[1]) * t + oz * off];
+        pts.push(...P(t0), ...P(t1));
+      }
+    }
+  }
+  const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  group.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: 0x1c1c1e })));
+}
+
+// Traffic lights: a pole on the corner before each junction with an arm over
+// the lanes. Lights for the north-south and east-west roads take turns.
+export const SIGNAL_CYCLE = 34;
+export function signalState(t) {
+  const c = ((t % SIGNAL_CYCLE) + SIGNAL_CYCLE) % SIGNAL_CYCLE;
+  if (c < 13) return { Z: 'G', X: 'R' };
+  if (c < 16) return { Z: 'A', X: 'R' };
+  if (c < 17) return { Z: 'R', X: 'R' };
+  if (c < 30) return { Z: 'R', X: 'G' };
+  if (c < 33) return { Z: 'R', X: 'A' };
+  return { Z: 'R', X: 'R' };
+}
+export const signalLamps = { Z: {}, X: {} };
+function buildSignals(group, cast) {
+  const items = { Z: [], X: [] };
+  for (let i = -N; i <= N; i++) for (let j = -N; j <= N; j++) {
+    for (const [dx, dz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      // Approaching junction (i, j) travelling (dx, dz): skip if there's no road behind.
+      const fi = i - dx, fj = j - dz;
+      if (Math.abs(fi) > N || Math.abs(fj) > N) continue;
+      const rx = -dz, rz = dx;
+      const lat = dz !== 0 ? hw(i) : hw(j), lon = dz !== 0 ? hw(j) : hw(i);
+      const x = i * SP + rx * (lat + 1.3) - dx * (lon + 1.3), z = j * SP + rz * (lat + 1.3) - dz * (lon + 1.3);
+      const yaw = Math.atan2(dz, -dx);
+      const armLen = Math.min(lat - 1, 8.5);
+      (dz !== 0 ? items.Z : items.X).push([x, z, yaw, armLen]);
+      addCollider({ type: 'circ', x, z, r: 0.3 });
+    }
+  }
+  const pole = new THREE.CylinderGeometry(0.13, 0.17, 6.6, 8).translate(0, 3.3, 0);
+  const arm = new THREE.CylinderGeometry(0.08, 0.1, 1, 6).rotateX(Math.PI / 2).translate(0, 6.2, 0.5);
+  const head = new THREE.BoxGeometry(0.32, 1.0, 0.34);
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2b2d2f, roughness: 0.5, metalness: 0.5 });
+  const head2 = new THREE.MeshStandardMaterial({ color: 0x1a1b1c, roughness: 0.6 });
+  const all = [...items.Z, ...items.X];
+  instanced(group, pole, dark, all, (it) => { q.setFromAxisAngle(up, it[2]); s3.setScalar(1); v3.set(it[0], CURB, it[1]); m4.compose(v3, q, s3); }, cast);
+  instanced(group, arm, dark, all, (it) => { q.setFromAxisAngle(up, it[2]); s3.set(1, 1, it[3]); v3.set(it[0], CURB, it[1]); m4.compose(v3, q, s3); }, cast);
+  // Two heads on the arm (one over the lanes, one near the pole).
+  const heads = [];
+  for (const it of all) for (const f of [0.55, 0.95]) heads.push([it[0], it[1], it[2], it[3] * f, it]);
+  const fwd = new THREE.Vector3();
+  const placeHead = (h, dy = 0, dxl = 0) => {
+    q.setFromAxisAngle(up, h[2]); fwd.set(Math.sin(h[2]), 0, Math.cos(h[2]));
+    const sx = Math.cos(h[2]), sz = -Math.sin(h[2]);
+    v3.set(h[0] + fwd.x * h[3] + sx * dxl, CURB + 5.5 + dy, h[1] + fwd.z * h[3] + sz * dxl); s3.setScalar(1); m4.compose(v3, q, s3);
+  };
+  instanced(group, head, head2, heads, (h) => placeHead(h), cast);
+  const lamp = new THREE.CircleGeometry(0.12, 10).rotateY(Math.PI / 2);
+  const cols = { R: new THREE.Color(7, 0.25, 0.15), A: new THREE.Color(7, 3.2, 0.2), G: new THREE.Color(0.3, 6.5, 2.2) };
+  for (const axis of ['Z', 'X']) {
+    const hs = heads.filter(h => items[axis].includes(h[4]));
+    for (const [k, dy] of [['R', 0.3], ['A', 0], ['G', -0.3]]) {
+      const ms = instanced(group, lamp, new THREE.MeshBasicMaterial({ color: cols[k] }), hs, (h) => placeHead(h, dy, 0.17), false);
+      signalLamps[axis][k] = ms;
+    }
+  }
+}
+export function showSignals(state) {
+  for (const axis of ['Z', 'X']) for (const k of ['R', 'A', 'G']) for (const m of signalLamps[axis][k] || []) m.visible = state[axis] === k;
 }
 
 function buildGantries(group, list, shadows) {

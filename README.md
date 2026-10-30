@@ -1,6 +1,6 @@
 # Sunset City
 
-An open-world street racer at golden hour, made with Three.js. Drive a V12 supercar through a city of boulevards, palms, neon shop signs and glass towers, with a pink smoke plume rising over the mountains behind. It's a sister game to [MushtaqTrack](https://github.com/rauf-mushtaq/mushtaqtrack) and reuses what that game learned about car handling, iPad performance, and touch, gamepad and steering-wheel controls.
+An open-world street racer made with Three.js. Drive a V12 supercar through a California-style city of boulevards, palms, shops, apartments and glass towers, with hills, houses and the ocean around it. Play it on a bright, hazy afternoon (the default) or at golden hour with a pink smoke plume rising over the mountains (Settings → Time of day). It's a sister game to [MushtaqTrack](https://github.com/rauf-mushtaq/mushtaqtrack) and reuses what that game learned about car handling, iPad performance, and touch, gamepad and steering-wheel controls.
 
 ## Play
 
@@ -15,12 +15,13 @@ There's nothing to build or install. Three.js comes from a CDN, and every model,
 
 - **The car:** the Vento SV, a made-up wedge-shaped, mid-engined V12 supercar (no real brands) with a big rear wing, arrowhead tail lights that brighten when you brake, and a centre exhaust that shoots a blue nitro flame. It has nine paint colours in the Garage.
 - **Handling:** a two-axle tyre model with load transfer, a friction circle, all-wheel drive and a six-speed gearbox. It does 0–100 km/h in about 3.2 seconds and has a top speed of about 335 km/h. ABS, traction control (TCS+) and stability control (ESP) work like the real systems, and each one lights up on the dial when it's acting. Turn them off for wheelspin, locked brakes and slides. The gearbox is automatic or manual, and the handbrake starts drifts.
-- **The city:** a 1.5 km grid with six-lane boulevards (palm-planted medians and overhead signs) and four-lane streets with crossings and lane markings. Downtown has glass towers, around that are apartments, and along the boulevards are low shops with lit signs. There are parks, car parks and billboards. Lit windows, street lamps and signs glow through the bloom.
-- **Traffic:** saloons, SUVs, hatchbacks and vans drive on the right in their lanes. They follow each other, slow for turns, wait at junctions and brake for you, and if you hit one it gets knocked aside.
+- **The city:** a 1.5 km grid with six-lane boulevards (palm-planted medians and overhead signs) and four-lane streets with crossings, lane markings and double yellow lines. Downtown has glass towers, around that are apartments with balconies behind hedges, and along the boulevards are low shops with signs. There are traffic lights at every junction, wooden power poles with sagging wires, leafy street trees, parks, car parks and billboards. At sunset, lit windows, street lamps and signs glow through the bloom.
+- **Around the city:** hills to the north and east covered in scrub, trees and white houses with tiled roofs, the ocean and a beach to the west, mountains in the haze, and fair-weather clouds.
+- **Traffic:** saloons, SUVs, hatchbacks and vans drive on the right in their lanes. They stop at red lights, follow each other, slow for turns, wait at junctions and brake for you, and if you hit one it gets knocked aside.
 - **Events:** six races against the clock through checkpoint gates (Boulevard Dash, Downtown Dash, Palm Zigzag, Crosstown, Ring Road and Grand Tour), with gold, silver and bronze medals and your best times saved. **Free Roam** has no clock.
 - **HUD:** a round rev counter and speedometer with the gear in the middle, the ABS/ESP/TCS+ lights and a nitro gauge. There's also a heading-up minimap, a checkpoint arrow and a race timer.
-- **Cameras:** chase, far chase, hood and bumper. Hold B to look back.
-- **Graphics:** a physically based sky, image-based reflections on the paint and glass, soft shadows, bloom, a speed blur and a warm colour grade. High, Medium and Low settings are available, and the resolution adjusts itself to keep the frame rate up on tablets.
+- **Cameras:** wide chase (the default, high and further back), close chase, **driver view** (from the seat, with a dashboard, live rev and speed gauges, and a steering wheel that turns with yours), hood and bumper. Press C, the ◉ camera button at the top left, or ◉ CAM on touch. Hold B to look back.
+- **Graphics:** a physically based sky, image-based reflections on the paint and glass, soft shadows, ambient occlusion (High), bloom, a speed blur and a colour grade for each time of day. High, Medium and Low settings are available, and the resolution adjusts itself to keep the frame rate up on tablets.
 
 ## Controls
 
@@ -32,7 +33,7 @@ There's nothing to build or install. Three.js comes from a CDN, and every model,
 | Handbrake | Space | A | DRIFT |
 | Nitro | Shift / N | X | NOS |
 | Shift down / up (manual) | Q / E | LB / RB | |
-| Camera | C | Y | ◉ |
+| Camera | C | Y | ◉ CAM |
 | Back on the road | R | Back | ↺ |
 | Pause | Esc / P | Start | ❚❚ |
 
@@ -48,5 +49,7 @@ There's nothing to build or install. Three.js comes from a CDN, and every model,
 - `src/carModel.js`: lofted car bodies for the hero car and traffic
 - `src/traffic.js`: traffic drivers
 - `src/sky.js`: sky, light, mountains, clouds and the plume
+- `src/terrain.js`: hills, houses, trees, beach and ocean around the city
+- `src/tod.js`: the Day and Sunset looks
 - `src/textures.js`: every texture, drawn on canvases
 - `src/hud.js`, `src/input.js`, `src/audio.js`, `src/fx.js`, `src/events.js`, `src/store.js`, `src/util.js`

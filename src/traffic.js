@@ -96,7 +96,7 @@ export class Traffic {
     }
     const cum = [0];
     for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z));
-    Object.assign(c, { from, to, next, lane: lane2, pts, cum, total: cum[cum.length - 1], straightLen: cum[1], turning: !straight, s: 0, blvd: isBlvd(e1.k) });
+    Object.assign(c, { axis: e1.dz !== 0 ? 'Z' : 'X', from, to, next, lane: lane2, pts, cum, total: cum[cum.length - 1], straightLen: cum[1], turning: !straight, s: 0, blvd: isBlvd(e1.k) });
   }
 
   spawn(c, player, minD, maxD, initial = false) {
@@ -132,7 +132,7 @@ export class Traffic {
     c.vx = vx; c.vz = vz; c.spin += spin;
   }
 
-  update(dt, player) {
+  update(dt, player, signals) {
     const pf = [Math.sin(player.h), Math.cos(player.h)];
     for (const c of this.cars) {
       if (c.mode === 'knocked') {
@@ -162,6 +162,11 @@ export class Traffic {
         const dx = o.x - c.x, dz = o.z - c.z; if (dx * dx + dz * dz > 1600) continue;
         look(o.x, o.z, 7);
         if (approaching && o.mode === 'drive' && o.s > o.straightLen && Math.abs(wrapAngle(o.h - c.h)) > 0.4 && dx * dx + dz * dz < 900) blocked = true;
+      }
+      // Stop for red lights (and amber, if there's room to).
+      if (signals && toTurn > 0 && toTurn < 40) {
+        const sg = signals[c.axis];
+        if (sg === 'R' || (sg === 'A' && toTurn > 6)) target = Math.min(target, Math.max(0, toTurn - 1) * 0.55);
       }
       if (blocked && c.wait < 4) { target = Math.min(target, Math.max(0, toTurn - 2) * 0.6); c.wait += dt; }
       else if (!approaching) c.wait = 0;
