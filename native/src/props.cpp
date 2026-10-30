@@ -30,8 +30,8 @@ static MeshData tree() {
   MeshData m; m.cylinder(Vec3(0, 0, 0), Vec3(0, 3.3f, 0), 0.36f, 0.22f, 8, C(0.22f, 0.15f, 0.09f));
   m.cylinder(Vec3(0, 2.2f, 0), Vec3(1.1f, 4.2f, 0.3f), 0.15f, 0.09f, 6, C(0.22f, 0.15f, 0.09f));
   m.cylinder(Vec3(0, 2.6f, 0), Vec3(-1.0f, 4.4f, -0.4f), 0.14f, 0.08f, 6, C(0.22f, 0.15f, 0.09f));
-  const float P[6][4] = { {0, 5.2f, 0, 2.5f}, {1.4f, 4.5f, 0.4f, 1.8f}, {-1.4f, 4.7f, -0.5f, 1.9f}, {0.3f, 6.3f, 0.2f, 1.7f}, {-0.2f, 4.4f, 1.5f, 1.6f}, {0.4f, 4.3f, -1.5f, 1.6f} };
-  for (int k = 0; k < 6; k++) { float v = 0.7f + 0.5f * rnd01(k + 11); m.append(blobMesh(Vec3(P[k][0], P[k][1], P[k][2]), Vec3(P[k][3], P[k][3] * 0.78f, P[k][3]), 12, C(0.07f * v, 0.20f * v, 0.05f * v), 0.22f, k + 1)); }
+  const float P[10][4] = { {0, 5.4f, 0, 2.8f}, {1.8f, 4.7f, 0.5f, 2.1f}, {-1.8f, 4.9f, -0.6f, 2.2f}, {0.3f, 6.7f, 0.2f, 2.0f}, {-0.3f, 4.5f, 1.9f, 1.9f}, {0.5f, 4.4f, -1.9f, 1.9f}, {2.6f, 5.3f, -0.8f, 1.6f}, {-2.5f, 5.4f, 1.0f, 1.6f}, {1.0f, 6.0f, 1.5f, 1.6f}, {-1.1f, 6.1f, -1.4f, 1.6f} };
+  for (int k = 0; k < 10; k++) { float v = 0.7f + 0.5f * rnd01(k + 11); m.append(blobMesh(Vec3(P[k][0], P[k][1], P[k][2]), Vec3(P[k][3], P[k][3] * 0.78f, P[k][3]), 12, C(0.07f * v, 0.20f * v, 0.05f * v), 0.22f, k + 1)); }
   return m;
 }
 static MeshData palm() {

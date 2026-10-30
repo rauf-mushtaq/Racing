@@ -1,7 +1,7 @@
 #include "renderer.h"
 #include <cstdio>
 
-static const Vec3 SUN = normalize(Vec3(-0.26f, 0.30f, -0.92f));
+static Vec3 SUN = normalize(Vec3(-0.26f, 0.30f, -0.92f));   // updated every frame from the time of day
 
 UINT Renderer::block() { UINT b = gfx.allocSrv(SRV_TABLE); for (UINT i = 0; i < SRV_TABLE; i++) gfx.srvNull(b + i); return b; }
 
@@ -24,7 +24,7 @@ void Renderer::init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& qu
   gfx.barrier(shadow, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
   for (auto& b : userBlock) b = block();
   { // The reflection probe (t2 of the scene shaders): what is around the car, so paint, glass and windows reflect the real street.
-    const UINT PS = 192; float zc[4] = { 0, 0, 0, 0 }, farc[4] = { 1e6f, 0, 0, 0 }, z0 = 0.0f;
+    const UINT PS = 256; float zc[4] = { 0, 0, 0, 0 }, farc[4] = { 1e6f, 0, 0, 0 }, z0 = 0.0f;
     probeW = gfx.makeTexture(PS, PS, DXGI_FORMAT_R16G16B16A16_FLOAT, 1, true, false, 6, 1, zc);
     probeR = gfx.makeTexture(PS, PS, DXGI_FORMAT_R16G16B16A16_FLOAT, 1, false, false, 6, 1, nullptr);
     probeVD = gfx.makeTexture(PS, PS, DXGI_FORMAT_R32_FLOAT, 1, true, false, 1, 1, farc);
@@ -120,6 +120,9 @@ void Renderer::fullscreen(Texture& target, ID3D12PipelineState* pso, UINT srvBlo
 
 void Renderer::frame(float dt) {
   gfx.beginFrame(); gfx.gpuStamp(false);
+  day += (dayTarget - day) * std::min(1.0f, dt * 1.2f); if (std::fabs(dayTarget - day) < 0.002f) day = dayTarget;
+  { float elev = (17.0f + 41.0f * day) * (float)PI / 180.0f, hx = -0.26f, hz = -0.92f, hl = std::sqrt(hx * hx + hz * hz);   // the sun climbs from 17 to 58 degrees
+    SUN = Vec3(std::cos(elev) * hx / hl, std::sin(elev), std::cos(elev) * hz / hl); }
   // --- Camera and frame constants -----------------------------------------------------------------
   float yaw = cam.yaw * (float)PI / 180.0f, pitch = cam.pitch * (float)PI / 180.0f;
   forward = Vec3(std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch));
@@ -137,12 +140,14 @@ void Renderer::frame(float dt) {
     ip.m[0][0] = aspect * t; ip.m[1][1] = t; ip.m[2][3] = -1; ip.m[3][2] = (zf - zn) / (zf * zn); ip.m[3][3] = 1.0f / zf;
     f.invViewProj = mul(iv, ip);
   }
-  f.weather[0] = q.reflections ? wet : 0.0f; f.weather[1] = 1.0f; f.weather[2] = (probeReady && q.reflections) ? 1.0f : 0.0f; f.prevViewProj = prevViewProj;
+  f.weather[0] = q.reflections ? wet : 0.0f; f.weather[1] = 1.0f; f.weather[2] = (probeReady && q.reflections) ? 1.0f : 0.0f; f.weather[3] = day; f.prevViewProj = prevViewProj;
   f.camPos[0] = cam.pos.x; f.camPos[1] = cam.pos.y; f.camPos[2] = cam.pos.z; f.camPos[3] = (float)time;
-  f.sunDir[0] = SUN.x; f.sunDir[1] = SUN.y; f.sunDir[2] = SUN.z; f.sunDir[3] = exposure;
-  const float k = 4.8f / 3.14159f; f.sunColor[0] = 1.0f * k; f.sunColor[1] = 0.552f * k; f.sunColor[2] = 0.262f * k;
-  f.fogColor[0] = 0.66f; f.fogColor[1] = 0.54f; f.fogColor[2] = 0.42f; f.fogColor[3] = 0.00072f;
-  f.fogParams[0] = 0.0026f; f.fogParams[1] = 0.00028f; f.fogParams[2] = 1.4f; f.fogParams[3] = 0.32f;
+  f.sunDir[0] = SUN.x; f.sunDir[1] = SUN.y; f.sunDir[2] = SUN.z; f.sunDir[3] = exposure * (1.0f - 0.30f * day);
+  { const float kg = 4.8f / 3.14159f, kd = 4.1f / 3.14159f, d = day;   // golden sunlight is orange and strong; the midday sun is white-ish
+    f.sunColor[0] = (1.0f * kg) * (1 - d) + (1.0f * kd) * d; f.sunColor[1] = (0.552f * kg) * (1 - d) + (0.95f * kd) * d; f.sunColor[2] = (0.262f * kg) * (1 - d) + (0.84f * kd) * d; }
+  { float d = day; auto L = [&](float a, float b) { return a * (1 - d) + b * d; };
+    f.fogColor[0] = L(0.66f, 0.62f); f.fogColor[1] = L(0.54f, 0.72f); f.fogColor[2] = L(0.42f, 0.86f); f.fogColor[3] = L(0.00072f, 0.00040f);
+    f.fogParams[0] = 0.0026f; f.fogParams[1] = L(0.00028f, 0.00018f); f.fogParams[2] = L(1.4f, 0.5f); f.fogParams[3] = L(0.32f, 0.08f); }
   f.screen[0] = (float)W; f.screen[1] = (float)H; f.screen[2] = 1.0f / W; f.screen[3] = 1.0f / H;
   f.cascade[0] = 14; f.cascade[1] = 45; f.cascade[2] = 140; f.cascade[3] = 420;
   computeCascades(f);

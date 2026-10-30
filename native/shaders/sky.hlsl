@@ -23,8 +23,9 @@ PSOut PSMain(V i) {
     float dens = cloudDensity(uv), cov = smoothstep(0.50, 0.72, dens);
     float dens2 = cloudDensity(uv + float2(sun.x, sun.z) * 0.02);                  // density towards the sun: thicker means more shadow
     float lit = saturate(1.0 - (dens2 - dens) * 4.0);
-    float3 cl = lerp(float3(0.42, 0.40, 0.50), float3(2.6, 1.7, 1.05), lit) * (0.7 + 0.3 * saturate(mu * 0.5 + 0.5));
-    cl += float3(2.2, 1.2, 0.6) * pow(saturate(mu), 8.0) * lit * 0.6;                // silver-gold lining towards the sun
+    float dk = gWeather.w;
+    float3 cl = lerp(lerp(float3(0.42, 0.40, 0.50), float3(0.52, 0.56, 0.66), dk), lerp(float3(2.6, 1.7, 1.05), float3(2.2, 2.2, 2.3), dk), lit) * (0.7 + 0.3 * saturate(mu * 0.5 + 0.5));
+    cl += float3(2.2, 1.2, 0.6) * pow(saturate(mu), 8.0) * lit * 0.6 * (1.0 - dk);                // silver-gold lining towards the sun
     float fadeH = smoothstep(0.02, 0.22, d.y);
     col = lerp(col, cl, cov * fadeH * 0.85);
   }

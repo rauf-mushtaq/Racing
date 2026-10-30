@@ -36,7 +36,7 @@ float3 Shade(float3 albedo, float metal, float rough, float3 n, float3 v, float 
 float3 RoadSurface(float2 uv, float4 col, float fp, out float rough) {
   float hw = col.r * 32.0; float style = col.g;
   float g = fbmAA(uv * float2(1, 1), fp, 3.0), g2 = fbmAA(uv + 11.0, fp, 12.0), g3 = fbmAA(uv * 0.3 + 5.0, fp, 0.6);
-  float3 asph = float3(0.075, 0.075, 0.08) * (0.75 + 0.5 * g) * (0.88 + 0.24 * g2) * (0.85 + 0.3 * g3);
+  float3 asph = float3(0.14, 0.14, 0.145) * (0.75 + 0.5 * g) * (0.88 + 0.24 * g2) * (0.85 + 0.3 * g3);
   rough = 0.58 + 0.2 * g2;
   float lw = max(0.075, fp * 0.9), x = uv.x, s = uv.y;
   float white = 0.0, yellow = 0.0;

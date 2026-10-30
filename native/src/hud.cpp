@@ -186,7 +186,7 @@ void Hud::draw(Renderer& r, Gfx& g, Texture& target, const Game& game, double ti
   if (game.inRaceHud()) raceHud(r, game); if (game.inEscapeHud()) escapeHud(r, game);
   if (game.state != State::Menu) toasts(game);
   if (game.showStats) statsPanel(perf);
-  if (time < 9.0 && (game.state == State::Free)) { float a = clampf((float)(9.0 - time), 0, 1); float hc[4] = { 1, 1, 1, 0.8f * a }; text("W / S  throttle, brake      A / D  steer      Space  handbrake      Shift  nitro      C  camera      R  reset      Esc  menu      F3  stats", W * 0.5f, H - 28.0f * S, 17.0f * S, hc, 1); }
+  if (time < 9.0 && (game.state == State::Free)) { float a = clampf((float)(9.0 - time), 0, 1); float hc[4] = { 1, 1, 1, 0.8f * a }; text("W / S  throttle, brake      A / D  steer      Space  handbrake      Shift  nitro      C  camera      R  reset      Esc  menu      T  time of day      F3  stats", W * 0.5f, H - 28.0f * S, 17.0f * S, hc, 1); }
   if (game.state == State::Escape && game.escape.time < 14) { float a = clampf((float)(14.0 - game.escape.time), 0, 1); float hc[4] = { 1, 1, 1, 0.85f * a }; text("F guns (hold, or left mouse)      G missile      B bomb      O oil      X smoke      V armour      Shift nitro      Esc menu", W * 0.5f, H - 28.0f * S + 0.0f, 17.0f * S, hc, 1); }
   if (game.state == State::Menu) menu(game);
   if (!verts.empty()) {

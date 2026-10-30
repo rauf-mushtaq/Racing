@@ -21,7 +21,8 @@ struct Material { float type = 0, rough = 0.8f, metal = 0, emissive = 0; float t
 class Renderer {
 public:
   Gfx gfx; Terrain terrain; Quality q;
-  CamState cam; double time = 0; float exposure = 0.80f; float wet = 0.14f, focusDist = 7.0f;   // wet: how soaked the streets are
+  CamState cam; double time = 0; float exposure = 0.80f; float day = 1.0f, dayTarget = 1.0f;   // day: 0 golden hour, 1 midday (T switches; it blends over a couple of seconds)
+  float wet = 0.14f, focusDist = 7.0f;   // wet: how soaked the streets are
   Mat4 prevViewProj = Mat4::identity(); bool havePrev = false;
   Mat4 view, proj, viewProj; Vec3 forward; Frustum frustum;
   UINT W = 0, H = 0; UINT statDraws = 0, statShadowDraws = 0;   // draw calls in the last frame (all, and the part spent on shadow cascades)

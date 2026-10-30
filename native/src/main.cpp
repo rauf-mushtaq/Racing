@@ -53,14 +53,14 @@ static std::string findShaders() {
 int main(int argc, char** argv) {
   std::string shotPath, spawn = "coast", camName, shaderFilter; UINT W = 1600, H = 900; int msaa = 4, frames = 4;
   int modelKind = 0, raceIdx = -1, menuPage = -1; bool gunsOut = false, startEscape = false, startFull = false, vsyncOn = false; double simSeconds = 0, autoExit = 0; bool offscreen = false, aoOff = false, shadowOff = false, checkShaders = false, freeCam = false; double ax = 0, az = 0, driveS = 0, steerV = 0, carX = 0, carZ = 0, carH = 0; bool hasCar = false;
-  float ah = 3, yaw = 90, pitch = -4, tod = 0, color[3] = { 0.85f, 0.20f, 0.03f }; bool hasAt = false, hasOrbit = false; double orbYaw = 0, orbDist = 7, orbH = 1.6;
+  float dayArg = 1.0f; float ah = 3, yaw = 90, pitch = -4, tod = 0, color[3] = { 0.85f, 0.20f, 0.03f }; bool hasAt = false, hasOrbit = false; double orbYaw = 0, orbDist = 7, orbH = 1.6;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i]; auto next = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
     if (a == "--shot") shotPath = next(); else if (a == "--size") sscanf(next().c_str(), "%ux%u", &W, &H); else if (a == "--msaa") msaa = atoi(next().c_str());
     else if (a == "--frames") frames = atoi(next().c_str()); else if (a == "--offscreen") offscreen = true; else if (a == "--noao") aoOff = true; else if (a == "--noshadow") shadowOff = true;
     else if (a == "--spawn") spawn = next(); else if (a == "--cam") camName = next(); else if (a == "--drive") driveS = atof(next().c_str()); else if (a == "--steer") steerV = atof(next().c_str());
     else if (a == "--at") { hasAt = true; sscanf(next().c_str(), "%lf,%lf", &ax, &az); } else if (a == "--yaw") yaw = (float)atof(next().c_str()); else if (a == "--pitch") pitch = (float)atof(next().c_str());
-    else if (a == "--height") ah = (float)atof(next().c_str()); else if (a == "--time") tod = (float)atof(next().c_str());
+    else if (a == "--height") ah = (float)atof(next().c_str()); else if (a == "--time") tod = (float)atof(next().c_str()); else if (a == "--day") dayArg = (float)atof(next().c_str());
     else if (a == "--car") { hasCar = true; sscanf(next().c_str(), "%lf,%lf,%lf", &carX, &carZ, &carH); } else if (a == "--color") sscanf(next().c_str(), "%f,%f,%f", &color[0], &color[1], &color[2]);
     else if (a == "--orbit") { hasOrbit = true; sscanf(next().c_str(), "%lf,%lf,%lf", &orbYaw, &orbDist, &orbH); }
     else if (a == "--seconds") autoExit = atof(next().c_str()); else if (a == "--model") { std::string m = next(); modelKind = (m == "bond" || m == "gt") ? 1 : 0; } else if (a == "--guns") gunsOut = true;
@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
   RECT rc = { 0, 0, (LONG)W, (LONG)H }; AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
   HWND hwnd = CreateWindowA("SunsetCityWnd", "Sunset City", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, wc.hInstance, nullptr);
   Quality q; q.msaa = msaa; q.ao = !aoOff; q.shadows = !shadowOff;
-  R.init(hwnd, W, H, offscreen, q); R.time = tod;
+  R.init(hwnd, W, H, offscreen, q); R.time = tod; R.day = R.dayTarget = dayArg;
   Game G; G.init(R); std::memcpy(G.color, color, sizeof color);
   Hud hud; hud.init(R); Perf perf; perf.msaa = R.q.msaa;
   R.onBeginFrame = [&](Gfx& g, Vec3 cam) { G.scenery.update(g, cam); G.prepare(g, R.frustum); };
@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
     if (autoExit > 0) { if (now > autoExit) break; if (!resized && now > autoExit * 0.5) { resized = true; SetWindowPos(hwnd, nullptr, 0, 0, 640 + 16, 360 + 39, SWP_NOMOVE | SWP_NOZORDER); } }   // test: run for a while, resizing half way
     totalFrames++;
     InputState s = g_input.read();
-    if (s.vsync) { R.gfx.vsync = !R.gfx.vsync; } if (s.ao) R.q.ao = !R.q.ao; if (s.shadows) R.q.shadows = !R.q.shadows; if (s.refl) R.q.reflections = !R.q.reflections;
+    if (s.vsync) { R.gfx.vsync = !R.gfx.vsync; } if (s.ao) R.q.ao = !R.q.ao; if (s.shadows) R.q.shadows = !R.q.shadows; if (s.refl) R.q.reflections = !R.q.reflections; if (s.tod) R.dayTarget = R.dayTarget > 0.5f ? 0.0f : 1.0f;
     G.update(R, dt, s); R.time = now; R.frame((float)dt);
     worst = std::max(worst, raw * 1000.0); fcount++; fpsT += raw;
     if (fpsT > 0.5) { perf.fps = fcount / fpsT; perf.frameMs = fpsT * 1000.0 / fcount; perf.worstMs = worst; char title[200]; snprintf(title, sizeof title, "Sunset City (native)  %.0f fps  %.0f km/h", perf.fps, G.speedKmh); SetWindowTextA(hwnd, title); fcount = 0; fpsT = 0; worst = 0; }

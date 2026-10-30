@@ -28,7 +28,7 @@ float3 CityGround(float2 p, float fp, out float rough, out float hgt, out float 
     if (junction) { a = 0.0; hwr = 16.0; mh = 0.0; lw = 4.0; }
     float aa = abs(a);
     float wear = 0.9 + 0.2 * g2;
-    float3 asph = float3(0.10, 0.10, 0.105) * (0.86 + 0.28 * g) * wear * (0.9 + 0.2 * g3);
+    float3 asph = float3(0.17, 0.17, 0.175) * (0.84 + 0.32 * g) * wear * (0.88 + 0.24 * g3);
     // Tyre tracks and oil in the middle of each lane; patches and cracks.
     float t = frac((aa - mh) / lw), trk = exp(-pow((abs(t - 0.5) - 0.2) / 0.075, 2.0)), oil = exp(-pow((t - 0.5) / 0.1, 2.0)) * smoothstep(0.55, 0.75, fbmAA(p, fp, 0.35));
     if (junction) { trk = 0.0; oil = 0.0; }
@@ -67,17 +67,17 @@ float3 CityGround(float2 p, float fp, out float rough, out float hgt, out float 
   // Off the roads: curb stone, paving slabs, then the lots the buildings stand on.
   float s = min(d.x - hw.x, d.y - hw.y);
   float puddle = smoothstep(0.55, 0.7, fbmAA(p, fp, 0.2)) * wet;
-  if (s < 0.2) { rough = 0.7; hgt = 0.0; reflK = wet * 0.1; return float3(0.60, 0.59, 0.56) * (0.9 + 0.2 * g2); }
+  if (s < 0.2) { rough = 0.7; hgt = 0.0; reflK = wet * 0.1; return float3(0.46, 0.45, 0.42) * (0.9 + 0.2 * g2); }
   if (s < 5.2) {
     float2 q = frac(p / 1.6); float jd = min(min(q.x, 1.0 - q.x), min(q.y, 1.0 - q.y)) * 1.6, joint = (1.0 - smoothstep(0.012, 0.012 + fp * 1.2 + 0.01, jd)) * (1.0 - far);
     float tile = hash12(floor(p / 1.6) + 17.0);
-    float3 slab = float3(0.55, 0.53, 0.50) * (0.84 + 0.3 * g) * (0.93 + 0.14 * tile) * (0.92 + 0.16 * g2);
+    float3 slab = float3(0.40, 0.385, 0.36) * (0.84 + 0.3 * g) * (0.93 + 0.14 * tile) * (0.92 + 0.16 * g2);
     slab *= 1.0 - 0.28 * joint; slab *= 1.0 - 0.18 * smoothstep(0.6, 0.0, s - 0.2);        // grime along the curb
     slab *= 1.0 - wet * 0.3; rough = lerp(0.82, 0.22, wet * 0.8 * (0.5 + 0.5 * puddle)); hgt = 0.0; reflK = wet * 0.28 * (0.4 + puddle);
     return slab;
   }
   hgt = 0.0; float lot = fbmAA(floor(p / 60.0) * 0.37, 1.0, 1.0); float grassy = smoothstep(0.5, 0.62, lot);
-  float3 concrete = float3(0.40, 0.38, 0.34) * (0.8 + 0.4 * g) * (0.9 + 0.2 * g2), lawn = lerp(float3(0.17, 0.27, 0.08), float3(0.30, 0.30, 0.12), g2) * (0.7 + 0.6 * g);
+  float3 concrete = float3(0.30, 0.285, 0.26) * (0.8 + 0.4 * g) * (0.9 + 0.2 * g2), lawn = lerp(float3(0.17, 0.27, 0.08), float3(0.30, 0.30, 0.12), g2) * (0.7 + 0.6 * g);
   rough = lerp(0.85, 0.95, grassy); reflK = 0.0; return lerp(concrete, lawn, grassy);
 }
 PSOut PSMain(V i) {

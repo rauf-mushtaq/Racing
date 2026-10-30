@@ -11,7 +11,7 @@ InputState Input::read() {
   s.cam = edge('C'); s.reset = edge('R'); s.shiftUp = edge('E'); s.shiftDown = edge('Q');
   s.fire = keys['F'] || leftDown; s.missile = edge('G'); s.bomb = edge('B'); s.oil = edge('O'); s.smoke = edge('X'); s.shield = edge('V');
   s.menu = edge(VK_ESCAPE) || edge(VK_TAB); s.up = edge(VK_UP) || edge('W'); s.down = edge(VK_DOWN) || edge('S'); s.left = edge(VK_LEFT) || edge('A'); s.right = edge(VK_RIGHT) || edge('D'); s.enter = edge(VK_RETURN) || edge(VK_SPACE); s.back = edge(VK_BACK);
-  s.stats = edge(VK_F3); s.vsync = edge(VK_F4); s.ao = edge(VK_F5); s.shadows = edge(VK_F6); s.refl = edge(VK_F7);
+  s.stats = edge(VK_F3); s.vsync = edge(VK_F4); s.ao = edge(VK_F5); s.shadows = edge(VK_F6); s.refl = edge(VK_F7); s.tod = edge('T');
   if (rightDown) { s.lookDX = mouseDX; s.lookDY = mouseDY; } s.zoom = wheel; mouseDX = mouseDY = wheel = 0;
   std::memcpy(prev, keys, sizeof keys);
   if (!xinput) { HMODULE m = LoadLibraryA("xinput1_4.dll"); if (!m) m = LoadLibraryA("xinput1_3.dll"); if (!m) m = LoadLibraryA("xinput9_1_0.dll"); xinput = m ? (void*)GetProcAddress(m, "XInputGetState") : (void*)1; }

@@ -50,14 +50,15 @@ float fbmAA(float2 p, float fw, float baseFreq) {
 float3 SkyGradient(float3 d) {
   float3 sun = gSunDir.xyz;
   float t = saturate(d.y), mu = saturate(dot(d, sun));
-  float3 zenith = float3(0.060, 0.135, 0.38), mid = float3(0.30, 0.40, 0.66), horizon = float3(0.90, 0.58, 0.38);
+  float dk = gWeather.w;                                  // 0 golden hour, 1 midday
+  float3 zenith = lerp(float3(0.060, 0.135, 0.38), float3(0.075, 0.21, 0.58), dk), mid = lerp(float3(0.30, 0.40, 0.66), float3(0.34, 0.54, 0.84), dk), horizon = lerp(float3(0.90, 0.58, 0.38), float3(0.74, 0.82, 0.93), dk);
   float3 c = lerp(horizon, mid, smoothstep(0.0, 0.20, t));
   c = lerp(c, zenith, smoothstep(0.12, 0.85, t));
   // Warm, bright haze round the sun (forward scattering) and a faint pink band on the far side.
   float2 h2 = normalize(d.xz + 1e-4), s2 = normalize(sun.xz + 1e-4);
   float side = saturate(dot(h2, s2) * 0.5 + 0.5);
-  c += float3(1.55, 0.78, 0.34) * pow(mu, 5.0) * 0.85 + float3(1.2, 0.62, 0.28) * pow(mu, 2.0) * 0.16;
-  c = lerp(c, c * float3(1.15, 0.9, 0.8) + float3(0.10, 0.04, 0.03), side * (1.0 - smoothstep(0.0, 0.3, t)) * 0.5);
+  c += lerp(float3(1.55, 0.78, 0.34), float3(1.2, 1.1, 0.95), dk) * pow(mu, 5.0) * lerp(0.85, 0.45, dk) + lerp(float3(1.2, 0.62, 0.28), float3(0.9, 0.85, 0.75), dk) * pow(mu, 2.0) * lerp(0.16, 0.07, dk);
+  c = lerp(c, c * float3(1.15, 0.9, 0.8) + float3(0.10, 0.04, 0.03), side * (1.0 - smoothstep(0.0, 0.3, t)) * 0.5 * (1.0 - dk));
   return c;
 }
 float3 SkyColor(float3 d) {
@@ -69,9 +70,10 @@ float3 SkyColor(float3 d) {
 // Diffuse light from the whole sky for a surface facing n.
 float3 AmbientSky(float3 n) {
   float up = n.y * 0.5 + 0.5;
-  float3 sky = float3(0.33, 0.45, 0.72) * 0.55, ground = float3(0.30, 0.24, 0.18) * 0.30;
+  float dk = gWeather.w;
+  float3 sky = lerp(float3(0.33, 0.45, 0.72) * 0.55, float3(0.36, 0.52, 0.84) * 0.78, dk), ground = lerp(float3(0.30, 0.24, 0.18) * 0.30, float3(0.34, 0.31, 0.27) * 0.34, dk);
   float3 c = lerp(ground, sky, up * up * (3.0 - 2.0 * up));
-  c += float3(0.30, 0.18, 0.09) * pow(saturate(dot(n, gSunDir.xyz) * 0.5 + 0.5), 3.0) * 0.32;   // warm sky-glow on the sun's side
+  c += float3(0.30, 0.18, 0.09) * pow(saturate(dot(n, gSunDir.xyz) * 0.5 + 0.5), 3.0) * 0.32 * (1.0 - 0.8 * dk);   // warm sky-glow on the sun's side
   return c;
 }
 
@@ -99,7 +101,7 @@ float3 EnvReflect(float3 r, float3 wp) {
   float3 sky = SkyColor(r);
   float cityK = 1.0 - smoothstep(2000.0, 2700.0, max(abs(wp.x), abs(wp.z)));
   float lit = saturate(dot(normalize(r.xz + 1e-4), normalize(gSunDir.xz + 1e-4)) * 0.5 + 0.5);
-  float3 wall = lerp(float3(0.05, 0.06, 0.085), float3(0.62, 0.46, 0.32), lit * lit) * (0.8 + 0.4 * vnoise(float2((r.x + r.z * 0.7) * 7.0, r.y * 5.0 + r.z * 3.0)));
+  float3 wall = lerp(float3(0.05, 0.06, 0.085), lerp(float3(0.62, 0.46, 0.32), float3(0.60, 0.55, 0.50), gWeather.w), lit * lit) * (0.8 + 0.4 * vnoise(float2((r.x + r.z * 0.7) * 7.0, r.y * 5.0 + r.z * 3.0)));
   float w = (1.0 - smoothstep(0.10, 0.62, r.y)) * cityK * smoothstep(-0.12, 0.04, r.y);
   float3 c = lerp(sky, wall, w);
 #ifndef NO_SHADOW_MAP
@@ -127,7 +129,7 @@ float3 ApplyFog(float3 col, float3 wpos) {
   float sunAmt = pow(saturate(dot(rd, gSunDir.xyz)), 5.0);
   float fd = gFogColor.a * dist * thin;
   float f = 1.0 - exp(-fd * fd * (1.0 + gFogParams.z * sunAmt)) * exp(-dist * thin * gFogParams.y * (1.0 + 0.6 * sunAmt));
-  float3 cool = float3(0.80, 0.90, 1.08), sunFog = float3(2.6, 1.55, 0.78);
+  float3 cool = lerp(float3(0.80, 0.90, 1.08), float3(0.9, 0.95, 1.05), gWeather.w), sunFog = lerp(float3(2.6, 1.55, 0.78), float3(1.5, 1.4, 1.25), gWeather.w);
   float3 fc = lerp(gFogColor.rgb * cool, sunFog, sunAmt * gFogParams.w);
   return lerp(col, fc, saturate(f));
 }

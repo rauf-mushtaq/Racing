@@ -14,6 +14,7 @@ The same world as the web game, as a native Windows program: C++17, Direct3D 12 
 - Traffic with signals (ported from the web game), motorway traffic, cars that get knocked about.
 - **Races**: fifteen routes with checkpoint gates, timer, medals and saved best times.
 - **Escape mode**: you drive a silver 1960s-style grand tourer with gadgets and the police chase you (see below).
+- Time of day: it starts at midday (blue sky, white sun, grey asphalt); press T to ease into golden hour and back.
 - Live reflections: a cube of the surroundings (city, traffic, sky) is drawn from your car, one face every other frame, and the car's paint, its glass and the building windows reflect it. F7 turns reflections off (this and the wet-road mirror) if you need the frames.
 - Surfaces: brick courses with mortar, recessed windows with frames, curtains, blinds and lit rooms, weathering streaks, speckled and cracked asphalt with worn paint, palms with real leaflets, leafy trees with ragged edges, and reflections that see the street and its buildings instead of an empty sky.
 - Rendering: cascaded shadows, ambient occlusion, 4× MSAA HDR, bloom, depth of field, camera motion blur, haze,
@@ -39,6 +40,7 @@ The menu opens when the game starts: pick **Escape the police**, **Races** or **
 | Back on the road / restart | R | Back |
 | Menu | Esc or Tab | Start |
 | Fullscreen | F11 | |
+| Time of day (midday / golden hour) | T | |
 | Stats overlay (fps, GPU time, draw calls) | F3 | |
 | Vsync on/off, ambient occlusion, shadows, reflections | F4, F5, F6, F7 | |
 
@@ -74,6 +76,7 @@ and runs under Wine (with vkd3d) for tests.
 ```
 sunset.exe --size 1920x1080 --msaa 4 --noao --noshadow
 sunset.exe --spawn coast|desert|alpine|south|city|runway   where to start (default coast)
+sunset.exe --day 0|1                                         time of day at the start (1 midday, the default; 0 golden hour)
 sunset.exe --escape | --race N | --model super|gt           start straight in a mode, or choose the car
 sunset.exe --fullscreen --vsync                             borderless fullscreen; wait for the display
 sunset.exe --shot out.bmp --drive 5 --cam chase|close|driver|hood|free      save a picture and exit
