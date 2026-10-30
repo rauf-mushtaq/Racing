@@ -7,7 +7,7 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
-#include <dxgi1_4.h>
+#include <dxgi1_5.h>
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <deque>
@@ -41,7 +41,7 @@ struct PsoDesc {
   const char* file = nullptr; const char* vsEntry = "VSMain"; const char* psEntry = "PSMain";   // psEntry == nullptr: depth-only
   std::vector<D3D12_INPUT_ELEMENT_DESC> layout;
   UINT numRT = 1; DXGI_FORMAT rtv[2] = { DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_R32_FLOAT }; DXGI_FORMAT dsv = DXGI_FORMAT_UNKNOWN; UINT samples = 1;
-  bool depth = true, depthWrite = true, blend = false, alphaToCoverage = false, additive = false;
+  bool depth = true, depthWrite = true, blend = false, alphaToCoverage = false, additive = false, premult = false, rt1NoWrite = false;   // premult: blend ONE, 1 - src alpha; rt1NoWrite: leave the second target (view distance) alone
   D3D12_COMPARISON_FUNC depthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL;   // reversed-Z
   D3D12_CULL_MODE cull = D3D12_CULL_MODE_BACK; int depthBias = 0; float slopeBias = 0;
   std::vector<std::string> defines;
@@ -54,6 +54,8 @@ public:
   ComPtr<ID3D12Device> dev; ComPtr<ID3D12CommandQueue> queue; ComPtr<ID3D12GraphicsCommandList> cmd;
   ComPtr<IDXGISwapChain3> swap; ComPtr<ID3D12RootSignature> rootSig;
   UINT width = 0, height = 0, frameIdx = 0; bool hasSwap = false;
+  bool tearing = false, vsync = false;                  // tearing: the display can take an uncapped present (variable refresh); vsync: wait for the refresh instead
+  UINT draws = 0, shadowDraws = 0;                        // draw calls recorded this frame (reset in beginFrame)
   ComPtr<ID3D12Resource> backBuf[FRAMES]; D3D12_CPU_DESCRIPTOR_HANDLE backRtv[FRAMES];
   std::string shaderDir;
 
@@ -73,6 +75,10 @@ public:
   void releaseTexture(Texture& t) { if (t.res) release(t.res); t = Texture(); }
   Texture makeTextureData(UINT w, UINT h, DXGI_FORMAT fmt, const void* data, UINT bytesPerPixel);   // a shader-readable texture filled from memory
   CBAlloc allocCB(UINT size);
+  D3D12_VERTEX_BUFFER_VIEW dynVB(const void* data, UINT bytes, UINT stride) { CBAlloc a = allocCB(bytes); std::memcpy(a.ptr, data, bytes); return { a.va, bytes, stride }; }   // per-frame vertex/instance data from the constant ring
+  // GPU time of the last finished frame, from timestamp queries.
+  double gpuMs = 0; bool gpuTimer = false;
+  void gpuStamp(bool end);
   template <class T> D3D12_GPU_VIRTUAL_ADDRESS cb(const T& v) { CBAlloc a = allocCB(sizeof(T)); std::memcpy(a.ptr, &v, sizeof(T)); return a.va; }
 
   // Descriptors.
@@ -102,6 +108,7 @@ private:
   ComPtr<ID3D12Resource> ring; UINT8* ringPtr = nullptr; UINT ringSize = 24u << 20, ringOff = 0;
   std::deque<std::pair<UINT64, ComPtr<ID3D12Resource>>> garbage;
   std::map<std::string, ComPtr<ID3DBlob>> shaderCache;
+  ComPtr<ID3D12QueryHeap> qHeap; ComPtr<ID3D12Resource> qRead; UINT64* qPtr = nullptr; UINT64 tsFreq = 0; bool stamped[FRAMES] = {};
   void collect();
   void createSwapTargets();
   void createRootSig();

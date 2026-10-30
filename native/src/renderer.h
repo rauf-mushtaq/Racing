@@ -22,11 +22,14 @@ public:
   Gfx gfx; Terrain terrain; Quality q;
   CamState cam; double time = 0; float exposure = 0.85f;
   Mat4 view, proj, viewProj; Vec3 forward; Frustum frustum;
-  UINT W = 0, H = 0;
+  UINT W = 0, H = 0; UINT statDraws = 0, statShadowDraws = 0;   // draw calls in the last frame (all, and the part spent on shadow cascades)
   std::function<void(Renderer&, bool, const Frustum&)> drawWorld;   // everything that isn't terrain, sea or sky; called for each shadow cascade and for the scene
   std::function<void(Gfx&, Vec3)> onBeginFrame;                       // called each frame after the command list is open (streaming uploads)
   bool inShadow = false;                                               // true while drawWorld is being called for a shadow cascade
   void drawMeshMat(const GpuMesh& m, const Mat4& world, const Material& mat, const Buffer* inst = nullptr, UINT instances = 1);
+  void drawMeshInst(const GpuMesh& m, const Material& mat, const D3D12_VERTEX_BUFFER_VIEW& inst, UINT instances);   // instances from per-frame data (see Gfx::dynVB)
+  void drawParticles(const D3D12_VERTEX_BUFFER_VIEW& v, UINT n);
+  std::function<void(Renderer&)> drawFx;                                // particles: called after the sky, in the scene pass
 
   void init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& quality);
   void finishInit() { gfx.endFrame(false); gfx.waitIdle(); }   // submits the set-up commands recorded by init and the first terrain uploads
@@ -39,7 +42,7 @@ public:
   DXGI_FORMAT ldrFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 private:
   ComPtr<ID3D12PipelineState> psoMesh[2][2], psoShMesh, psoShInst, psoShTerrain;   // mesh[instanced][twoSided]
-  ComPtr<ID3D12PipelineState> psoSky, psoWater, psoBloomFirst, psoBloomDown, psoBloomUp, psoAO, psoAOBlur, psoComposite;
+  ComPtr<ID3D12PipelineState> psoFx, psoSky, psoWater, psoBloomFirst, psoBloomDown, psoBloomUp, psoAO, psoAOBlur, psoComposite;
   Texture msColor, msViewDepth, msDepth, color, viewDepth, shadow, aoRaw, aoBlur, ldr, bloom[5];
   Texture* sceneColor = nullptr; Texture* sceneDepth = nullptr; int nBloom = 5;
   UINT blkNull = 0, blkColor = 0, blkDepth = 0, blkAO = 0, blkAOBlur = 0, blkComposite = 0, blkBloom[5] = {}, staticSrv = 0;

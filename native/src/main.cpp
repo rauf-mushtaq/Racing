@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
     struct E { const char* f; const char* e; const char* p; std::vector<std::string> d; };
     const E list[] = { {"sky.hlsl","VSMain","vs_5_0",{}}, {"sky.hlsl","PSMain","ps_5_0",{}}, {"terrain.hlsl","VSMain","vs_5_0",{}}, {"terrain.hlsl","PSMain","ps_5_0",{}}, {"water.hlsl","VSMain","vs_5_0",{}}, {"water.hlsl","PSMain","ps_5_0",{}},
       {"post.hlsl","VSFull","vs_5_0",{}}, {"post.hlsl","PSBloomFirst","ps_5_0",{}}, {"post.hlsl","PSBloomDown","ps_5_0",{}}, {"post.hlsl","PSBloomUp","ps_5_0",{}}, {"post.hlsl","PSComposite","ps_5_0",{}}, {"post.hlsl","PSAO","ps_5_0",{}}, {"post.hlsl","PSAOBlur","ps_5_0",{}},
-      {"mesh.hlsl","VSMain","vs_5_0",{}}, {"mesh.hlsl","VSMain","vs_5_0",{"INSTANCED"}}, {"mesh.hlsl","PSMain","ps_5_0",{}}, {"shadow.hlsl","VSMain","vs_5_0",{}}, {"shadow.hlsl","VSInst","vs_5_0",{}}, {"shadow.hlsl","VSTerrain","vs_5_0",{}}, {"hud.hlsl","VSMain","vs_5_0",{}}, {"hud.hlsl","PSMain","ps_5_0",{}} };
+      {"mesh.hlsl","VSMain","vs_5_0",{}}, {"mesh.hlsl","VSMain","vs_5_0",{"INSTANCED"}}, {"mesh.hlsl","PSMain","ps_5_0",{}}, {"shadow.hlsl","VSMain","vs_5_0",{}}, {"shadow.hlsl","VSInst","vs_5_0",{}}, {"shadow.hlsl","VSTerrain","vs_5_0",{}}, {"hud.hlsl","VSMain","vs_5_0",{}}, {"hud.hlsl","PSMain","ps_5_0",{}}, {"fx.hlsl","VSMain","vs_5_0",{}}, {"fx.hlsl","PSMain","ps_5_0",{}} };
     SetEnvironmentVariableA("SUNSET_NOFATAL", "1"); int bad = 0;
     for (auto& e : list) {
       if (!shaderFilter.empty() && std::string(e.f).find(shaderFilter) == std::string::npos) continue;
@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
   R.init(hwnd, W, H, offscreen, q); R.time = tod;
   Game G; G.init(R); std::memcpy(G.color, color, sizeof color);
   Hud hud; hud.init(R); double fpsShown = 60;
-  R.onBeginFrame = [&](Gfx& g, Vec3 cam) { G.scenery.update(g, cam); };
+  R.onBeginFrame = [&](Gfx& g, Vec3 cam) { G.scenery.update(g, cam); G.prepare(g, R.frustum); };
   R.drawHud = [&](Gfx& g, Texture& t) { hud.draw(R, g, t, G, R.time, fpsShown); };
   if (hasCar) G.spawn("manual", carX, carZ, carH); else G.spawn(spawn);
   if (camName == "close") G.camMode = 1; else if (camName == "driver") G.camMode = 2; else if (camName == "hood") G.camMode = 3; else if (camName == "free") freeCam = true;
@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < frames; i++) {
       if (!freeCam) G.update(R, 1.0 / 60.0, in);
       if (i == frames - 1) R.requestShot(shotPath);
-      R.frame(1.0f / 60.0f); R.time += 1.0 / 60.0; MSG m; while (PeekMessage(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessage(&m); }
+      R.frame(1.0f / 60.0f); R.time += 1.0 / 60.0; if (i == frames - 1) logf("draw calls: %u (%u of them for the shadow cascades)", R.statDraws, R.statShadowDraws); MSG m; while (PeekMessage(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessage(&m); }
     }
     return 0;
   }

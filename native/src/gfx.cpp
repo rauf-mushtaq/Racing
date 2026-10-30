@@ -39,6 +39,13 @@ void Gfx::init(HWND hwnd, UINT w, UINT h, bool offscreenOnly) {
   cmd->Close();
   HR(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
   fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+  { // Timestamp queries, for the GPU frame time shown in the overlay.
+    D3D12_QUERY_HEAP_DESC qd = { D3D12_QUERY_HEAP_TYPE_TIMESTAMP, FRAMES * 2, 0 };
+    if (SUCCEEDED(dev->CreateQueryHeap(&qd, IID_PPV_ARGS(&qHeap))) && SUCCEEDED(queue->GetTimestampFrequency(&tsFreq)) && tsFreq) {
+      D3D12_HEAP_PROPERTIES rp = { D3D12_HEAP_TYPE_READBACK }; D3D12_RESOURCE_DESC rd = {}; rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; rd.Width = FRAMES * 2 * 8; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1; rd.SampleDesc.Count = 1; rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+      if (SUCCEEDED(dev->CreateCommittedResource(&rp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&qRead))) && SUCCEEDED(qRead->Map(0, nullptr, (void**)&qPtr))) gpuTimer = true;
+    }
+  }
   auto heap = [&](D3D12_DESCRIPTOR_HEAP_TYPE t, UINT n, bool visible, ComPtr<ID3D12DescriptorHeap>& out, UINT& inc) {
     D3D12_DESCRIPTOR_HEAP_DESC d = {}; d.Type = t; d.NumDescriptors = n; d.Flags = visible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     HR(dev->CreateDescriptorHeap(&d, IID_PPV_ARGS(&out))); inc = dev->GetDescriptorHandleIncrementSize(t);
@@ -63,7 +70,9 @@ void Gfx::init(HWND hwnd, UINT w, UINT h, bool offscreenOnly) {
   hasSwap = !offscreenOnly;
   if (hasSwap) {
     ComPtr<IDXGISwapChain1> sc; DXGI_SWAP_CHAIN_DESC1 sd = {};
+    { ComPtr<IDXGIFactory5> f5; BOOL t = FALSE; if (SUCCEEDED(factory.As(&f5)) && SUCCEEDED(f5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &t, sizeof t))) tearing = t != FALSE; }
     sd.Width = w; sd.Height = h; sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM; sd.SampleDesc.Count = 1; sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; sd.BufferCount = FRAMES; sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    sd.Flags = tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0; logf("present: %s", tearing ? "tearing allowed (uncapped / variable refresh)" : "vsync only");
     HR(factory->CreateSwapChainForHwnd(queue.Get(), hwnd, &sd, nullptr, nullptr, &sc));
     factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
     HR(sc.As(&swap)); createSwapTargets();
@@ -81,7 +90,7 @@ void Gfx::createSwapTargets() {
 void Gfx::resizeSwap(UINT w, UINT h) {
   if (!hasSwap || (w == width && h == height) || w == 0 || h == 0) return;
   waitIdle(); for (auto& b : backBuf) b.Reset();
-  HR(swap->ResizeBuffers(FRAMES, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0));
+  HR(swap->ResizeBuffers(FRAMES, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0));
   width = w; height = h; createSwapTargets();
 }
 
@@ -113,13 +122,19 @@ void Gfx::beginFrame() {
   frameIdx = (frameIdx + 1) % FRAMES;
   if (fence->GetCompletedValue() < frameFence[frameIdx]) { fence->SetEventOnCompletion(frameFence[frameIdx], fenceEvent); WaitForSingleObject(fenceEvent, INFINITE); }
   collect();
+  if (gpuTimer && stamped[frameIdx]) { UINT64 a = qPtr[frameIdx * 2], b = qPtr[frameIdx * 2 + 1]; if (b > a) gpuMs = (double)(b - a) * 1000.0 / (double)tsFreq; stamped[frameIdx] = false; }
   HR(alloc[frameIdx]->Reset()); HR(cmd->Reset(alloc[frameIdx].Get(), nullptr));
   ID3D12DescriptorHeap* heaps[] = { srvHeap.Get(), sampHeap.Get() }; cmd->SetDescriptorHeaps(2, heaps);
-  ringOff = 0;
+  ringOff = 0; draws = shadowDraws = 0;
+}
+void Gfx::gpuStamp(bool end) {
+  if (!gpuTimer) return;
+  cmd->EndQuery(qHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, frameIdx * 2 + (end ? 1 : 0));
+  if (end) { cmd->ResolveQueryData(qHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, frameIdx * 2, 2, qRead.Get(), (UINT64)frameIdx * 16); stamped[frameIdx] = true; }
 }
 void Gfx::endFrame(bool present) {
   HR(cmd->Close()); ID3D12CommandList* l[] = { cmd.Get() }; queue->ExecuteCommandLists(1, l);
-  if (present && hasSwap) { HRESULT hr = swap->Present(1, 0); if (FAILED(hr)) logf("Present failed 0x%08lx", (unsigned long)hr); }
+  if (present && hasSwap) { HRESULT hr = vsync ? swap->Present(1, 0) : swap->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0); if (FAILED(hr)) logf("Present failed 0x%08lx", (unsigned long)hr); }
   fenceVal++; HR(queue->Signal(fence.Get(), fenceVal)); frameFence[frameIdx] = fenceVal;
 }
 void Gfx::waitIdle() {
@@ -269,7 +284,8 @@ ComPtr<ID3D12PipelineState> Gfx::makePso(const PsoDesc& d) {
   p.BlendState.AlphaToCoverageEnable = d.alphaToCoverage;
   for (UINT i = 0; i < d.numRT; i++) {
     auto& rt = p.BlendState.RenderTarget[i]; rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-    if (d.blend && i == 0) { rt.BlendEnable = TRUE; rt.SrcBlend = d.additive ? D3D12_BLEND_ONE : D3D12_BLEND_SRC_ALPHA; rt.DestBlend = d.additive ? D3D12_BLEND_ONE : D3D12_BLEND_INV_SRC_ALPHA; rt.BlendOp = D3D12_BLEND_OP_ADD;
+    if (i == 1 && d.rt1NoWrite) rt.RenderTargetWriteMask = 0;
+    if (d.blend && i == 0) { rt.BlendEnable = TRUE; rt.SrcBlend = (d.additive || d.premult) ? D3D12_BLEND_ONE : D3D12_BLEND_SRC_ALPHA; rt.DestBlend = d.additive ? D3D12_BLEND_ONE : D3D12_BLEND_INV_SRC_ALPHA; rt.BlendOp = D3D12_BLEND_OP_ADD;
       rt.SrcBlendAlpha = D3D12_BLEND_ONE; rt.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA; rt.BlendOpAlpha = D3D12_BLEND_OP_ADD; }
     p.RTVFormats[i] = d.rtv[i];
   }

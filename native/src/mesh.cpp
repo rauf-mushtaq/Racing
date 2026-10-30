@@ -84,8 +84,11 @@ GpuMesh uploadMesh(Gfx& g, const MeshData& m) {
   r.ib = g.makeBuffer(m.i.data(), (UINT)(m.i.size() * 4), 4, (UINT)m.i.size()); r.indexCount = (UINT)m.i.size(); return r;
 }
 void releaseMesh(Gfx& g, GpuMesh& m) { g.releaseBuffer(m.vb); g.releaseBuffer(m.ib); m.indexCount = 0; }
+void drawMeshView(Gfx& g, const GpuMesh& m, UINT instanceCount, const D3D12_VERTEX_BUFFER_VIEW* inst) {
+  if (!m.indexCount || instanceCount == 0) return;
+  D3D12_VERTEX_BUFFER_VIEW vb[2] = { m.vb.vbv(), inst ? *inst : D3D12_VERTEX_BUFFER_VIEW{} }; D3D12_INDEX_BUFFER_VIEW ib = m.ib.ibv();
+  g.cmd->IASetVertexBuffers(0, inst ? 2 : 1, vb); g.cmd->IASetIndexBuffer(&ib); g.cmd->DrawIndexedInstanced(m.indexCount, instanceCount, 0, 0, 0); g.draws++;
+}
 void drawMesh(Gfx& g, const GpuMesh& m, UINT instanceCount, const Buffer* inst) {
-  if (!m.indexCount) return;
-  D3D12_VERTEX_BUFFER_VIEW vb[2] = { m.vb.vbv(), inst ? inst->vbv() : D3D12_VERTEX_BUFFER_VIEW{} }; D3D12_INDEX_BUFFER_VIEW ib = m.ib.ibv();
-  g.cmd->IASetVertexBuffers(0, inst ? 2 : 1, vb); g.cmd->IASetIndexBuffer(&ib); g.cmd->DrawIndexedInstanced(m.indexCount, instanceCount, 0, 0, 0);
+  if (inst) { D3D12_VERTEX_BUFFER_VIEW v = inst->vbv(); drawMeshView(g, m, instanceCount, &v); } else drawMeshView(g, m, instanceCount, nullptr);
 }

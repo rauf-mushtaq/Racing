@@ -46,6 +46,9 @@ void Renderer::init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& qu
   };
   psoShMesh = shadowPso("VSMain", meshLayout()); psoShInst = shadowPso("VSInst", instancedLayout());
   psoShTerrain = shadowPso("VSTerrain", { { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }, { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }, { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 } });
+  { PsoDesc d; d.file = "fx.hlsl"; d.numRT = 2; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = S; d.depthWrite = false; d.cull = D3D12_CULL_MODE_NONE; d.blend = true; d.premult = true; d.rt1NoWrite = true;
+    d.layout = { { "PA", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 }, { "PB", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 }, { "PC", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 } };
+    psoFx = gfx.makePso(d); }
   terrain.init(gfx, S);
   float cam3[3] = { cam.pos.x, cam.pos.y, cam.pos.z }; (void)cam3;
 }
@@ -92,7 +95,7 @@ void Renderer::fullscreen(Texture& target, ID3D12PipelineState* pso, UINT srvBlo
 
 void Renderer::frame(float dt) {
   (void)dt;
-  gfx.beginFrame();
+  gfx.beginFrame(); gfx.gpuStamp(false);
   // --- Camera and frame constants -----------------------------------------------------------------
   float yaw = cam.yaw * (float)PI / 180.0f, pitch = cam.pitch * (float)PI / 180.0f;
   forward = Vec3(std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch));
@@ -146,6 +149,7 @@ void Renderer::frame(float dt) {
     gfx.cmd->SetPipelineState(psoSky.Get()); struct DrawCB { float world[16]; float p[16]; } cb = {}; cb.world[0] = cb.world[5] = cb.world[10] = cb.world[15] = 1;
     gfx.setDraw(gfx.cb(cb), mainBlock); gfx.cmd->DrawInstanced(3, 1, 0, 0);
   }
+  if (drawFx) drawFx(*this);
   // --- Resolve the multisampled targets ------------------------------------------------------------------------
   if (q.msaa > 1) {
     gfx.barrier(msColor, D3D12_RESOURCE_STATE_RESOLVE_SOURCE); gfx.barrier(msViewDepth, D3D12_RESOURCE_STATE_RESOLVE_SOURCE);
@@ -198,6 +202,7 @@ void Renderer::frame(float dt) {
     gfx.cmd->CopyResource(bb, ldr.res.Get());
     std::swap(b.Transition.StateBefore, b.Transition.StateAfter); gfx.cmd->ResourceBarrier(1, &b);
   }
+  statDraws = gfx.draws; statShadowDraws = gfx.shadowDraws; gfx.gpuStamp(true);
   gfx.endFrame(true);
   if (shot) { gfx.waitIdle(); saveShot(); shotPath.clear(); }
 }
@@ -235,7 +240,7 @@ void Renderer::computeCascades(FrameCB& f) {
   }
 }
 void Renderer::shadowPass(const FrameCB& f) {
-  gfx.barrier(shadow, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+  gfx.barrier(shadow, D3D12_RESOURCE_STATE_DEPTH_WRITE); UINT d0 = gfx.draws;
   for (int c = 0; c < 4; c++) {
     FrameCB sf = f; sf.viewProj = cascadeVP[c]; D3D12_GPU_VIRTUAL_ADDRESS va = gfx.cb(sf);
     gfx.cmd->ClearDepthStencilView(shadow.sliceDsv[c], D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
@@ -245,6 +250,7 @@ void Renderer::shadowPass(const FrameCB& f) {
     if (drawWorld) drawWorld(*this, true, fr);
     inShadow = false;
   }
+  gfx.shadowDraws = gfx.draws - d0;
   gfx.barrier(shadow, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 }
 void Renderer::drawMeshMat(const GpuMesh& m, const Mat4& world, const Material& mat, const Buffer* inst, UINT instances) {
@@ -254,4 +260,18 @@ void Renderer::drawMeshMat(const GpuMesh& m, const Mat4& world, const Material& 
   if (inShadow) { gfx.cmd->SetPipelineState((inst ? psoShInst : psoShMesh).Get()); gfx.setDraw(gfx.cb(cb), blkNull); }
   else { gfx.cmd->SetPipelineState(psoMesh[inst ? 1 : 0][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
   drawMesh(gfx, m, instances, inst);
+}
+void Renderer::drawMeshInst(const GpuMesh& m, const Material& mat, const D3D12_VERTEX_BUFFER_VIEW& inst, UINT instances) {
+  if (!m.indexCount || instances == 0) return;
+  struct DrawCB { Mat4 world; float p0[4], p1[4], p2[4], p3[4]; } cb = {}; cb.world = Mat4::identity();
+  cb.p0[0] = mat.type; cb.p0[1] = mat.rough; cb.p0[2] = mat.metal; cb.p0[3] = mat.emissive; cb.p1[0] = mat.tint[0]; cb.p1[1] = mat.tint[1]; cb.p1[2] = mat.tint[2]; cb.p1[3] = 1; cb.p3[0] = mat.twoSided ? 1.0f : 0.0f;
+  if (inShadow) { gfx.cmd->SetPipelineState(psoShInst.Get()); gfx.setDraw(gfx.cb(cb), blkNull); }
+  else { gfx.cmd->SetPipelineState(psoMesh[1][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
+  drawMeshView(gfx, m, instances, &inst);
+}
+void Renderer::drawParticles(const D3D12_VERTEX_BUFFER_VIEW& v, UINT n) {
+  if (n == 0) return;
+  struct DrawCB { float world[16]; float p[16]; } cb = {}; cb.world[0] = cb.world[5] = cb.world[10] = cb.world[15] = 1;
+  gfx.cmd->SetPipelineState(psoFx.Get()); gfx.setDraw(gfx.cb(cb), mainBlock);
+  gfx.cmd->IASetVertexBuffers(0, 1, &v); gfx.cmd->DrawInstanced(6, n, 0, 0); gfx.draws++;
 }

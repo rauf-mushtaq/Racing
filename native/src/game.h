@@ -7,6 +7,9 @@
 #include "scenery.h"
 #include "city.h"
 #include "collide.h"
+#include "vehicles.h"
+#include "traffic.h"
+#include "fx.h"
 
 struct InputState {
   double gas = 0, brake = 0, steer = 0; bool handbrake = false, nitro = false, analog = false;
@@ -23,12 +26,14 @@ private:
 
 class Game {
 public:
-  Vehicle car; CarModel model; Scenery scenery; City city; float color[3] = { 0.85f, 0.20f, 0.03f };
+  Vehicle car; CarModel model; Scenery scenery; City city; VehicleModels vmodels; Traffic traffic; Fx fx; double clock = 0, trafficAcc = 0; float color[3] = { 0.85f, 0.20f, 0.03f };
   int camMode = 0; bool freeCam = false; double camYaw = 0, orbit = 0, orbitPitch = 0; Vec3 camPos, camLookSmooth; bool camInit = false; double speedKmh = 0; bool braking = false;
   void init(Renderer& r);
   void spawn(const std::string& where, double x = 0, double z = 0, double h = 0);
   void update(Renderer& r, double dt, const InputState& in);
   void draw(Renderer& r, bool shadow, const Frustum& f);
+  void prepare(Gfx& g, const Frustum& f);                 // per-frame instance data, built once before the shadow pass
+  Pose pose() const { return { car.x, car.z, car.h }; }
   Vec3 focus() const { return Vec3((float)car.x, (float)car.bodyY(), (float)car.z); }
 private:
   double acc = 0, alpha = 1; std::string lastWhere;

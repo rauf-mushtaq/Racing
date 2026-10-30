@@ -45,3 +45,4 @@ struct GpuMesh { Buffer vb, ib; UINT indexCount = 0; explicit operator bool() co
 GpuMesh uploadMesh(Gfx& g, const MeshData& m);
 void releaseMesh(Gfx& g, GpuMesh& m);
 void drawMesh(Gfx& g, const GpuMesh& m, UINT instanceCount = 1, const Buffer* inst = nullptr);
+void drawMeshView(Gfx& g, const GpuMesh& m, UINT instanceCount, const D3D12_VERTEX_BUFFER_VIEW* inst);   // instance data given as a view (per-frame data from the constant ring)

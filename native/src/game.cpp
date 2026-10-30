@@ -30,8 +30,9 @@ static int nearestIndex(const Road& R, double x, double z) { int bi = 0; double 
 static const Road* roadById(const char* id) { for (auto& R : ROADS) if (R.id == id) return &R; return nullptr; }
 
 void Game::init(Renderer& r) {
-  scenery.init(r.gfx); model.build(r.gfx); city.init(r.gfx);
+  scenery.init(r.gfx); model.build(r.gfx); city.init(r.gfx); vmodels.build(r.gfx); traffic.init(r.gfx, vmodels); traffic.setDensity(2, pose());
   r.drawWorld = [this](Renderer& rr, bool shadow, const Frustum& f) { draw(rr, shadow, f); };
+  r.drawFx = [this](Renderer& rr) { fx.draw(rr, rr.cam.pos); };
 }
 // Put the car on a road, in the right-hand lane, facing along it (sign = which way along the road's drawn direction).
 void Game::spawn(const std::string& where, double x, double z, double h) {
@@ -49,7 +50,7 @@ void Game::spawn(const std::string& where, double x, double z, double h) {
   else if (where == "runway") { car.reset(AIRFIELD.x - 4, AIRFIELD.runwayZ0 + 40, 0); }
   else if (where == "city") car.reset(8.5, 480, PI);
   else car.reset(x, z, h);
-  car.haveBase = false; camInit = false; acc = 0; alpha = 1;
+  car.haveBase = false; camInit = false; acc = 0; alpha = 1; traffic.reset(pose()); fx.clear();
 }
 void Game::update(Renderer& r, double dt, const InputState& in) {
   if (in.cam) camMode = (camMode + 1) % 4;
@@ -58,7 +59,9 @@ void Game::update(Renderer& r, double dt, const InputState& in) {
   DriveInput di; di.gas = in.gas; di.brake = in.brake; di.steer = in.steer; di.handbrake = in.handbrake; di.nitro = in.nitro; di.analog = in.analog;
   const double STEP = 1.0 / 240.0; acc += std::min(dt, 0.066);
   HitFn hit = [](double) {};
-  while (acc >= STEP) { car.step(STEP, di); collideStatic(car, hit); collideTerrain(car, hit); acc -= STEP; }
+  while (acc >= STEP) { car.step(STEP, di); collideStatic(car, hit); collideTerrain(car, hit); collideTraffic(car, traffic, hit); acc -= STEP; }
+  clock += dt; trafficAcc += std::min(dt, 0.066); while (trafficAcc >= 1.0 / 60) { traffic.update(1.0 / 60, pose(), clock); trafficAcc -= 1.0 / 60; }
+  fx.update(dt);
   alpha = acc / STEP; speedKmh = car.speed() * 3.6; braking = in.brake > 0.1 && car.vx > 0.5;
   updateCamera(r, dt, in);
 }
@@ -89,6 +92,7 @@ void Game::updateCamera(Renderer& r, double dt, const InputState& in) {
   Vec3 f = normalize(look - pos);
   r.cam.pos = pos; r.cam.yaw = (float)(std::atan2(f.x, -f.z) / k2r); r.cam.pitch = (float)(std::asin(f.y) / k2r); r.cam.fov = (float)fov;
 }
+void Game::prepare(Gfx& g, const Frustum& f) { traffic.prepare(g, pose(), f, clock); }
 void Game::draw(Renderer& r, bool shadow, const Frustum& f) {
-  scenery.draw(r, shadow, f); city.draw(r, shadow, f, r.cam.pos); model.draw(r, car, alpha, color, braking);
+  scenery.draw(r, shadow, f); city.draw(r, shadow, f, r.cam.pos); traffic.draw(r, shadow); model.draw(r, car, alpha, color, braking);
 }

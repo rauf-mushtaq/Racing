@@ -164,6 +164,6 @@ void Terrain::draw(Gfx& g, const Frustum& f, UINT srvSlot, ID3D12PipelineState* 
     g.setDraw(g.cb(cb), srvSlot);
     D3D12_VERTEX_BUFFER_VIEW vbv = t.vb.vbv(); D3D12_INDEX_BUFFER_VIEW ibv = t.ib.ibv();
     g.cmd->IASetVertexBuffers(0, 1, &vbv); g.cmd->IASetIndexBuffer(&ibv);
-    g.cmd->DrawIndexedInstanced(t.indexCount, 1, 0, 0, 0);
+    g.cmd->DrawIndexedInstanced(t.indexCount, 1, 0, 0, 0); g.draws++;
   }
 }

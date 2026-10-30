@@ -35,12 +35,14 @@ void addBoxes(const std::vector<Box>& list) {
   for (const Box& b : list) for (int cx = (int)std::floor(b.x0 / CELL); cx <= (int)std::floor(b.x1 / CELL); cx++) for (int cz = (int)std::floor(b.z0 / CELL); cz <= (int)std::floor(b.z1 / CELL); cz++) boxGrid[ck(cx, cz)].push_back(b);
 }
 static const double CIRCLES[3] = { -1.45, 0, 1.45 }, RAD = 1.0;
-static double applyImpulse(Vehicle& car, double px, double pz, double nx, double nz, double e, double mu, const HitFn* hit) {
+double applyImpulse(Vehicle& car, double px, double pz, double nx, double nz, double e, double mu, const HitFn* hit, double otherMassInv, const double* otherVel) {
   double m = car.s.mass, I = car.I, Vx, Vz; car.worldVel(Vx, Vz);
-  double Om = -car.w, rx = px - car.x, rz = pz - car.z, vpx = Vx + Om * rz, vpz = Vz - Om * rx, vn = vpx * nx + vpz * nz;
+  double Om = -car.w, rx = px - car.x, rz = pz - car.z, vpx = Vx + Om * rz, vpz = Vz - Om * rx;
+  if (otherVel) { vpx -= otherVel[0]; vpz -= otherVel[1]; }
+  double vn = vpx * nx + vpz * nz;
   if (vn >= 0) return 0;
-  double rn = rz * nx - rx * nz, j = -(1 + e) * vn / (1 / m + rn * rn / I), nVx = Vx + j * nx / m, nVz = Vz + j * nz / m; Om += rn * j / I;
-  double tx = -nz, tz = nx, vt = vpx * tx + vpz * tz, rt = rz * tx - rx * tz, jt = -vt / (1 / m + rt * rt / I);
+  double rn = rz * nx - rx * nz, j = -(1 + e) * vn / (1 / m + rn * rn / I + otherMassInv), nVx = Vx + j * nx / m, nVz = Vz + j * nz / m; Om += rn * j / I;
+  double tx = -nz, tz = nx, vt = vpx * tx + vpz * tz, rt = rz * tx - rx * tz, jt = -vt / (1 / m + rt * rt / I + otherMassInv);
   jt = std::max(-mu * j, std::min(mu * j, jt)); nVx += jt * tx / m; nVz += jt * tz / m; Om += rt * jt / I;
   car.setWorldVel(nVx, nVz); car.w = -Om;
   if (hit && *hit) (*hit)(j);
@@ -87,4 +89,36 @@ void collideTerrain(Vehicle& car, const HitFn& onHit) {
   slopeAt(px, pz, gx, gz); double gm = std::hypot(gx, gz); if (gm < 0.95) return;
   double nx = -gx / gm, nz = -gz / gm; if (Vx * nx + Vz * nz > 0) return;
   car.x += nx * 0.12; car.z += nz * 0.12; applyImpulse(car, px, pz, nx, nz, 0.15, 0.5, &onHit);
+}
+
+// --- Rays and push-out against the static world ---------------------------------------------------------------------------
+double raycastStatic(double x, double z, double dx, double dz, double maxDist) {
+  static std::vector<Circle> found; double l = std::hypot(dx, dz); if (l < 1e-9) return maxDist; dx /= l; dz /= l;
+  for (double t = 1.0; t < maxDist; t += 1.5) {
+    double px = x + dx * t, pz = z + dz * t;
+    auto it = boxGrid.find(ck((int)std::floor(px / CELL), (int)std::floor(pz / CELL)));
+    if (it != boxGrid.end()) for (const Box& b : it->second) if (px > b.x0 && px < b.x1 && pz > b.z0 && pz < b.z1) return t;
+    queryColliders((float)px, (float)pz, 1.0f, found);
+    for (const Circle& c : found) if ((px - c.x) * (px - c.x) + (pz - c.z) * (pz - c.z) < (double)c.r * c.r) return t;
+  }
+  return maxDist;
+}
+bool pushOutStatic(double& x, double& z, double r, double* onx, double* onz) {
+  static std::vector<Circle> found; bool hit = false; double bx = 0, bz = 0;
+  for (int pass = 0; pass < 2; pass++) {
+    queryColliders((float)x, (float)z, (float)(r + 2.5), found);
+    for (const Circle& c : found) {
+      double dx = x - c.x, dz = z - c.z, dist = std::hypot(dx, dz), rr = r + c.r; if (dist >= rr || dist < 1e-5) continue;
+      double nx = dx / dist, nz = dz / dist; x += nx * (rr - dist); z += nz * (rr - dist); hit = true; bx = nx; bz = nz;
+    }
+    auto it = boxGrid.find(ck((int)std::floor(x / CELL), (int)std::floor(z / CELL)));
+    if (it != boxGrid.end()) for (const Box& b : it->second) {
+      double qx = std::max((double)b.x0, std::min(x, (double)b.x1)), qz = std::max((double)b.z0, std::min(z, (double)b.z1)), dx = x - qx, dz = z - qz, dist = std::hypot(dx, dz), nx, nz, pen;
+      if (dist >= r) continue;
+      if (dist > 1e-4) { nx = dx / dist; nz = dz / dist; pen = r - dist; }
+      else { double o[4][3] = { { x - b.x0, -1, 0 }, { b.x1 - x, 1, 0 }, { z - b.z0, 0, -1 }, { b.z1 - z, 0, 1 } }; int bi = 0; for (int k = 1; k < 4; k++) if (o[k][0] < o[bi][0]) bi = k; nx = o[bi][1]; nz = o[bi][2]; pen = o[bi][0] + r; }
+      x += nx * pen; z += nz * pen; hit = true; bx = nx; bz = nz;
+    }
+  }
+  if (onx) *onx = bx; if (onz) *onz = bz; return hit;
 }
