@@ -103,7 +103,7 @@ void BondModel::draw(Renderer& r, const Vehicle& v, double alpha, const BondStat
   Material paint; paint.type = 1; paint.tint[0] = 0.50f; paint.tint[1] = 0.52f; paint.tint[2] = 0.55f;                          // silver birch
   Material glassM; glassM.type = 3; Material trimM; trimM.type = 0; trimM.rough = 0.5f; trimM.twoSided = true;
   Material chromeM; chromeM.type = 0; chromeM.rough = 0.1f; chromeM.metal = 1.0f; chromeM.twoSided = true;
-  Material headM; headM.type = 4; headM.emissive = st.headlights ? 3.5f : 0.6f; Material tailM; tailM.type = 4; tailM.emissive = st.braking ? 8.0f : 1.6f;
+  Material headM; headM.type = 4; headM.emissive = st.headlights ? 2.0f : 0.5f; Material tailM; tailM.type = 4; tailM.emissive = st.braking ? 8.0f : 1.6f;
   Material gunM; gunM.type = 0; gunM.rough = 0.3f; gunM.metal = 0.8f; Material tireM; tireM.type = 0; tireM.rough = 0.85f; tireM.twoSided = true;
   Material spokeM; spokeM.type = 0; spokeM.rough = 0.15f; spokeM.metal = 1.0f; spokeM.twoSided = true; Material brakeM; brakeM.type = 0; brakeM.rough = 0.6f; brakeM.metal = 0.5f; brakeM.twoSided = true;
   r.drawMeshMat(body, M, paint); r.drawMeshMat(roof, M, paint); r.drawMeshMat(trim, M, trimM);

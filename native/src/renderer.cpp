@@ -127,13 +127,13 @@ void Renderer::frame(float dt) {
   f.camPos[0] = cam.pos.x; f.camPos[1] = cam.pos.y; f.camPos[2] = cam.pos.z; f.camPos[3] = (float)time;
   f.sunDir[0] = SUN.x; f.sunDir[1] = SUN.y; f.sunDir[2] = SUN.z; f.sunDir[3] = exposure;
   const float k = 4.8f / 3.14159f; f.sunColor[0] = 1.0f * k; f.sunColor[1] = 0.552f * k; f.sunColor[2] = 0.262f * k;
-  f.fogColor[0] = 0.76f; f.fogColor[1] = 0.50f; f.fogColor[2] = 0.29f; f.fogColor[3] = 0.0010f;
-  f.fogParams[0] = 0.0026f; f.fogParams[1] = 0.00028f; f.fogParams[2] = 1.8f; f.fogParams[3] = 0.5f;
+  f.fogColor[0] = 0.66f; f.fogColor[1] = 0.54f; f.fogColor[2] = 0.42f; f.fogColor[3] = 0.00072f;
+  f.fogParams[0] = 0.0026f; f.fogParams[1] = 0.00028f; f.fogParams[2] = 1.4f; f.fogParams[3] = 0.32f;
   f.screen[0] = (float)W; f.screen[1] = (float)H; f.screen[2] = 1.0f / W; f.screen[3] = 1.0f / H;
   f.cascade[0] = 14; f.cascade[1] = 45; f.cascade[2] = 140; f.cascade[3] = 420;
   computeCascades(f);
-  f.params[0] = q.bloom; f.params[1] = q.ao ? 0.9f : 0.0f; f.params[2] = 0.02f; f.params[3] = 0.003f;
-  f.params2[0] = q.sharpen; f.params2[1] = q.clarity; f.params2[2] = 0.28f; f.params2[3] = 0.12f;
+  f.params[0] = q.bloom; f.params[1] = q.ao ? 0.9f : 0.0f; f.params[2] = 0.014f; f.params[3] = 0.0012f;
+  f.params2[0] = q.sharpen; f.params2[1] = q.clarity; f.params2[2] = 0.22f; f.params2[3] = 0.08f;
   { Vec3 sp = cam.pos + SUN * 5000.0f; float cx = viewProj.m[0][0] * sp.x + viewProj.m[0][1] * sp.y + viewProj.m[0][2] * sp.z + viewProj.m[0][3], cy = viewProj.m[1][0] * sp.x + viewProj.m[1][1] * sp.y + viewProj.m[1][2] * sp.z + viewProj.m[1][3];
     float cw = viewProj.m[3][0] * sp.x + viewProj.m[3][1] * sp.y + viewProj.m[3][2] * sp.z + viewProj.m[3][3];
     f.sunScreen[0] = (cx / cw) * 0.5f + 0.5f; f.sunScreen[1] = -(cy / cw) * 0.5f + 0.5f; f.sunScreen[2] = clampf((dot(forward, SUN) - 0.15f) / 0.5f, 0, 1); }
@@ -192,7 +192,7 @@ void Renderer::frame(float dt) {
   }
   // --- Composite -----------------------------------------------------------------------------------------------------------------
   if (q.dof) {   // depth of field and camera motion blur, then the composite reads the blurred picture
-    float shutter = clampf(0.5f * (1.0f / 60.0f) / std::max(dt, 1.0f / 400.0f), 0.12f, 1.2f), maxR = 5.0f * (float)H / 1080.0f, strength = 30.0f * (float)H / 1080.0f;
+    float shutter = clampf(0.3f * (1.0f / 60.0f) / std::max(dt, 1.0f / 400.0f), 0.08f, 0.8f), maxR = 4.0f * (float)H / 1080.0f, strength = 24.0f * (float)H / 1080.0f;
     float p[4] = { focusDist, strength, maxR, shutter }; fullscreen(dofTex, psoDof.Get(), blkDof, p, W, H); gfx.barrier(dofTex, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     float p2[4] = { 0, 0, 0, 0 }; fullscreen(ldr, psoComposite.Get(), blkCompositeDof, p2, W, H);
   } else { float p[4] = { 0, 0, 0, 0 }; fullscreen(ldr, psoComposite.Get(), blkComposite, p, W, H); }

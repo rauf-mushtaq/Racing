@@ -82,6 +82,7 @@ float3 CityGround(float2 p, float fp, out float rough, out float hgt, out float 
 }
 PSOut PSMain(V i) {
   float3 wp = i.wpos; float dist = length(wp - gCamPos.xyz);
+  gSpecP = wp;
   if (wp.x > gP0.x && wp.x < gP0.z && wp.z > gP0.y && wp.z < gP0.w) discard;
   float2 p = wp.xz;
   float fp = max(length(ddx(p)), length(ddy(p)));               // metres per pixel

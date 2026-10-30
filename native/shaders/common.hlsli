@@ -69,10 +69,36 @@ float3 SkyColor(float3 d) {
 // Diffuse light from the whole sky for a surface facing n.
 float3 AmbientSky(float3 n) {
   float up = n.y * 0.5 + 0.5;
-  float3 sky = float3(0.34, 0.44, 0.68) * 0.62, ground = float3(0.34, 0.25, 0.17) * 0.34;
+  float3 sky = float3(0.33, 0.45, 0.72) * 0.55, ground = float3(0.30, 0.24, 0.18) * 0.30;
   float3 c = lerp(ground, sky, up * up * (3.0 - 2.0 * up));
-  c += float3(0.30, 0.17, 0.08) * pow(saturate(dot(n, gSunDir.xyz) * 0.5 + 0.5), 3.0) * 0.5;   // warm sky-glow on the sun's side
+  c += float3(0.30, 0.18, 0.09) * pow(saturate(dot(n, gSunDir.xyz) * 0.5 + 0.5), 3.0) * 0.32;   // warm sky-glow on the sun's side
   return c;
+}
+
+// What a glossy surface sees along direction r. Above the horizon it is the sky; in the city the streets are canyons, so up to about
+// thirty degrees the view is filled with building walls (warm where the sun lights them, cool and dark in shade), and below the
+// horizon it is the dark street. Out in the country the walls fade away and the sky comes down to the horizon. gSpecP is the point
+// being shaded (set by the shader before it shades).
+static float3 gSpecP = float3(0, 0, 0);
+float3 EnvReflect(float3 r, float3 wp) {
+  float3 sky = SkyColor(r);
+  float cityK = 1.0 - smoothstep(2000.0, 2700.0, max(abs(wp.x), abs(wp.z)));
+  float lit = saturate(dot(normalize(r.xz + 1e-4), normalize(gSunDir.xz + 1e-4)) * 0.5 + 0.5);
+  float3 wall = lerp(float3(0.05, 0.06, 0.085), float3(0.62, 0.46, 0.32), lit * lit) * (0.8 + 0.4 * vnoise(float2((r.x + r.z * 0.7) * 7.0, r.y * 5.0 + r.z * 3.0)));
+  float w = (1.0 - smoothstep(0.10, 0.62, r.y)) * cityK * smoothstep(-0.12, 0.04, r.y);
+  float3 c = lerp(sky, wall, w);
+  float3 street = float3(0.075, 0.07, 0.065) + float3(0.28, 0.2, 0.12) * pow(saturate(dot(normalize(r.xz + 1e-4), normalize(gSunDir.xz + 1e-4))), 6.0) * saturate(-r.y * 3.0);
+  return lerp(c, street, smoothstep(0.02, -0.12, r.y) * cityK + smoothstep(0.0, -0.4, r.y) * (1.0 - cityK) * 0.5);
+}
+// Perturbs a surface normal by a relief height (in metres) using screen-space derivatives; strength scales how much of it shows.
+float3 BumpNormal(float3 n, float3 wp, float hgt, float strength) {
+  float3 dpx = ddx(wp), dpy = ddy(wp); float dhx = ddx(hgt), dhy = ddy(hgt);
+  float3 r1 = cross(dpy, n), r2 = cross(n, dpx); float det = dot(dpx, r1);
+  float pxl = max(length(dpx), length(dpy));
+  float2 dh = clamp(float2(dhx, dhy) * strength, -0.8 * pxl, 0.8 * pxl);
+  float3 nb = abs(det) * n - sign(det) * (dh.x * r1 + dh.y * r2);
+  float nl = length(nb);
+  return (abs(det) > 1e-12 && nl > 1e-12) ? nb / nl : n;
 }
 
 // --- Haze: thins with height, cooler away from the sun, warm and bright towards it -----------------
@@ -121,7 +147,7 @@ float3 SpecularLight(float3 n, float3 v, float3 f0, float rough, float shadow) {
   float3 F = FresnelSchlick(f0, vh);
   float3 sunSpec = F * DistGGX(nh, a) * VisSmith(nl, nv, a) * nl * gSunColor.rgb * shadow;
   float3 r = reflect(-v, n);
-  float3 skyRefl = SkyColor(r) * FresnelSchlick(f0, nv) * lerp(1.0, 0.0, saturate(rough * 1.1));
+  float3 skyRefl = EnvReflect(r, gSpecP) * FresnelSchlick(f0, nv) * lerp(1.0, 0.0, saturate(rough * 1.1));
   return sunSpec + skyRefl;
 }
 

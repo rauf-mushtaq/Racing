@@ -24,7 +24,7 @@ void PoliceChase::start(Vehicle& p, Traffic&, Fx&) {
   result = RUNNING; health = 100; heat = 2.0; time = 0; hidden = 0; nearest = 1e9; shake = damageFlash = bustT = 0; ammoMissile = 6; ammoBomb = 4; kills = civilians = 0; maxStars = 2; spotted = true;
   gunHeat = cdOil = cdSmoke = cdShield = shieldT = gunOut = 0; jammed = false; cops.clear(); missiles.clear(); bombs.clear(); oils.clear(); smokes.clear(); messages.clear();
   lastSeenX = p.x; lastSeenZ = p.z; spawnT = 0; fireT = regenMissile = regenBomb = endT = 0; wasSpotted = true; lastStars = 2; hiddenNeeded = 13;
-  for (int i = 0; i < 3; i++) spawnCop(p, 0, true);
+  for (int i = 0; i < 3; i++) spawnCop(p, 0, 2);
   messages.push_back("THE POLICE ARE ON YOU");
 }
 
@@ -45,11 +45,12 @@ bool PoliceChase::canSee(double ax, double az, double bx, double bz, double maxD
 }
 
 // --- Spawning ----------------------------------------------------------------------------------------------------------------
-void PoliceChase::spawnCop(const Vehicle& p, int kind, bool farAway) {
+void PoliceChase::spawnCop(const Vehicle& p, int kind, int mode) {
+  const bool farAway = mode == 1, nearStart = mode == 2;
   Cop c; c.kind = kind; const CarMesh& m = kind ? vm->swat : vm->cruiser; c.len = m.len; c.rad = m.rad; c.mass = kind ? 2700 : 1750; c.hp = c.maxHp = kind ? 260 : 100; c.flash = rnd();
   c.vmax = (kind ? 47.0 : 50.0 + stars() * 2.2) * (0.94 + rnd() * 0.12); double fx = std::sin(p.h), fz = std::cos(p.h), best = -1e9, bx = p.x, bz = p.z;
   for (int tries = 0; tries < 24; tries++) {
-    double x, z; double minD = farAway ? 260 : 150, maxD = farAway ? 380 : 260;
+    double x, z; double minD = nearStart ? 75 : farAway ? 260 : 150, maxD = nearStart ? 140 : farAway ? 380 : 260;
     if (inCity(p.x, p.z, 120)) {
       int pi = (int)std::lround(p.x / SP), pj = (int)std::lround(p.z / SP); int ni = std::max(-N, std::min(N, pi + (int)(rnd() * 11) - 5)), nj = std::max(-N, std::min(N, pj + (int)(rnd() * 11) - 5));
       x = ni * SP + (rnd() < 0.5 ? 0 : (rnd() - 0.5) * 2 * (hw(ni) - 4)); z = nj * SP; if (rnd() < 0.5) { x = ni * SP; z = nj * SP + (rnd() - 0.5) * SP * 0.7; }   // on a road: junction or along a street
@@ -61,7 +62,7 @@ void PoliceChase::spawnCop(const Vehicle& p, int kind, bool farAway) {
       if (x < coastX(z) + 90) continue;
     }
     double d = std::hypot(x - p.x, z - p.z); if (d < minD || d > maxD + 60) continue;
-    double score = -std::fabs(d - (minD + 40)) - ((x - p.x) * fx + (z - p.z) * fz > 30 ? 120 : 0) + (canSee(x, z, p.x, p.z, 400) ? -150 : 0);   // out of sight, behind or beside the player
+    double score = -std::fabs(d - (minD + 40)) - ((x - p.x) * fx + (z - p.z) * fz > 30 ? 120 : 0) + (canSee(x, z, p.x, p.z, 400) ? (nearStart ? 60 : -150) : (nearStart ? -60 : 0));   // out of sight, behind or beside the player
     if (score > best) { best = score; bx = x; bz = z; }
   }
   if (best < -1e8) {   // nothing usable found: a spot on the road grid well away from the player
@@ -221,13 +222,13 @@ void PoliceChase::update(double dt, Vehicle& p, Traffic& traffic, Fx& fx, const 
   if (hidden >= hiddenNeeded) { result = ESCAPED; messages.push_back("YOU LOST THEM"); return; }
   // Cops: spawn up to the wanted level, drive, retire the wrecks.
   spawnT -= dt; int alive = 0, trucks = 0; for (const Cop& c : cops) if (!c.wreck) { alive++; if (c.kind) trucks++; }
-  if (spawnT <= 0 && alive < desiredCops()) { spawnCop(p, (stars() >= 4 && trucks < (stars() - 2)) ? 1 : 0, spotted); spawnT = spotted ? 2.2 : 5.0; }
+  if (spawnT <= 0 && alive < desiredCops()) { spawnCop(p, (stars() >= 4 && trucks < (stars() - 2)) ? 1 : 0, spotted ? 1 : 0); spawnT = spotted ? 2.2 : 5.0; }
   for (size_t i = 0; i < cops.size();) {
     Cop& c = cops[i]; double gx = spotted ? p.x + std::sin(p.h) * pspeed * 0.6 : lastSeenX, gz = spotted ? p.z + std::cos(p.h) * pspeed * 0.6 : lastSeenZ; bool chase = spotted;
     if (!spotted) { c.roam -= dt; if (std::hypot(c.x - lastSeenX, c.z - lastSeenZ) < 35 && c.roam <= 0) { c.roam = 6 + rnd() * 5; double a = rnd() * 6.2832, r = 80 + rnd() * 140; c.rx = lastSeenX + std::sin(a) * r; c.rz = lastSeenZ + std::cos(a) * r; } if (c.roam > 0 && c.rx != 0) { gx = c.rx; gz = c.rz; } }
     updateCop(c, dt, p, traffic, fx, gx, gz, chase);
     bool farAway = std::hypot(c.x - p.x, c.z - p.z) > 480; bool dead = c.wreck && c.burn > 24;
-    if (dead || (!c.wreck && (farAway || c.stuck > 3.0))) { if (c.wreck) { cops[i] = cops.back(); cops.pop_back(); continue; } int kind = c.kind; double hp = c.hp; spawnCop(p, kind, spotted); Cop n = cops.back(); cops.pop_back(); n.hp = hp; cops[i] = n; }   // (spawnCop grows the vector: no references into it across the call)
+    if (dead || (!c.wreck && (farAway || c.stuck > 3.0))) { if (c.wreck) { cops[i] = cops.back(); cops.pop_back(); continue; } int kind = c.kind; double hp = c.hp; spawnCop(p, kind, spotted ? 1 : 0); Cop n = cops.back(); cops.pop_back(); n.hp = hp; cops[i] = n; }   // (spawnCop grows the vector: no references into it across the call)
     i++;
   }
   for (size_t a = 0; a < cops.size(); a++) for (size_t b = a + 1; b < cops.size(); b++) {                  // cops don't drive through each other

@@ -14,6 +14,7 @@ The same world as the web game, as a native Windows program: C++17, Direct3D 12 
 - Traffic with signals (ported from the web game), motorway traffic, cars that get knocked about.
 - **Races**: fifteen routes with checkpoint gates, timer, medals and saved best times.
 - **Escape mode**: you drive a silver 1960s-style grand tourer with gadgets and the police chase you (see below).
+- Surfaces: brick courses with mortar, recessed windows with frames, curtains, blinds and lit rooms, weathering streaks, speckled and cracked asphalt with worn paint, palms with real leaflets, leafy trees with ragged edges, and reflections that see the street and its buildings instead of an empty sky.
 - Rendering: cascaded shadows, ambient occlusion, 4× MSAA HDR, bloom, depth of field, camera motion blur, haze,
   golden-hour sky and clouds, particles (smoke, fire, sparks, tracers).
 

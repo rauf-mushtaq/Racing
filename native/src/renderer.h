@@ -14,14 +14,14 @@ struct FrameCB {
 };
 struct CamState { Vec3 pos; float yaw = 0, pitch = 0, fov = 60.0f; };  // yaw: 0 = north (-z), 90 = east; degrees
 
-struct Quality { int msaa = 4; bool ao = true, shadows = true, reflections = true, dof = true; float bloom = 0.4f; float sharpen = 0.35f, clarity = 0.3f; };
+struct Quality { int msaa = 4; bool ao = true, shadows = true, reflections = true, dof = true; float bloom = 0.22f; float sharpen = 0.22f, clarity = 0.16f; };
 // How a mesh is shaded: type 0 plain, 1 car paint, 2 road, 3 glass, 4 emissive, 5 foliage (see mesh.hlsl).
 struct Material { float type = 0, rough = 0.8f, metal = 0, emissive = 0; float tint[3] = { 1, 1, 1 }; bool twoSided = false; };
 
 class Renderer {
 public:
   Gfx gfx; Terrain terrain; Quality q;
-  CamState cam; double time = 0; float exposure = 0.85f; float wet = 0.55f, focusDist = 7.0f;   // wet: how soaked the streets are
+  CamState cam; double time = 0; float exposure = 0.80f; float wet = 0.14f, focusDist = 7.0f;   // wet: how soaked the streets are
   Mat4 prevViewProj = Mat4::identity(); bool havePrev = false;
   Mat4 view, proj, viewProj; Vec3 forward; Frustum frustum;
   UINT W = 0, H = 0; UINT statDraws = 0, statShadowDraws = 0;   // draw calls in the last frame (all, and the part spent on shadow cascades)

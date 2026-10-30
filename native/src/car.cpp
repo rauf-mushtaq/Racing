@@ -99,7 +99,7 @@ void CarModel::draw(Renderer& r, const Vehicle& v, double alpha, const float col
   Material glassM; glassM.type = 3; Material trimM; trimM.type = 0; trimM.rough = 0.55f; trimM.twoSided = true;
   Material carbon; carbon.type = 0; carbon.rough = 0.3f; carbon.metal = 0.25f; Material tireM; tireM.type = 0; tireM.rough = 0.85f; tireM.twoSided = true;
   Material rimM; rimM.type = 0; rimM.rough = 0.22f; rimM.metal = 0.95f; rimM.twoSided = true; Material brakeM; brakeM.type = 0; brakeM.rough = 0.5f; brakeM.metal = 0.6f; brakeM.twoSided = true;
-  Material headM; headM.type = 4; headM.emissive = 4.0f; Material tailM; tailM.type = 4; tailM.emissive = braking ? 8.0f : 1.8f;
+  Material headM; headM.type = 4; headM.emissive = 2.4f; Material tailM; tailM.type = 4; tailM.emissive = braking ? 8.0f : 1.8f;
   Material chromeM; chromeM.type = 0; chromeM.rough = 0.12f; chromeM.metal = 1.0f;
   r.drawMeshMat(body, M, paint); r.drawMeshMat(trim, M, trimM); r.drawMeshMat(wing, M, carbon);
   if (!r.inShadow) { r.drawMeshMat(roof, M, paint); r.drawMeshMat(glass, M, glassM); r.drawMeshMat(head, M, headM); r.drawMeshMat(tail, M, tailM); r.drawMeshMat(chrome, M, chromeM); }

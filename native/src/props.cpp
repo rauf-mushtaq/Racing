@@ -41,13 +41,14 @@ static MeshData palm() {
     std::vector<Vec3> ring; for (int k = 0; k < N; k++) { float a = (float)(2 * PI * k / N); ring.push_back(c + Vec3(std::cos(a) * r, 0, std::sin(a) * r)); } rings.push_back(ring);
   }
   m.loft(rings, C(0.45f, 0.36f, 0.26f), true, true);
-  for (int f = 0; f < 11; f++) {                                  // fronds: arching strips with a spine
-    float a = (float)(2 * PI * f / 11) + rnd01(f) * 0.4f, len = 3.6f + rnd01(f + 20) * 1.2f, droop = 1.1f + rnd01(f + 40) * 0.6f; Vec3 dir(std::cos(a), 0, std::sin(a)), side(-dir.z, 0, dir.x);
-    uint32_t col = C(0.08f + 0.05f * rnd01(f), 0.26f + 0.08f * rnd01(f + 5), 0.05f);
-    for (int s = 0; s < 7; s++) {
-      float t0 = s / 7.0f, t1 = (s + 1) / 7.0f, w0 = 0.55f * std::sin((float)PI * (t0 * 0.9f + 0.05f)), w1 = 0.55f * std::sin((float)PI * (t1 * 0.9f + 0.05f));
+  for (int f = 0; f < 14; f++) {                                  // fronds: arching strips; the shader cuts the leaflets and the spine (uv.x >= 2 marks a frond)
+    float a = (float)(2 * PI * f / 14) + rnd01(f) * 0.4f, len = 3.9f + rnd01(f + 20) * 1.3f, droop = 1.4f + rnd01(f + 40) * 0.9f; Vec3 dir(std::cos(a), 0, std::sin(a)), side(-dir.z, 0, dir.x);
+    uint32_t col = C(0.07f + 0.05f * rnd01(f), 0.25f + 0.09f * rnd01(f + 5), 0.05f);
+    const int SEG = 10;
+    for (int s = 0; s < SEG; s++) {
+      float t0 = (float)s / SEG, t1 = (float)(s + 1) / SEG, w0 = 0.62f * std::sin((float)PI * (t0 * 0.92f + 0.04f)), w1 = 0.62f * std::sin((float)PI * (t1 * 0.92f + 0.04f));
       Vec3 p0 = top + dir * (len * t0) + Vec3(0, 0.5f * std::sin((float)PI * t0 * 0.9f) * 1.6f - droop * t0 * t0, 0), p1 = top + dir * (len * t1) + Vec3(0, 0.5f * std::sin((float)PI * t1 * 0.9f) * 1.6f - droop * t1 * t1, 0);
-      m.quad(p0 - side * w0, p0 + side * w0, p1 + side * w1, p1 - side * w1, col);
+      m.quad(p0 - side * w0, p0 + side * w0, p1 + side * w1, p1 - side * w1, col, 2.0f, t0, 3.0f, t1);
     }
   }
   return m;

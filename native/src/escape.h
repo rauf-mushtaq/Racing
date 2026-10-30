@@ -42,7 +42,7 @@ private:
   const VehicleModels* vm = nullptr; uint32_t rng = 99; double lastSeenX = 0, lastSeenZ = 0, spawnT = 0, fireT = 0, regenMissile = 0, regenBomb = 0, endT = 0, spotCool = 0; bool wasSpotted = true; int lastStars = 2;
   GpuMesh bombMesh, bombLight, missileMesh, oilMesh, ringMesh;
   double rnd() { rng = rng * 1664525u + 1013904223u; return (double)(rng >> 8) / 16777216.0; }
-  void spawnCop(const Vehicle& player, int kind, bool farAway);
+  void spawnCop(const Vehicle& player, int kind, int mode);   // mode: 0 nearer, 1 a long way off (backup), 2 right behind you (the opening)
   bool canSee(double ax, double az, double bx, double bz, double maxDist) const;
   bool smokeBlocks(double ax, double az, double bx, double bz) const;
   void navTarget(const Cop& c, double gx, double gz, double& tx, double& tz) const;
