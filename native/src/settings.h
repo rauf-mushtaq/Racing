@@ -19,9 +19,9 @@ struct Settings {
   int traffic = 2;
   int music = 1, volume = 70; std::string musicTrack;       // music: 0 off, 1 during the police chase, 2 always; the file name in the music folder (empty = pick one)
   // steering wheel and pedals
-  bool wheelOn = true;
+  bool wheelOn = true; int wheelVer = 2;                   // wheelVer: which numbering the saved bindings use (1 was the first release, whose devices and buttons are numbered differently)
   AxisBind steer, throttle, brake;
-  int btn[ACT_COUNT];                                      // device * 32 + button, or -1 for none
+  int btn[ACT_COUNT];                                      // device * 64 + button, or -1 for none
   float steerSens = 1.0f, steerLin = 1.0f, steerDead = 0.02f, pedalDead = 0.03f, pedalCurve = 1.0f;
 
   Settings() { for (int& b : btn) b = -1; }

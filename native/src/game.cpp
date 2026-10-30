@@ -75,7 +75,7 @@ int Game::medalFor(const std::string& id, const Route& rt) const { double t = be
 void Game::openMenu() { if (state == State::Menu) return; menuFrom = state; state = State::Menu; buildMenu(0); }
 void Game::closeMenu() { if (state != State::Menu) return; state = menuFrom == State::Menu ? State::Free : menuFrom; }
 enum { A_RESUME = 1, A_FREE, A_RACES, A_ESCAPE, A_CAR, A_TRAFFIC, A_QUIT, A_RACE, A_BACK, A_RESTART, A_SETTINGS, A_PAGE, A_GFX, A_WHEEL, A_SND };
-enum { W_ON = 1, W_SCAN, W_STEER, W_THROTTLE, W_BRAKE, W_SENS, W_LIN, W_DEAD, W_PDEAD, W_PCURVE, W_RESET, W_BTN = 100 };   // wheel menu actions (W_BTN + act binds that button)
+enum { W_ON = 1, W_SCAN, W_STEER, W_THROTTLE, W_BRAKE, W_SENS, W_LIN, W_DEAD, W_PDEAD, W_PCURVE, W_RESET, W_ALL, W_BTN = 100 };   // wheel menu actions (W_BTN + act binds that button)
 static int parentPage(int page) { return page >= 3 ? 2 : 0; }   // 3 graphics, 4 wheel, 5 sound all hang off the settings page (2)
 static std::string onoff(bool b) { return b ? "On" : "Off"; }
 static std::string num(float v, int dec = 1) { char b[32]; snprintf(b, sizeof b, "%.*f", dec, v); return b; }
@@ -125,7 +125,8 @@ void Game::buildMenu(int page) {
   } else if (page == 4) {
     menuTitle = "WHEEL AND PEDALS"; if (menuPage != 4 || wheel.devices.empty()) wheel.scan();
     menuItems.push_back({ "Wheel and pedals: " + onoff(settings.wheelOn), "Turn the wheel on or off without losing your setup.", A_WHEEL, W_ON, true });
-    menuItems.push_back({ "Look for controllers again", "Plug in the wheel, then pick this. " + (wheel.devices.empty() ? std::string("None found right now.") : std::to_string(wheel.devices.size()) + " found."), A_WHEEL, W_SCAN });
+    menuItems.push_back({ "Set up everything", "The quick way: turn the wheel fully left and right, then press the throttle, then the brake. The game finds the axes itself.", A_WHEEL, W_ALL });
+    menuItems.push_back({ "Look for controllers again", "Plug in the wheel, then pick this. " + (wheel.devices.empty() ? std::string("None found right now. ") : std::to_string(wheel.devices.size()) + " found. ") + wheel.status + " A report is saved as sunset_wheel_report.txt next to the game.", A_WHEEL, W_SCAN });
     menuItems.push_back({ "Steering: " + (settings.steer.valid() ? std::string("set") : std::string("not set")), "Pick this, hold the wheel straight, then turn it fully left and then fully right. Now: " + wheel.describe(settings.steer), A_WHEEL, W_STEER });
     menuItems.push_back({ "Throttle pedal: " + (settings.throttle.valid() ? std::string("set") : std::string("not set")), "Pick this, let go of the pedals, then press the throttle all the way down. Now: " + wheel.describe(settings.throttle), A_WHEEL, W_THROTTLE });
     menuItems.push_back({ "Brake pedal: " + (settings.brake.valid() ? std::string("set") : std::string("not set")), "Pick this, let go of the pedals, then press the brake all the way down. Works with pedals that share one axis. Now: " + wheel.describe(settings.brake), A_WHEEL, W_BRAKE });
@@ -173,7 +174,8 @@ void Game::runMenuAction(const MenuItem& it, int dir) {
     case A_WHEEL: {
       auto clampf2 = [](float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }; float d = dir < 0 ? -1.0f : 1.0f;
       switch (it.arg) {
-        case W_ON: settings.wheelOn = !settings.wheelOn; break; case W_SCAN: wheel.scan(); break;
+        case W_ON: settings.wheelOn = !settings.wheelOn; break; case W_SCAN: wheel.scan(true); wheel.notice = wheel.devices.empty() ? "No controllers found." : std::to_string(wheel.devices.size()) + " controller(s) found."; wheel.noticeT = 3; break;
+        case W_ALL: wheel.startSetupAll(); break;
         case W_STEER: wheel.startBind(WheelInput::STEER_LEFT); break; case W_THROTTLE: wheel.startBind(WheelInput::THROTTLE); break; case W_BRAKE: wheel.startBind(WheelInput::BRAKE); break;
         case W_SENS: settings.steerSens = clampf2(std::round((settings.steerSens + 0.1f * d) * 100) / 100, 0.3f, 4.0f); break;
         case W_LIN: settings.steerLin = clampf2(std::round((settings.steerLin + 0.1f * d) * 100) / 100, 0.5f, 2.5f); break;
