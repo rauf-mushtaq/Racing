@@ -11,6 +11,13 @@ struct B { double cx, cz, w, d, h; float style, r, g, b; };
 
 void City::init(Gfx& g) {
   MeshData c; c.box(Vec3(-0.5f, 0.0f, -0.5f), Vec3(0.5f, 1.0f, 0.5f), packColor(1, 1, 1)); cube = uploadMesh(g, c); buildProps(g, props);
+  { // A gable roof on a unit footprint (ridge along z, height 1): two slopes and two gable ends.
+    MeshData w; const uint32_t wc = packColor(1, 1, 1); auto V = [&](Vec3 p, Vec3 n) { return w.add(p, n, wc, 0, 0); };
+    Vec3 a0(-0.5f, 0, -0.5f), a1(0.5f, 0, -0.5f), a2(0.5f, 0, 0.5f), a3(-0.5f, 0, 0.5f), r0(0, 1, -0.5f), r1(0, 1, 0.5f), nl = normalize(Vec3(-1, 0.5f, 0)), nr = normalize(Vec3(1, 0.5f, 0));
+    uint32_t i0 = V(a0, nl), i1 = V(a3, nl), i2 = V(r1, nl), i3 = V(r0, nl); w.tri(i0, i1, i2); w.tri(i0, i2, i3);
+    uint32_t j0 = V(a2, nr), j1 = V(a1, nr), j2 = V(r0, nr), j3 = V(r1, nr); w.tri(j0, j1, j2); w.tri(j0, j2, j3);
+    uint32_t k0 = V(a1, Vec3(0, 0, -1)), k1 = V(a0, Vec3(0, 0, -1)), k2 = V(r0, Vec3(0, 0, -1)); w.tri(k0, k1, k2);
+    uint32_t m0 = V(a3, Vec3(0, 0, 1)), m1 = V(a2, Vec3(0, 0, 1)), m2 = V(r1, Vec3(0, 0, 1)); w.tri(m0, m1, m2); wedge = uploadMesh(g, w); }
   { // A street lamp: a tapered pole, a curved arm reaching over the road (towards +x) and the lamp head hanging at its end.
     MeshData p; uint32_t k = packColor(0.20f, 0.21f, 0.22f); p.cylinder(Vec3(0, 0, 0), Vec3(0, 8.6f, 0), 0.14f, 0.075f, 8, k);
     p.cylinder(Vec3(0, 8.5f, 0), Vec3(1.2f, 9.05f, 0), 0.06f, 0.055f, 6, k); p.cylinder(Vec3(1.2f, 9.05f, 0), Vec3(2.4f, 8.95f, 0), 0.055f, 0.05f, 6, k); p.box(Vec3(2.05f, 8.82f, -0.17f), Vec3(2.95f, 8.95f, 0.17f), packColor(0.12f, 0.12f, 0.13f)); lampPole = uploadMesh(g, p);
@@ -31,6 +38,20 @@ void City::init(Gfx& g) {
     bx[ci].push_back(d); maxY[ci] = std::max(maxY[ci], (float)b.h); if (collide) boxes.push_back({ (float)(b.cx - b.w / 2), (float)(b.cz - b.d / 2), (float)(b.cx + b.w / 2), (float)(b.cz + b.d / 2) });
     buildings++;
   };
+  std::vector<std::vector<InstanceData>> ld(nc * nc), pt(nc * nc);   // ledges, cornices, parapets, canopies (boxes); pitched roofs
+  auto slab = [&](int ci, double cx, double y0, double cz, double w, double hgt, double d, float r, float g, float b) { ld[ci].push_back({ (float)cx, (float)y0, (float)cz, (float)w, 0.0f, tintOf(r, g, b, 0.0f), (float)(hgt / w), (float)(d / w) }); };
+  // The architecture that is real geometry rather than paint: a cornice under every roof edge, a parapet round the top, belt courses on the
+  // brick and stone mid-rise, a cornice over the shopfronts, a canopy over the lobby of a tower.
+  auto trim = [&](int ci, const B& b, bool topTier, bool groundTier, int hs) {
+    float lr = b.r * 1.1f, lg = b.g * 1.1f, lb = b.b * 1.1f;
+    slab(ci, b.cx, b.h - 0.6, b.cz, b.w + 0.7, 0.6, b.d + 0.7, lr, lg, lb);                                         // the cornice
+    if (topTier) { const double t = 0.3, ph = 1.05, ox = b.w / 2 + 0.35 - t / 2, oz = b.d / 2 + 0.35 - t / 2;       // the parapet
+      slab(ci, b.cx, b.h, b.cz - oz, b.w + 0.7, ph, t, lr, lg, lb); slab(ci, b.cx, b.h, b.cz + oz, b.w + 0.7, ph, t, lr, lg, lb);
+      slab(ci, b.cx - ox, b.h, b.cz, t, ph, b.d + 0.7 - 2 * t, lr, lg, lb); slab(ci, b.cx + ox, b.h, b.cz, t, ph, b.d + 0.7 - 2 * t, lr, lg, lb); }
+    if (b.style >= 0.34f && b.style < 0.67f && b.h > 13) for (double y = 10.8; y < b.h - 4.0; y += 10.8) slab(ci, b.cx, y - 0.15, b.cz, b.w + 0.34, 0.3, b.d + 0.34, lr, lg, lb);   // belt courses
+    if (groundTier) { if (b.style >= 0.34f) slab(ci, b.cx, 4.7, b.cz, b.w + 0.8, 0.3, b.d + 0.8, lr * 0.95f, lg * 0.95f, lb * 0.95f); else slab(ci, b.cx, 4.5, b.cz, b.w + 2.2, 0.35, b.d + 2.2, 0.28f, 0.28f, 0.3f); }
+    (void)hs;
+  };
   for (int j = -N; j < N; j++) for (int i = -N; i < N; i++) {
     int ci = ((j + N) / RPC) * nc + (i + N) / RPC;
     double x0 = i * SP + hwOf(i) + 7, x1 = (i + 1) * SP - hwOf(i + 1) - 7, z0 = j * SP + hwOf(j) + 7, z1 = (j + 1) * SP - hwOf(j + 1) - 7;
@@ -49,11 +70,23 @@ void City::init(Gfx& g) {
       double cr = rnd(a, b, s + 8); const float pal[6][3] = { {0.62f, 0.6f, 0.56f}, {0.78f, 0.7f, 0.6f}, {0.5f, 0.52f, 0.56f}, {0.72f, 0.5f, 0.38f}, {0.82f, 0.8f, 0.74f}, {0.55f, 0.45f, 0.38f} };
       int pi = (int)(cr * 5.99); tr = pal[pi][0]; tg = pal[pi][1]; tb = pal[pi][2];
       if (style < 0.34) { tr = 0.7f; tg = 0.8f; tb = 0.9f; }
-      if (h > 60) {                                              // tall buildings in three tiers
-        double hh = h; B base = { cx, cz, w, d, hh * 0.32, (float)style, tr, tg, tb }; addB(ci, base, true);
-        B mid = { cx, cz, w * 0.84, d * 0.84, hh * 0.72, (float)style, tr, tg, tb }; addB(ci, mid, false);
-        B top = { cx, cz, w * 0.62, d * 0.62, hh, (float)style, tr, tg, tb }; addB(ci, top, false); roofStuff(ci, top, dc);
-      } else { B b1 = { cx, cz, w, d, h, (float)style, tr, tg, tb }; addB(ci, b1, true); roofStuff(ci, b1, dc); }
+      if (h > 60) {                                              // tall buildings: a podium, a shaft and a stepped crown, set off-centre so the massing is not a wedding cake
+        double hh = h, f1 = 0.76 + 0.14 * rnd(a, b, s + 20), f2 = 0.46 + 0.2 * rnd(a, b, s + 21), h1 = 0.22 + 0.16 * rnd(a, b, s + 22), h2 = 0.60 + 0.18 * rnd(a, b, s + 23);
+        double m1x = cx + (rnd(a, b, s + 24) - 0.5) * (1 - f1) * w * 0.9, m1z = cz + (rnd(a, b, s + 25) - 0.5) * (1 - f1) * d * 0.9;
+        double m2x = m1x + (rnd(a, b, s + 26) - 0.5) * (f1 - f2) * w * 0.9, m2z = m1z + (rnd(a, b, s + 27) - 0.5) * (f1 - f2) * d * 0.9;
+        B base = { cx, cz, w, d, hh * h1, (float)style, tr, tg, tb }; addB(ci, base, true); trim(ci, base, false, true, s);
+        B mid = { m1x, m1z, w * f1, d * f1, hh * h2, (float)style, tr * 0.97f, tg * 0.97f, tb * 0.99f }; addB(ci, mid, false); trim(ci, mid, false, false, s);
+        B top = { m2x, m2z, w * f2, d * f2, hh, (float)style, tr * 0.94f, tg * 0.95f, tb * 0.98f }; addB(ci, top, false); trim(ci, top, false, false, s);
+        B crown = { m2x, m2z, w * f2 * 0.72, d * f2 * 0.72, hh * (1.0 + 0.04 + 0.05 * rnd(a, b, s + 28)), (float)style, tr * 0.9f, tg * 0.92f, tb * 0.97f }; addB(ci, crown, false); trim(ci, crown, true, false, s); roofStuff(ci, crown, dc);
+      } else {
+        B b1 = { cx, cz, w, d, h, (float)style, tr, tg, tb }; addB(ci, b1, true);
+        if (style >= 0.75) {                                     // a house: a pitched tile roof and a chimney
+          bool alongZ = d >= w; const float roofs[4][3] = { {0.46f, 0.20f, 0.14f}, {0.20f, 0.21f, 0.23f}, {0.28f, 0.19f, 0.13f}, {0.25f, 0.28f, 0.25f} }; const float* rc = roofs[(int)(rnd(a, b, s + 30) * 3.99)];
+          double ow = alongZ ? w + 1.0 : d + 1.0, od = alongZ ? d + 1.0 : w + 1.0, rh = 0.3 * std::min(w, d) + 0.8;
+          pt[ci].push_back({ (float)cx, (float)h, (float)cz, (float)ow, alongZ ? 0.0f : (float)(PI / 2), tintOf(rc[0], rc[1], rc[2], 0.0f), (float)(rh / ow), (float)(od / ow) });
+          slab(ci, cx + (rnd(a, b, s + 31) - 0.5) * w * 0.5, h, cz + (rnd(a, b, s + 32) - 0.5) * d * 0.4, 0.9, rh + 1.3, 0.9, 0.42f, 0.22f, 0.17f);
+        } else { trim(ci, b1, true, true, s); roofStuff(ci, b1, dc); }
+      }
       if (h < 130 && dc < 9 && rnd(a, b, s + 11) < 0.45) {   // a vertical neon blade sign on the facade that faces the street
         double dxL = (cx - w / 2) - x0, dxR = x1 - (cx + w / 2), dzL = (cz - d / 2) - z0, dzR = z1 - (cz + d / 2), m = std::min(std::min(dxL, dxR), std::min(dzL, dzR));
         const float neon[6][3] = { {0.1f, 0.9f, 1.0f}, {1.0f, 0.15f, 0.6f}, {1.0f, 0.5f, 0.1f}, {0.2f, 1.0f, 0.4f}, {1.0f, 0.12f, 0.1f}, {0.7f, 0.3f, 1.0f} }; int ni = (int)(rnd(a, b, s + 12) * 5.99); uint32_t ncol = packColor(neon[ni][0] * 0.5f, neon[ni][1] * 0.5f, neon[ni][2] * 0.5f);
@@ -95,20 +128,22 @@ void City::init(Gfx& g) {
     if (!bx[ci].empty()) { ch.boxes = g.makeBuffer(bx[ci].data(), (UINT)(bx[ci].size() * sizeof(InstanceData)), sizeof(InstanceData), (UINT)bx[ci].size()); ch.nBoxes = (UINT)bx[ci].size(); }
     if (!pm[ci].empty()) { ch.palms = g.makeBuffer(pm[ci].data(), (UINT)(pm[ci].size() * sizeof(InstanceData)), sizeof(InstanceData), (UINT)pm[ci].size()); ch.nPalms = (UINT)pm[ci].size(); }
     auto up = [&](std::vector<InstanceData>& v, Buffer& b, UINT& n) { if (v.empty()) return; b = g.makeBuffer(v.data(), (UINT)(v.size() * sizeof(InstanceData)), sizeof(InstanceData), (UINT)v.size()); n = (UINT)v.size(); };
-    up(rf[ci], ch.roofs, ch.nRoofs); up(sg[ci], ch.signs, ch.nSigns); up(lp[ci], ch.lamps, ch.nLamps); up(tr[ci], ch.trees, ch.nTrees);
+    up(rf[ci], ch.roofs, ch.nRoofs); up(ld[ci], ch.ledges, ch.nLedges); up(pt[ci], ch.pitched, ch.nPitched); up(sg[ci], ch.signs, ch.nSigns); up(lp[ci], ch.lamps, ch.nLamps); up(tr[ci], ch.trees, ch.nTrees);
     chunks.push_back(std::move(ch));
   }
   { size_t nl = 0, nt = 0, nr = 0, ns = 0; for (auto& c : chunks) { nl += c.nLamps; nt += c.nTrees; nr += c.nRoofs; ns += c.nSigns; } logf("city: %d buildings in %d chunks, %zu lamps, %zu trees, %zu roof items, %zu signs", buildings, (int)chunks.size(), nl, nt, nr, ns); }
 }
 
 void City::draw(Renderer& r, bool shadow, const Frustum& f, const Vec3& cam) {
-  Mat4 I = Mat4::identity(); Material bld; bld.type = 6; Material foliage; foliage.type = 5; foliage.twoSided = true;
+  Mat4 I = Mat4::identity(); Material bld; bld.type = 6; Material foliage; foliage.type = 5; foliage.twoSided = true; Material ledgeM; ledgeM.type = 0; ledgeM.rough = 0.85f; Material tileM; tileM.type = 0; tileM.rough = 0.9f; tileM.twoSided = true;
   Material roof; roof.type = 0; roof.rough = 0.6f; roof.metal = 0.35f; Material neon; neon.type = 4; neon.emissive = 3.2f; Material metal; metal.type = 0; metal.rough = 0.45f; metal.metal = 0.6f; Material lampLight; lampLight.type = 4; lampLight.emissive = 3.0f; lampLight.tint[0] = 1.0f; lampLight.tint[1] = 0.78f; lampLight.tint[2] = 0.5f;
   for (auto& c : chunks) {
     if (!f.boxVisible(c.x0, -2, c.z0, c.x1, c.maxY, c.z1)) continue;
     if (c.nBoxes) r.drawMeshMat(cube, I, bld, &c.boxes, c.nBoxes);
     if (c.nPalms && (!shadow || std::fabs(c.x0 + 360 - cam.x) < 700)) r.drawMeshMat(props.mesh[P_PALM], I, foliage, &c.palms, c.nPalms);
     if (c.nRoofs) r.drawMeshMat(cube, I, roof, &c.roofs, c.nRoofs);
+    if (c.nLedges) r.drawMeshMat(cube, I, ledgeM, &c.ledges, c.nLedges);
+    if (c.nPitched) r.drawMeshMat(wedge, I, tileM, &c.pitched, c.nPitched);
     if (c.nSigns && !shadow) r.drawMeshMat(cube, I, neon, &c.signs, c.nSigns);
     if (c.nLamps) { r.drawMeshMat(lampPole, I, metal, &c.lamps, c.nLamps); if (!shadow) r.drawMeshMat(lampHead, I, lampLight, &c.lamps, c.nLamps); }
     if (c.nTrees && (!shadow || (std::fabs(c.x0 + 360 - cam.x) < 600 && std::fabs(c.z0 + 360 - cam.z) < 600))) { float cdx = c.x0 + 360 - cam.x, cdz = c.z0 + 360 - cam.z; bool nearC = cdx * cdx + cdz * cdz < (shadow ? 260.0f * 260.0f : 420.0f * 420.0f); r.drawMeshMat(nearC ? props.mesh[P_TREE] : props.treeFar, I, foliage, &c.trees, c.nTrees); }

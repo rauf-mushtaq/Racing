@@ -104,7 +104,7 @@ PSOut PSMain(V i) {
     float fade = saturate(fpUV / (cell.x * 0.4));                 // detail smaller than a couple of pixels blurs into its average
     float rnd = lerp(hash12(cid * 1.7 + 3.0), 0.5, fade), grit = fbmAA(i.uv * 0.25, fpUV, 1.0), grit2 = fbmAA(i.uv * 1.3, fpUV, 1.0);
     float3 wallCol = i.col.rgb * (0.84 + 0.3 * grit) * lerp(0.72, 1.0, saturate(h * 0.04 + 0.4)); float roughW = 0.85;
-    float glassAmt = 0.0, spand = 0.0, lit = 0.0; float3 trimCol = wallCol; bool shop = h < 4.7 && style >= 0.34 && wall > 0.5;
+    float glassAmt = 0.0, spand = 0.0, lit = 0.0; float3 trimCol = wallCol; bool shop = h < 4.7 && style >= 0.34 && style < 0.75 && wall > 0.5;
     if (style < 0.34) {                                           // curtain wall: glass between floors, an opaque spandrel panel at each floor edge, thin mullions
       float mul_ = step(0.05, f.x) * step(f.x, 0.95); spand = 1.0 - step(0.24, f.y);
       glassAmt = mul_ * (1.0 - spand) * step(f.y, 0.97) * wall; wallCol = lerp(i.col.rgb * 0.55, float3(0.12, 0.17, 0.2), 0.6) * (0.8 + 0.4 * grit2); roughW = 0.35;
@@ -171,9 +171,14 @@ PSOut PSMain(V i) {
     float4 wr = style < 0.34 ? float4(0.05, 0.95, 0.24, 0.97) : style < 0.67 ? float4(0.2, 0.8, 0.22, 0.8) : float4(0.27, 0.73, 0.3, 0.78);
     float edgeM = shop ? shopEdge : min(min((f.x - wr.x) * cell.x, (wr.y - f.x) * cell.x), min((f.y - wr.z) * cell.y, (wr.w - f.y) * cell.y));
     float reveal = lerp(0.35, 1.0, saturate(edgeM / 0.12));
+    // Sunlight into the recess: the frame throws a shadow across the glass, from the top and from one side, depending on where the sun is.
+    float3 Ls = gSunDir.xyz; float lu = abs(n.x) > 0.5 ? Ls.z : Ls.x, ln = max(dot(Ls, n), 0.06);
+    float2 shOff = 0.14 * float2(lu, Ls.y) / ln, wsz = float2((wr.y - wr.x) * cell.x, (wr.w - wr.z) * cell.y), wp = float2((f.x - wr.x) * cell.x, (f.y - wr.z) * cell.y) + shOff;
+    float sunInGlass = shop ? 1.0 : smoothstep(0.0, 0.05, min(min(wp.x, wsz.x - wp.x), min(wp.y, wsz.y - wp.y)));
+    reveal *= lerp(0.8, 1.0, sunInGlass);
     float3 refl = EnvReflect(reflect(-v, n), i.wpos) * (glassK + (1.0 - glassK) * F);
     float3 glass = (room * (1.0 - F) + refl * (0.75 + 0.35 * r1)) * lerp(1.0, reveal, 1.0 - fade * 0.7);
-    float3 hh = normalize(gSunDir.xyz + v); glass += gSunColor.rgb * pow(saturate(dot(n, hh)), 300.0) * 5.0 * sh;
+    float3 hh = normalize(gSunDir.xyz + v); glass += gSunColor.rgb * pow(saturate(dot(n, hh)), 300.0) * 5.0 * sh * sunInGlass;
     // A thin frame round every pane catches the light.
     float frameK = glassAmt * (style < 0.34 ? 0.0 : 1.0) * (1.0 - smoothstep(0.0, 0.06 + fpUV, min(min(f.x - 0.2, 0.8 - f.x), min(f.y - 0.22, 0.8 - f.y)))) * (1.0 - fade);
     col = lerp(wallLit, glass, saturate(glassAmt)); col = lerp(col, wallLit * 1.25, frameK * 0.0);
