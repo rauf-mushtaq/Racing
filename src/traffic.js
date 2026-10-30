@@ -4,7 +4,7 @@
 // cars that fall far behind are moved to roads further ahead.
 import * as THREE from 'three';
 import { N, SP, hw, isBlvd, laneCount, laneOffset, EDGE } from './city.js';
-import { ROADS } from './world.js';
+import { ROADS, groundAt } from './world.js';
 import { trafficModels } from './carModel.js';
 import { mulberry32, clamp, wrapAngle } from './util.js';
 
@@ -34,7 +34,7 @@ export class Traffic {
     const st = new THREE.CanvasTexture(c);
     this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: st, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), CAP * 2);
     this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.blobs.count = 0; scene.add(this.blobs);
-    this.sphere = new THREE.Sphere(new THREE.Vector3(), 3.5);
+    this.sphere = new THREE.Sphere(new THREE.Vector3(), 3.5); this.eul = new THREE.Euler();
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1); this.up = new THREE.Vector3(0, 1, 0);
   }
 
@@ -150,14 +150,14 @@ export class Traffic {
       if (!initial) { const f = [Math.sin(player.h), Math.cos(player.h)]; if ((c.x - player.x) * f[0] + (c.z - player.z) * f[1] < 60) continue; }
       break;
     }
-    c.mode = 'drive'; c.speed = c.blvd ? 15 : 10; c.vmax = (c.blvd ? 19 : 13.5) * (0.85 + this.rnd() * 0.3); c.wait = 0; c.knockT = 0;
+    c.settled = null; c.mode = 'drive'; c.speed = c.blvd ? 15 : 10; c.vmax = (c.blvd ? 19 : 13.5) * (0.85 + this.rnd() * 0.3); c.wait = 0; c.knockT = 0;
   }
 
   place(c) {
     let k = 1; while (k < c.cum.length - 1 && c.cum[k] < c.s) k++;
     const a = c.pts[k - 1], b = c.pts[k], seg = c.cum[k] - c.cum[k - 1] || 1, t = clamp((c.s - c.cum[k - 1]) / seg, 0, 1);
     c.x = a.x + (b.x - a.x) * t; c.z = a.z + (b.z - a.z) * t;
-    if (c.hwy) c.y = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t; else c.y = 0;
+    if (c.hwy) { c.y = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t; c.pitch = Math.atan2((b.y ?? 0) - (a.y ?? 0), Math.max(0.5, seg)); c.roll = 0; } else { c.y = 0; c.pitch = 0; c.roll = 0; }
     const h = Math.atan2(b.x - a.x, b.z - a.z);
     c.h = c.h == null ? h : c.h + wrapAngle(h - c.h) * 0.5;
   }
@@ -168,11 +168,24 @@ export class Traffic {
     c.vx = vx; c.vz = vz; c.spin += spin;
   }
 
+  // A car that has been knocked off its path sits on whatever ground it ended up on: its height follows the
+  // terrain, and it tilts to the slope (so it doesn't sink into a hill or hover over a dip).
+  settle(c) {
+    const f = Math.sin(c.h), g = Math.cos(c.h), hl = (c.len || 4.7) * 0.4, hw2 = 0.8;
+    const yc = groundAt(c.x, c.z).y;
+    const yf = groundAt(c.x + f * hl, c.z + g * hl).y, yb = groundAt(c.x - f * hl, c.z - g * hl).y;
+    const yl = groundAt(c.x + g * hw2, c.z - f * hw2).y, yr = groundAt(c.x - g * hw2, c.z + f * hw2).y;
+    const ty = (yf + yb + yl + yr + yc * 2) / 6, tp = Math.atan2(yf - yb, hl * 2), tr = Math.atan2(yl - yr, hw2 * 2);
+    if (c.y == null || c.settled == null) { c.y = ty; c.pitch = tp; c.roll = tr; c.settled = true; }
+    const k = 0.35; c.y += (ty - c.y) * k; c.pitch = (c.pitch || 0) + (tp - (c.pitch || 0)) * k; c.roll = (c.roll || 0) + (tr - (c.roll || 0)) * k;
+  }
+
   update(dt, player, signals) {
     const pf = [Math.sin(player.h), Math.cos(player.h)];
     for (const c of this.cars) {
       if (c.mode === 'knocked') {
         c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.spin * dt;
+        this.settle(c);
         const sp = Math.hypot(c.vx, c.vz), dec = Math.max(0, sp - 7 * dt) / (sp || 1);
         c.vx *= dec; c.vz *= dec; c.spin *= Math.exp(-2 * dt);
         if (sp < 0.3) c.knockT += dt;
@@ -239,7 +252,7 @@ export class Traffic {
     for (const m of this.meshes) {
       let i = 0;
       for (const c of m.list) {
-        q.setFromAxisAngle(up, c.h); v.set(c.x, c.y ?? 0, c.z); m4.compose(v, q, one);
+        this.eul.set(-(c.pitch || 0), c.h, c.roll || 0, 'YXZ'); q.setFromEuler(this.eul); v.set(c.x, c.y ?? 0, c.z); m4.compose(v, q, one);
         m.body.setMatrixAt(i, m4); m.lights.setMatrixAt(i, m4); m.body.setColorAt(i, c.color);
         v.y += 0.03; m4.compose(v, q, one); if (nb < CAP * 2) this.blobs.setMatrixAt(nb++, m4);
         if (++i >= CAP) break;

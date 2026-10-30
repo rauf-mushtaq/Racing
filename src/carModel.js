@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { curve, lerp, clamp } from './util.js';
 import { plateTex, glowTex } from './textures.js';
 import { mergeGeoms } from './geom.js';
+import { buildCockpit } from './cockpit.js';
 
 const HALF = 15; // points per half section
 
@@ -282,76 +283,7 @@ export function makeHeroCar(paintKey = 'pearl') {
   return root;
 }
 
-// The cabin, seen from the driver's seat: the inside of the body shell, a
-// dashboard with live gauges, a steering wheel that turns, seats and a mirror.
-// The driver sits on the left (the car's +x side).
-function buildCockpit(body, bodyGeo) {
-  const g = new THREE.Group(); body.add(g);
-  const trim = new THREE.MeshStandardMaterial({ color: 0x17171a, roughness: 0.75, side: THREE.BackSide });
-  trim.userData.noProbe = true;
-  const hidden = new THREE.MeshBasicMaterial({ visible: false });
-  const inner = new THREE.Mesh(bodyGeo, [trim, hidden]);
-  inner.scale.set(0.985, 0.99, 0.995); g.add(inner);
-  const leather = new THREE.MeshStandardMaterial({ color: 0x1d1b1c, roughness: 0.6 });
-  const alcantara = new THREE.MeshStandardMaterial({ color: 0x232325, roughness: 0.95 });
-  const alu = new THREE.MeshStandardMaterial({ color: 0x9a9da3, roughness: 0.3, metalness: 1 });
-  const accent = new THREE.MeshStandardMaterial({ color: 0xff6a10, roughness: 0.5 });
-  const box = (w, h, d, m, x, y, z, rx = 0, ry = 0, rz = 0) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.rotation.set(rx, ry, rz); g.add(o); return o; };
-  // Dashboard: a long padded top sloping down to the windscreen, and the cluster hood.
-  box(1.7, 0.1, 0.55, alcantara, 0, 0.76, 0.6, -0.12);
-  box(1.6, 0.22, 0.12, leather, 0, 0.66, 0.34);
-  box(0.24, 0.32, 0.6, leather, 0, 0.52, 0.2);         // centre console
-  box(0.16, 0.04, 0.25, alu, 0, 0.69, 0.05);            // gear selector plate
-  box(0.025, 0.11, 0.025, alu, 0, 0.75, 0.05);
-  // Live gauges.
-  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128;
-  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-  const cluster = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.2), new THREE.MeshBasicMaterial({ map: tex }));
-  cluster.position.set(0.38, 0.775, 0.42); cluster.rotation.set(-0.45, Math.PI, 0); g.add(cluster);
-  // Seats.
-  for (const sx of [0.38, -0.38]) {
-    box(0.5, 0.12, 0.5, leather, sx, 0.3, -0.35);
-    box(0.5, 0.65, 0.12, leather, sx, 0.62, -0.62, -0.25);
-    box(0.06, 0.62, 0.1, accent, sx + 0.2, 0.62, -0.6, -0.25);
-  }
-  // Rear-view mirror.
-  box(0.24, 0.07, 0.02, leather, 0, 1.06, 0.12, 0.2);
-  // Steering wheel (turns with the front wheels, about 7:1).
-  const wheel = new THREE.Group(); wheel.position.set(0.38, 0.69, 0.27); wheel.rotation.x = -0.55; g.add(wheel);
-  const spin = new THREE.Group(); wheel.add(spin);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.02, 10, 36), alcantara); spin.add(rim);
-  const top = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.03, 0.05), accent); top.position.y = 0.162; spin.add(top);
-  for (const a of [Math.PI / 2 + 0.2, -Math.PI / 2 - 0.2, Math.PI]) {
-    const sp = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.035, 0.02), alu);
-    sp.position.set(Math.cos(a + Math.PI / 2) * 0.09 * (a === Math.PI ? 0 : 1), a === Math.PI ? -0.09 : 0, 0); sp.rotation.z = a === Math.PI ? Math.PI / 2 : 0;
-    if (a !== Math.PI) sp.position.x = a > 0 ? -0.09 : 0.09;
-    spin.add(sp);
-  }
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.05, 16).rotateX(Math.PI / 2), leather); spin.add(hub);
-  const column = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.3, 10).rotateX(Math.PI / 2), leather); column.position.z = 0.15; wheel.add(column);
-  for (const s of [-1, 1]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.1, 0.008), alu); p.position.set(s * 0.2, 0.02, 0.03); wheel.add(p); }
-  return { group: g, wheel: spin, canvas: cv, tex, eye: new THREE.Vector3(0.37, 1.0, -0.17) };
-}
 
-export function drawCluster(cp, rpm, speedKmh, gear, units) {
-  const c = cp.canvas.getContext('2d'), W = 256, H = 128;
-  c.fillStyle = '#050608'; c.fillRect(0, 0, W, H);
-  const dial = (cx, val, max, label, red) => {
-    const r = 54, a0 = Math.PI * 0.75, span = Math.PI * 1.5;
-    c.strokeStyle = '#333'; c.lineWidth = 6; c.beginPath(); c.arc(cx, 64, r, a0, a0 + span); c.stroke();
-    if (red) { c.strokeStyle = '#d22'; c.beginPath(); c.arc(cx, 64, r, a0 + span * red, a0 + span); c.stroke(); }
-    c.strokeStyle = '#ff7a2a'; c.lineWidth = 6; c.beginPath(); c.arc(cx, 64, r, a0, a0 + span * Math.min(1, val / max)); c.stroke();
-    const a = a0 + span * Math.min(1, val / max);
-    c.strokeStyle = '#fff'; c.lineWidth = 3; c.beginPath(); c.moveTo(cx, 64); c.lineTo(cx + Math.cos(a) * (r - 8), 64 + Math.sin(a) * (r - 8)); c.stroke();
-    c.fillStyle = '#ddd'; c.font = '600 13px sans-serif'; c.textAlign = 'center'; c.fillText(label, cx, 104);
-  };
-  dial(64, rpm, 9000, 'RPM', 8 / 9);
-  const v = units === 'mph' ? speedKmh / 1.609 : speedKmh;
-  dial(192, v, units === 'mph' ? 220 : 360, units === 'mph' ? 'MPH' : 'KM/H');
-  c.fillStyle = '#fff'; c.font = '700 26px sans-serif'; c.textAlign = 'center';
-  c.fillText(gear, 64, 74); c.font = '700 22px sans-serif'; c.fillText(String(Math.round(v)), 192, 72);
-  cp.tex.needsUpdate = true;
-}
 
 // Merge a group's plain meshes that share a material into one mesh each, so
 // the car is a handful of draw calls instead of a hundred.

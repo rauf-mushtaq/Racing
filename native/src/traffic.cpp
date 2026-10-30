@@ -133,7 +133,7 @@ void Traffic::update(double dt, const Pose& player, double clock) {
   Signal sig = signalState(clock); double pf[2] = { std::sin(player.h), std::cos(player.h) };
   for (TCar& c : cars) {
     if (c.mode != TCar::DRIVE) {                                                                          // knocked about, or a burning wreck
-      c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.spin * dt;
+      c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.spin * dt; c.y += (groundAt(c.x, c.z).y - c.y) * std::min(1.0, dt * 20);   // sit on whatever ground it ended up on (not sinking into a hill or hovering over a dip)
       double sp = std::hypot(c.vx, c.vz), dec = std::max(0.0, sp - (c.mode == TCar::WRECK ? 11 : 7) * dt) / (sp > 1e-9 ? sp : 1);
       c.vx *= dec; c.vz *= dec; c.spin *= std::exp(-2 * dt);
       if (c.mode == TCar::WRECK) { c.burn += dt; if (c.burn > 30 && std::hypot(c.x - player.x, c.z - player.z) > 80) spawn(c, player, 160, 420); continue; }

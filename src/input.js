@@ -136,9 +136,9 @@ export class Input {
     let brake = k('KeyS') || k('ArrowDown') || this.touch.brake ? 1 : 0;
     let handbrake = k('Space') || this.touch.hand;
     let nitro = k('ShiftLeft') || k('ShiftRight') || k('KeyN') || this.touch.nitro;
-    let analog = false;
+    let analog = false; const digital = { steer: true, gas: true, brake: true };
     if (this.tilt.on && settings.touchSteer === 'tilt' && this.lastDevice === 'touch') {
-      steer = clamp((this.tilt.angle - this.tilt.zero) / 0.45, -1, 1); analog = true;
+      steer = clamp((this.tilt.angle - this.tilt.zero) / 0.45, -1, 1); analog = true; digital.steer = false;
     }
     this.pollLearn();
     const W = settings.wheel || {};
@@ -150,9 +150,9 @@ export class Input {
       if (isWheel) {
         const sm = W.steer && W.steer.id === p.id ? W.steer : { index: 0, full: 1 };
         const sv = p.axes[sm.index] || 0;
-        if (Math.abs(sv) > 0.01) { steer = clamp(sv * (sm.full || 1), -1, 1); analog = true; used = true; }
-        if (W.gas && W.gas.id === p.id) { const g = this.axisVal(p, W.gas); if (g > 0.03) { gas = Math.max(gas, g); used = true; } }
-        if (W.brake && W.brake.id === p.id) { const b = this.axisVal(p, W.brake); if (b > 0.03) { brake = Math.max(brake, b); used = true; } }
+        if (Math.abs(sv) > 0.01) { steer = clamp(sv * (sm.full || 1), -1, 1); analog = true; used = true; digital.steer = false; }
+        if (W.gas && W.gas.id === p.id) { const g = this.axisVal(p, W.gas); if (g > 0.03) { gas = Math.max(gas, g); used = true; digital.gas = false; } }
+        if (W.brake && W.brake.id === p.id) { const b = this.axisVal(p, W.brake); if (b > 0.03) { brake = Math.max(brake, b); used = true; digital.brake = false; } }
         if (W.shiftUp && W.shiftUp.id === p.id) this.padEdge(p, W.shiftUp.index, 'shiftUp'); else this.padEdge(p, 5, 'shiftUp');
         if (W.shiftDown && W.shiftDown.id === p.id) this.padEdge(p, W.shiftDown.index, 'shiftDown'); else this.padEdge(p, 4, 'shiftDown');
         if (W.hand && W.hand.id === p.id && p.buttons[W.hand.index] && p.buttons[W.hand.index].pressed) handbrake = true;
@@ -160,10 +160,10 @@ export class Input {
         this.padEdge(p, 9, 'pause'); this.padEdge(p, 8, 'camera');
       } else {
         const ax = p.axes[0] || 0;
-        if (Math.abs(ax) > 0.12) { steer = clamp((ax - Math.sign(ax) * 0.12) / 0.88, -1, 1); analog = true; used = true; }
+        if (Math.abs(ax) > 0.12) { steer = clamp((ax - Math.sign(ax) * 0.12) / 0.88, -1, 1); analog = true; used = true; digital.steer = false; }
         const rt = p.buttons[7] ? p.buttons[7].value : 0, lt = p.buttons[6] ? p.buttons[6].value : 0;
-        if (rt > 0.04) { gas = Math.max(gas, rt); used = true; }
-        if (lt > 0.04) { brake = Math.max(brake, lt); used = true; }
+        if (rt > 0.04) { gas = Math.max(gas, rt); used = true; digital.gas = false; }
+        if (lt > 0.04) { brake = Math.max(brake, lt); used = true; digital.brake = false; }
         if (p.buttons[0] && p.buttons[0].pressed) { handbrake = true; used = true; }
         if (p.buttons[2] && p.buttons[2].pressed) { nitro = true; used = true; }
         if (p.buttons[14] && p.buttons[14].pressed) steer = -1;
@@ -174,6 +174,6 @@ export class Input {
       }
       if (used) { this.lastDevice = isWheel ? 'wheel' : 'pad'; this.emit('any'); }
     }
-    return { steer, gas, brake, handbrake, nitro, analog, sens: settings.sens };
+    return { steer, gas, brake, handbrake, nitro, analog, sens: settings.sens, digital, device: this.lastDevice === 'touch' && !(digital.steer === false) ? 'touch' : this.lastDevice };
   }
 }

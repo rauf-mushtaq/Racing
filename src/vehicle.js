@@ -46,6 +46,15 @@ export class Vehicle {
     this.abs = true; this.tcs = true; this.esp = true; this.auto = true; this.steerAssist = true;
     this.reset(0, 0, 0);
   }
+  // Become a different car (the escape mode's grand tourer): recompute everything that follows from the spec.
+  setSpec(spec) {
+    this.s = spec; this.L = spec.wheelPos[0][0] - spec.wheelPos[2][0];
+    const len = spec.len || 4.61, wid = spec.wid || 2.06;
+    this.I = spec.mass * (len * len + wid * wid) / 12 * 1.05; this.Ip = spec.mass * (len * len + 1.1 * 1.1) / 12 * 0.9; this.Ir = spec.mass * (wid * wid + 1.1 * 1.1) / 12 * 0.9;
+    const a = spec.wheelPos[0][0], b = -spec.wheelPos[2][0];
+    this.Fstatic = [0, 1, 2, 3].map(i => spec.mass * G * (i < 2 ? b : a) / this.L / 2);
+    this.cStatic = this.Fstatic.map((F, i) => F / spec.spring[i]);
+  }
   reset(x, z, h) {
     Object.assign(this, {
       x, z, h, px: x, pz: z, ph: h, vx: 0, vy: 0, w: 0, steer: 0,
@@ -99,14 +108,14 @@ export class Vehicle {
 
     // --- Steering --------------------------------------------------------------
     const beta = Math.atan2(vy, Math.abs(vx) + 0.5);
-    let target;
-    if (inp.analog) target = inp.steer * s.steerMax * inp.sens / (1 + spd / 70);
-    else {
-      target = inp.steer * s.steerMax / (1 + spd / 12);
-      if (this.steerAssist && spd > 6 && vx > 0) target += clamp(beta * 0.75, -0.3, 0.3) * (inp.steer === 0 ? 1 : 0.45);
-    }
+    // Steering lock shrinks with speed, as in a real car (at 100 km/h a few degrees of road-wheel angle is all the
+    // tyres can use); a real steering wheel gets nearly its full range, keyboard, touch and pad get the speed-sensitive one.
+    const wheelDev = inp.device === 'wheel';
+    const lock = wheelDev ? s.steerMax / (1 + spd / 160) : s.steerMax / (1 + (spd / 19) * (spd / 19));
+    let target = inp.steer * lock * (inp.analog ? inp.sens : 1);
+    if (this.steerAssist && !wheelDev && spd > 6 && vx > 0) target += clamp(beta * 0.75, -0.3, 0.3) * (Math.abs(inp.steer) < 0.05 ? 1 : 0.45);   // catches a slide
     target = clamp(target, -s.steerMax, s.steerMax);
-    const rate = inp.analog ? 14 : (Math.sign(target) !== Math.sign(this.steer) || Math.abs(target) < Math.abs(this.steer) ? 5.5 : 3.0);
+    const rate = wheelDev ? 14 : 9;
     this.steer += clamp(target - this.steer, -rate * dt, rate * dt);
     const d = this.steer, td = Math.tan(d);
 

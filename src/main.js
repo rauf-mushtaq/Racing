@@ -19,13 +19,14 @@ import { initScatter } from './scatter.js';
 import { initGrass } from './grass.js';
 import { initStructures } from './structures.js';
 import { TOD, TOD_NAME } from './tod.js';
-import { makeHeroCar, setPaint, PAINTS, HERO_DIMS, drawCluster } from './carModel.js';
+import { makeHeroCar, setPaint, PAINTS, HERO_DIMS } from './carModel.js';
 import { Vehicle } from './vehicle.js';
 import { collideStatic, collideTraffic, collideTerrain } from './collide.js';
 import { Traffic } from './traffic.js';
 import { FX } from './fx.js';
 import { HUD } from './hud.js';
 import { Input } from './input.js';
+import { Driver } from './driver.js';
 import { AudioEngine } from './audio.js';
 import { EVENTS, buildRoute, Gates, inCheckpoint } from './events.js';
 import { installAtmosphere } from './atmos.js';
@@ -148,6 +149,7 @@ const extraMats = [];
 let grass = null, structures, sky, city, terrain, traffic, carMesh, fx, gates, hud, csm = null, probe = null;
 const car = new Vehicle();
 const input = new Input();
+const driver = new Driver();
 const audio = new AudioEngine();
 const START = { x: laneOffset(0, 1), z: 3 * SP - 60, h: Math.PI };
 
@@ -531,7 +533,7 @@ function toMenu() {
 // ---------------------------------------------------------------------------
 const STEP = 1 / 240;
 let acc = 0;
-const NO_INPUT = { steer: 0, gas: 0, brake: 0, handbrake: false, nitro: false, analog: false, sens: 1 };
+const NO_INPUT = { steer: 0, gas: 0, brake: 0, handbrake: false, nitro: false, analog: true, sens: 1, device: 'keyboard' };
 
 function onHit(j, px, pz) {
   if (j < 900) return;
@@ -580,10 +582,9 @@ function updateCarMesh(dt, alpha) {
     w.steer.position.y = w.baseY + (wi.contact ? wi.ground - carY : hang);
     w.spin.rotation.x = wi.ang;
   }
-  ud.cockpit.wheel.rotation.z = car.steer * 7;
   if (game.camMode === 2 && game.state !== 'menu') {
-    const gear = car.gear === -1 ? 'R' : String(car.gear);
-    drawCluster(ud.cockpit, car.rpm, car.speed * 3.6, gear, settings.units);
+    const gear = car.gear === -1 ? 'R' : car.speed < 0.3 && car.throttle < 0.05 && car.gear === 1 ? 'N' : String(car.gear);
+    ud.cockpit.update({ wheelAngle: car.steer * 9, rpm: car.rpm, redline: car.s.redline, kmh: car.speed * 3.6, mph: car.speed * 2.23694, gear, units: settings.units, abs: car.abs, esp: car.esp, tcs: car.tcs }, dt);
   }
   for (const w of ud.wheels) if (w.front) w.steer.rotation.y = -car.steer;
   const braking = car.brakeIn > 0.05 && car.gear !== -1;
@@ -634,17 +635,25 @@ function updateCamera(dt, pose) {
     camera.position.copy(camPos); camera.lookAt(camLook);
     fov = (wide ? 62 : 58) + clamp(spd * 0.1, 0, 15) + (car.nitroOn ? 6 : 0);
   } else if (game.camMode === 2) {
-    // From the driver's seat, moving with the body as it pitches and rolls.
-    const cp = carMesh.userData.cockpit, body = carMesh.userData.body;
+    // From the driver's seat. The body pitches and rolls, but a real head and eyes level themselves out a good deal, so the
+    // horizon only follows part of the way. Under braking, acceleration and cornering the head shifts with the g-forces, the
+    // eyes look into the bend, and there is a faint tremor from the engine and the road.
+    const cp = carMesh.userData.cockpit, body = carMesh.userData.body, H = game.head || (game.head = { x: 0, y: 0, z: 0, yaw: 0, roll: 0, pitch: 0, shakeT: 0 });
     carMesh.updateMatrixWorld(true);
-    body.localToWorld(camera.position.copy(cp.eye));
-    lookV.copy(cp.eye); lookV.z += lookBack ? -20 : 20; lookV.y -= lookBack ? 0 : 0.9;
-    if (lookBack) lookV.x = cp.eye.x;
+    const lat = clamp(car.ay, -14, 14), lon = clamp(car.ax, -12, 12), vel = car.worldVel(), dv = wrapAngle(Math.atan2(vel[0], vel[1]) - pose.h);
+    H.x = damp(H.x, clamp(-lat * 0.0042, -0.06, 0.06), 6, dt); H.z = damp(H.z, clamp(-lon * 0.0035, -0.05, 0.05), 5, dt); H.y = damp(H.y, clamp(-car.hvV * 0.03, -0.03, 0.03), 9, dt);
+    const lookYaw = spd > 3 ? clamp(dv * 0.7 + car.steer * 0.35 - car.w * 0.07, -0.4, 0.4) : 0;
+    H.yaw = damp(H.yaw, lookBack ? 0 : lookYaw, 3.5, dt); H.roll = damp(H.roll, -roll * 0.45 + lat * 0.0016, 6, dt); H.pitch = damp(H.pitch, -car.pitch * 0.5 + clamp(lon * 0.0016, -0.03, 0.03), 6, dt);
+    H.shakeT += dt;
+    const idle = clamp(car.rpm / 8000, 0.1, 1) * 0.0011, road = clamp(spd / 70, 0, 1) * 0.0016;
+    const tx = Math.sin(H.shakeT * 61) * idle + (Math.random() - 0.5) * road, ty = Math.sin(H.shakeT * 47 + 1) * idle + (Math.random() - 0.5) * road * 1.3;
+    tmpV.set(cp.eye.x + H.x + tx, cp.eye.y + H.y + ty, cp.eye.z + H.z);
+    body.localToWorld(camera.position.copy(tmpV));
+    lookV.set(cp.eye.x, cp.eye.y - 0.02, cp.eye.z + (lookBack ? -20 : 20)); if (lookBack) lookV.x = cp.eye.x;
     body.localToWorld(lookV);
     camera.up.set(0, 1, 0); camera.lookAt(lookV);
-    camera.rotateY(input.look.yaw * 0.8); camera.rotateX(-input.look.pitch * 0.5);
-    camera.rotateZ(-roll * 0.5);
-    fov = 70 + clamp(spd * 0.06, 0, 8);
+    camera.rotateY(input.look.yaw * 0.8 - H.yaw); camera.rotateX(-input.look.pitch * 0.5 + H.pitch - 0.06); camera.rotateZ(H.roll);
+    fov = 62 + clamp(spd * 0.05, 0, 7) + (car.nitroOn ? 4 : 0);
     camInit = false;
   } else {
     // Hood or bumper camera, fixed to the body.
@@ -749,7 +758,7 @@ function tick(dt) {
   renderer.info.reset();
   frameAvg = lerp(frameAvg, dt * 1000, 0.05);
 
-  const raw = input.read(dt);
+  const raw = driver.shape(input.read(dt), dt, car.speed);
   const st = game.state;
   const driving = st === 'free' || st === 'race';
   let inp = driving ? raw : NO_INPUT;
@@ -833,12 +842,13 @@ function tick(dt) {
   }
 })();
 // Hooks for automated testing: run the simulation without drawing.
-function simulate(secs, inp) {
+function simulate(secs, inp, shaped = false) {
   for (let t = 0; t < secs; t += STEP) {
-    physics(STEP, { ...NO_INPUT, ...inp });
+    const raw = { ...NO_INPUT, digital: { steer: true, gas: true, brake: true }, device: 'keyboard', ...inp };
+    physics(STEP, shaped ? driver.shape(raw, STEP, car.speed) : raw);
     if (Math.round(t / STEP) % 4 === 0) traffic.update(STEP * 4, car, signalState(game.clock = (game.clock || 0) + STEP * 4));
     if (game.state === 'race') { game.t += STEP; const cp = game.route.cps[game.next]; if (cp && inCheckpoint(cp, car.x, car.z)) { game.next++; if (game.next >= game.route.cps.length) { finishRace(); break; } } }
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-window.__game = { simulate, tick, game, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+window.__game = { simulate, driver, tick, game, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
