@@ -17,6 +17,7 @@ struct Settings {
   // graphics
   bool vsync = false, ao = true, shadows = true, reflections = true; int msaa = 4; int day = 1;   // day: 1 midday, 0 golden hour
   int traffic = 2;
+  int music = 1, volume = 70; std::string musicTrack;       // music: 0 off, 1 during the police chase, 2 always; the file name in the music folder (empty = pick one)
   // steering wheel and pedals
   bool wheelOn = true;
   AxisBind steer, throttle, brake;

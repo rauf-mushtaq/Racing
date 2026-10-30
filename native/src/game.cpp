@@ -74,9 +74,9 @@ int Game::medalFor(const std::string& id, const Route& rt) const { double t = be
 // --- The menu -----------------------------------------------------------------------------------------------------------------
 void Game::openMenu() { if (state == State::Menu) return; menuFrom = state; state = State::Menu; buildMenu(0); }
 void Game::closeMenu() { if (state != State::Menu) return; state = menuFrom == State::Menu ? State::Free : menuFrom; }
-enum { A_RESUME = 1, A_FREE, A_RACES, A_ESCAPE, A_CAR, A_TRAFFIC, A_QUIT, A_RACE, A_BACK, A_RESTART, A_SETTINGS, A_PAGE, A_GFX, A_WHEEL };
+enum { A_RESUME = 1, A_FREE, A_RACES, A_ESCAPE, A_CAR, A_TRAFFIC, A_QUIT, A_RACE, A_BACK, A_RESTART, A_SETTINGS, A_PAGE, A_GFX, A_WHEEL, A_SND };
 enum { W_ON = 1, W_SCAN, W_STEER, W_THROTTLE, W_BRAKE, W_SENS, W_LIN, W_DEAD, W_PDEAD, W_PCURVE, W_RESET, W_BTN = 100 };   // wheel menu actions (W_BTN + act binds that button)
-static int parentPage(int page) { return page >= 3 ? 2 : 0; }
+static int parentPage(int page) { return page >= 3 ? 2 : 0; }   // 3 graphics, 4 wheel, 5 sound all hang off the settings page (2)
 static std::string onoff(bool b) { return b ? "On" : "Off"; }
 static std::string num(float v, int dec = 1) { char b[32]; snprintf(b, sizeof b, "%.*f", dec, v); return b; }
 void Game::applyGraphics() { if (!rend) return; rend->gfx.vsync = settings.vsync; rend->q.ao = settings.ao; rend->q.shadows = settings.shadows; rend->q.reflections = settings.reflections; rend->dayTarget = settings.day ? 1.0f : 0.0f; }
@@ -86,10 +86,10 @@ void Game::buildMenu(int page) {
     menuTitle = "SUNSET CITY";
     bool canResume = menuFrom != State::Menu && menuFrom != State::Finished && menuFrom != State::EscapeOver;
     if (canResume) menuItems.push_back({ "Resume", "Back to the game.", A_RESUME, 0 });
-    menuItems.push_back({ "Escape the police", "You have the silver GT with its gadgets. Machine guns, missiles, bombs, oil, smoke and an armour plate. Lose them, or wreck them.", A_ESCAPE, 0 });
+    menuItems.push_back({ "Escape the police", "You drive the Aston Martin DB5 in Silver Birch, with its gadgets. Machine guns, missiles, bombs, oil, smoke and an armour plate. Lose them, or wreck them.", A_ESCAPE, 0 });
     menuItems.push_back({ "Races", "Fifteen routes through the city and out along the motorways, with medals.", A_RACES, 0 });
     menuItems.push_back({ "Free roam", "Drive anywhere. The whole 12 by 16 km world is open.", A_FREE, 0 });
-    menuItems.push_back({ std::string("Car: ") + (carKind == 1 ? "Silver GT" : "Supercar"), "Which car you drive in free roam and the races (the escape mode always uses the silver GT).", A_CAR, 0, true });
+    menuItems.push_back({ std::string("Car: ") + (carKind == 1 ? "Aston Martin DB5" : "Supercar"), "Which car you drive in free roam and the races (the escape mode always uses the DB5).", A_CAR, 0, true });
     static const char* tl[4] = { "Off", "Light", "Normal", "Heavy" };
     menuItems.push_back({ std::string("Traffic: ") + tl[trafficLevel], "How many cars share the roads.", A_TRAFFIC, 0, true });
     menuItems.push_back({ "Settings", "Graphics, and your steering wheel and pedals.", A_PAGE, 2 });
@@ -98,6 +98,7 @@ void Game::buildMenu(int page) {
     menuTitle = "SETTINGS";
     menuItems.push_back({ "Graphics", "Vsync, ambient occlusion, shadows, reflections, time of day and anti-aliasing.", A_PAGE, 3 });
     std::string wd = wheel.devices.empty() ? "No wheel or controller found yet." : std::to_string(wheel.devices.size()) + " controller(s) found.";
+    menuItems.push_back({ "Sound and music", "Music during the police chase: the game plays your own copy of the James Bond theme (or any song) from the music folder.", A_PAGE, 5 });
     menuItems.push_back({ "Steering wheel and pedals", "Connect your wheel and pedals: the game finds the axes when you move them. " + wd, A_PAGE, 4 });
     static const char* tl2[4] = { "Off", "Light", "Normal", "Heavy" };
     menuItems.push_back({ std::string("Traffic: ") + tl2[trafficLevel], "How many cars share the roads.", A_TRAFFIC, 0, true });
@@ -110,6 +111,16 @@ void Game::buildMenu(int page) {
     menuItems.push_back({ "Reflections: " + onoff(settings.reflections), "Live reflections in paint, glass, windows and wet roads. (F7)", A_GFX, 3, true });
     menuItems.push_back({ std::string("Time of day: ") + (settings.day ? "Midday" : "Golden hour"), "Bright midday sun, or the low orange light of the evening. (T)", A_GFX, 4, true });
     menuItems.push_back({ "Anti-aliasing: " + (settings.msaa == 1 ? std::string("Off") : std::to_string(settings.msaa) + "x"), "Smooths jagged edges. The change applies the next time you start the game.", A_GFX, 5, true });
+    menuItems.push_back({ "Back", "", A_BACK, 0 });
+  } else if (page == 5) {
+    menuTitle = "SOUND AND MUSIC"; if (music.tracks.empty()) music.scan();
+    static const char* mm[3] = { "Off", "Police chase only", "Always" };
+    menuItems.push_back({ std::string("Music: ") + mm[settings.music], "When the music plays. The chase only, all the time, or never. It pauses with the menu.", A_SND, 0, true });
+    menuItems.push_back({ "Volume: " + std::to_string(settings.volume) + "%", "How loud the music is.", A_SND, 1, true });
+    std::string chosen = music.pick(settings.musicTrack);
+    menuItems.push_back({ "Track: " + (chosen.empty() ? std::string("none found") : (settings.musicTrack.empty() || settings.musicTrack != chosen ? "automatic (" + chosen + ")" : chosen)), music.tracks.empty() ? "No music files yet. Put an MP3 or WAV file in the music folder (the theme tune you own, for example), then pick 'Look for music files again'." : "Which file plays. 'Automatic' picks a file with bond or 007 in its name, else the first one. " + std::to_string(music.tracks.size()) + " file(s) in the folder.", A_SND, 2, true });
+    menuItems.push_back({ "Open the music folder", "Opens the folder in Windows Explorer: " + music.dir, A_SND, 3 });
+    menuItems.push_back({ "Look for music files again", "After adding or removing files.", A_SND, 4 });
     menuItems.push_back({ "Back", "", A_BACK, 0 });
   } else if (page == 4) {
     menuTitle = "WHEEL AND PEDALS"; if (menuPage != 4 || wheel.devices.empty()) wheel.scan();
@@ -151,6 +162,14 @@ void Game::runMenuAction(const MenuItem& it, int dir) {
         case 5: settings.msaa = dir < 0 ? (settings.msaa == 4 ? 2 : settings.msaa == 2 ? 1 : 4) : (settings.msaa == 1 ? 2 : settings.msaa == 2 ? 4 : 1); break;
       }
       applyGraphics(); settings.save(); rebuildKeep(); break;
+    case A_SND:
+      switch (it.arg) {
+        case 0: settings.music = (settings.music + (dir < 0 ? 2 : 1)) % 3; break;
+        case 1: settings.volume = std::max(0, std::min(100, settings.volume + (dir < 0 ? -10 : 10))); break;
+        case 2: { int n = (int)music.tracks.size(); if (n) { std::string cur = music.pick(settings.musicTrack); int i = 0; for (int k = 0; k < n; k++) if (music.tracks[k] == cur) i = k; i = (i + (dir < 0 ? n - 1 : 1)) % n; settings.musicTrack = music.tracks[i]; } break; }
+        case 3: music.openFolder(); break; case 4: music.scan(); break;
+      }
+      settings.save(); rebuildKeep(); break;
     case A_WHEEL: {
       auto clampf2 = [](float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }; float d = dir < 0 ? -1.0f : 1.0f;
       switch (it.arg) {
@@ -222,6 +241,11 @@ void Game::stepPhysics(double dt, const InputState& in) {
 void Game::update(Renderer& r, double dt, const InputState& in) {
   time += dt; clock += dt;
   if (in.stats) showStats = !showStats;
+  if (musicOn) {                                         // the music: during the police chase (or always), paused while the menu is open
+    bool inChase = state == State::Escape || (state == State::Menu && menuFrom == State::Escape), driving = state == State::Free || state == State::Countdown || state == State::Race || state == State::Escape || (state == State::Menu && menuFrom != State::Menu && menuFrom != State::Finished && menuFrom != State::EscapeOver);
+    Music::Want w = Music::STOP; if (settings.music == 1 && inChase) w = state == State::Menu ? Music::PAUSE : Music::PLAY; else if (settings.music == 2 && driving) w = state == State::Menu ? Music::PAUSE : Music::PLAY;
+    music.update(dt, w, settings.volume, settings.musicTrack);
+  }
   for (auto& t : toasts) t.age += dt; while (!toasts.empty() && toasts.front().age > 3.2) toasts.pop_front();
   if (in.menu) { if (state == State::Menu) { if (wheel.binding != WheelInput::NONE) wheel.cancelBind(); else if (menuPage != 0) buildMenu(parentPage(menuPage)); else if (menuFrom != State::Menu) closeMenu(); } else openMenu(); }
   if (state == State::Menu) { menuInput(in); updateCamera(r, dt, in); fx.update(dt * 0.3); return; }

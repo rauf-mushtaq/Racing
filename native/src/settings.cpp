@@ -20,6 +20,8 @@ bool Settings::load(const char* path) {
     else if (!strcmp(key, "reflections")) reflections = atoi(val) != 0; else if (!strcmp(key, "msaa")) { msaa = atoi(val); if (msaa != 1 && msaa != 2 && msaa != 4) msaa = 4; }
     else if (!strcmp(key, "day")) day = atoi(val) != 0 ? 1 : 0; else if (!strcmp(key, "traffic")) { traffic = atoi(val); if (traffic < 0 || traffic > 3) traffic = 2; }
     else if (!strcmp(key, "wheelOn")) wheelOn = atoi(val) != 0;
+    else if (!strcmp(key, "music")) { music = atoi(val); if (music < 0 || music > 2) music = 1; } else if (!strcmp(key, "volume")) { volume = atoi(val); if (volume < 0 || volume > 100) volume = 70; }
+    else if (!strcmp(key, "track")) { musicTrack = val; while (!musicTrack.empty() && (musicTrack.back() == '\n' || musicTrack.back() == '\r')) musicTrack.pop_back(); }
     else if (!strcmp(key, "steer")) ax(steer, val); else if (!strcmp(key, "throttle")) ax(throttle, val); else if (!strcmp(key, "brake")) ax(brake, val);
     else if (!strcmp(key, "steerSens")) { x = (float)atof(val); if (x >= 0.3f && x <= 4.0f) steerSens = x; } else if (!strcmp(key, "steerLin")) { x = (float)atof(val); if (x >= 0.5f && x <= 2.5f) steerLin = x; }
     else if (!strcmp(key, "steerDead")) { x = (float)atof(val); if (x >= 0 && x <= 0.4f) steerDead = x; } else if (!strcmp(key, "pedalDead")) { x = (float)atof(val); if (x >= 0 && x <= 0.4f) pedalDead = x; }
@@ -31,6 +33,7 @@ bool Settings::load(const char* path) {
 
 void Settings::save(const char* path) const {
   FILE* f = fopen(path, "w"); if (!f) return;
+  fprintf(f, "music %d\nvolume %d\ntrack %s\n", music, volume, musicTrack.c_str());
   fprintf(f, "vsync %d\nao %d\nshadows %d\nreflections %d\nmsaa %d\nday %d\ntraffic %d\nwheelOn %d\n", vsync, ao, shadows, reflections, msaa, day, traffic, wheelOn);
   auto ax = [&](const char* k, const AxisBind& a) { fprintf(f, "%s %d %d %.5f %.5f %.5f\n", k, a.dev, a.axis, a.rest, a.full, a.other); };
   ax("steer", steer); ax("throttle", throttle); ax("brake", brake);

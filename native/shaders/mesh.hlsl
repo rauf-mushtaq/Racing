@@ -82,7 +82,7 @@ PSOut PSMain(V i) {
     float3 fp3 = i.wpos * 320.0; float flake = lerp(0.333 * (vnoise(fp3.xy) + vnoise(fp3.yz + 3.1) + vnoise(fp3.zx + 7.7)), 0.5, saturate(dist / 18.0));    // a fine metallic flake (no direction to it) that fades into an even colour with distance
     float3 base = i.col.rgb * gP1.rgb * (0.965 + 0.07 * flake);
     float nv = saturate(dot(n, v)), F = 0.04 + 0.96 * pow(1.0 - nv, 5.0);
-    col = Shade(base, 0.16, 0.30 + 0.08 * flake, n, v, sh);                               // the base coat: mostly coloured diffuse with a tinted sheen
+    col = Shade(base, 0.16 + 0.6 * gP0.z, 0.30 - 0.1 * gP0.z + 0.08 * flake, n, v, sh);      // gP0.z is extra metal: 0 for ordinary paint, high for a metallic silver                               // the base coat: mostly coloured diffuse with a tinted sheen
     float3 rc = reflect(-v, n);
     col += EnvReflect(rc, i.wpos) * (0.035 + 0.55 * F) * (0.7 + 0.3 * saturate(nv * 2.0));      // the clear coat mirrors the street around the car
     float3 hh = normalize(gSunDir.xyz + v); col += gSunColor.rgb * pow(saturate(dot(n, hh)), 900.0) * 9.0 * sh;   // a tight sun highlight

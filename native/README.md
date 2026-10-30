@@ -13,7 +13,7 @@ The same world as the web game, as a native Windows program: C++17, Direct3D 12 
   (buildings, traffic, your car, the sky and the sun) in the road.
 - Traffic with signals (ported from the web game), motorway traffic, cars that get knocked about.
 - **Races**: fifteen routes with checkpoint gates, timer, medals and saved best times.
-- **Escape mode**: you drive a silver gadget grand tourer and the police chase you (see below).
+- **Escape mode**: you drive an Aston Martin DB5 in Silver Birch, with its gadgets, and the police chase you (see below).
 - **Real car models**: the supercar is a Ferrari 458 Spider and the gadget car and the police cars are a modern concept coupe, both modelled by other people (credits in `assets/CREDITS.md`). The wheels spin and steer, the lights work, and the driver view has a real cockpit with a steering wheel that turns with yours. If the `assets` folder is missing the game falls back to its built-in procedural cars.
 - Time of day: it starts at midday (blue sky, white sun, grey asphalt); press T to ease into golden hour and back.
 - Live reflections: a cube of the surroundings (city, traffic, sky) is drawn from your car, one face every other frame, and the car's paint, its glass and the building windows reflect it. F7 turns reflections off (this and the wet-road mirror) if you need the frames.
@@ -47,7 +47,7 @@ The menu opens when the game starts: pick **Escape the police**, **Races** or **
 | Stats overlay (fps, GPU time, draw calls) | F3 | |
 | Vsync on/off, ambient occlusion, shadows, reflections | F4, F5, F6, F7 | |
 
-**Escape mode gadgets** (the silver GT only): **F** or left mouse = machine guns (hold; they overheat), **G** = homing
+**Escape mode gadgets** (the Aston Martin DB5 only): **F** or left mouse = machine guns (hold; they overheat), **G** = homing
 missile, **B** = bomb dropped behind you (explodes when a car drives close), **O** = oil slick, **X** = smoke screen
 (blocks the police's view), **V** = armour plate. On a pad: RB guns, B missile, LB bomb, D-pad up oil, down smoke, left armour.
 The police see you or they don't: break line of sight and stay hidden to lose them. More heat brings more cars and heavy
@@ -73,6 +73,10 @@ native\build\Release\sunset.exe
 
 On Linux the same source cross-compiles with MinGW-w64 (`cmake -DCMAKE_TOOLCHAIN_FILE=native/cmake/mingw-w64.cmake`),
 and runs under Wine (with vkd3d) for tests.
+
+## Music
+
+The game plays your own music during the police chase: put an MP3 or WAV file (the James Bond theme you own, for example) in the `music` folder next to `sunset.exe`. It picks a file with "bond" or "007" in its name, otherwise the first one (choose a different one in *Settings > Sound and music*, where *Open the music folder* takes you straight there). It loops, pauses with the menu and stops when the chase ends; you can also have it play all the time, and set the volume. No music comes with the game (the theme is copyrighted), and the game has no sound effects yet.
 
 ## Settings, and your steering wheel and pedals
 

@@ -15,6 +15,7 @@
 #include "escape.h"
 #include "peds.h"
 #include "wheel.h"
+#include "music.h"
 #include "settings.h"
 #include <map>
 #include <deque>
@@ -52,7 +53,8 @@ public:
   State state = State::Free, menuFrom = State::Free; bool quit = false, showStats = false;
   Route route; int nextCp = 0; double raceT = 0, countT = 0; double lastBest = -1; int lastMedal = -1; bool newBest = false; std::map<std::string, double> bests;
   std::vector<MenuItem> menuItems; int menuSel = 0, menuPage = 0; std::string menuTitle; std::deque<Toast> toasts; int trafficLevel = 2;
-  Settings settings; WheelInput wheel; mutable std::vector<MenuHit> menuHits;   // written by the HUD each frame it draws the menu
+  Settings settings; WheelInput wheel; Music music; bool musicOn = true;   // musicOn: false in test runs
+  mutable std::vector<MenuHit> menuHits;   // written by the HUD each frame it draws the menu
   void applyGraphics();                                // push the graphics settings into the renderer
   bool useSaved = true;                                // false in test runs: ignore the saved settings file
   double time = 0;

@@ -26,10 +26,10 @@ void BondModel::configure(Vehicle& v) {
 }
 
 void BondModel::build(Gfx& g) {
-  useAsset = asset.load(g, g.assetDir + "/cars/carconcept.scm");
+  useAsset = false;                                   // the gadget car is the DB5 modelled below (the baked concept coupe is for traffic and police cars)
   const float WR = 0.32f, ZF = 1.25f, ZR = -1.24f; const uint32_t chromeC = C(0.88f, 0.89f, 0.92f), dark = C(0.02f, 0.02f, 0.022f);
   { // The lower body: long bonnet, a high waist, a short tail with a flat end panel; wheel arches cut into it.
-    BodySpec s; s.z0 = -2.28f; s.z1 = 2.29f; s.stations = 100; s.smooth = 2; s.noseR = 0.40f; s.tailR = 0.06f; s.deckStart = 0.80f; s.tumble = 0.035f; s.archY = WR; s.archMargin = 0.065f; s.arches = { { ZF, WR }, { ZR, WR } };
+    BodySpec s; s.z0 = -2.28f; s.z1 = 2.29f; s.stations = 100; s.smooth = 2; s.noseR = 0.40f; s.tailR = 0.06f; s.deckStart = 0.80f; s.tumble = 0.035f; s.archY = WR; s.archMargin = 0.045f; s.arches = { { ZF, WR }, { ZR, WR } };
     s.hw = { { -2.28f, 0.70f }, { -2.2f, 0.78f }, { -2.0f, 0.83f }, { -1.6f, 0.85f }, { -1.0f, 0.855f }, { 0.0f, 0.855f }, { 1.0f, 0.855f }, { 1.6f, 0.85f }, { 1.95f, 0.83f }, { 2.15f, 0.76f }, { 2.29f, 0.56f } };
     s.ytop = { { -2.28f, 0.88f }, { -2.2f, 0.945f }, { -2.0f, 0.985f }, { -1.7f, 0.99f }, { -1.4f, 0.975f }, { -1.0f, 0.965f }, { 0.0f, 0.955f }, { 0.7f, 0.965f }, { 1.2f, 0.95f }, { 1.7f, 0.905f }, { 2.0f, 0.845f }, { 2.2f, 0.77f }, { 2.29f, 0.67f } };
     s.ysh = { { -2.28f, 0.72f }, { -2.0f, 0.855f }, { -1.5f, 0.86f }, { 0.0f, 0.835f }, { 1.0f, 0.83f }, { 1.7f, 0.79f }, { 2.2f, 0.66f }, { 2.29f, 0.58f } };
@@ -38,14 +38,33 @@ void BondModel::build(Gfx& g) {
     MeshData m = loftBody(s, C(1, 1, 1));
     body = uploadMesh(g, colourTriangles(m, [&](Vec3 c, Vec3 n) { if (n.y < -0.25f) return C(0.015f, 0.015f, 0.018f); if (c.y < 0.2f && std::fabs(n.x) > 0.5f) return C(0.02f, 0.02f, 0.022f); return C(1, 1, 1); }));
   }
-  { // Greenhouse: glass, then the steel roof over it.
-    struct S { float z, hw, yb, yt; };
-    const S st[] = { {0.80f, 0.62f, 0.95f, 0.99f}, {0.58f, 0.70f, 0.92f, 1.17f}, {0.22f, 0.725f, 0.91f, 1.29f}, {-0.30f, 0.73f, 0.91f, 1.335f}, {-0.80f, 0.715f, 0.91f, 1.31f}, {-1.25f, 0.67f, 0.92f, 1.19f}, {-1.55f, 0.58f, 0.93f, 1.03f}, {-1.68f, 0.48f, 0.94f, 0.98f} };
-    std::vector<std::vector<Vec3>> rings; for (auto& s : st) rings.push_back(ring(s.z, s.hw, s.yb, s.yt, 34, 2.1f));
-    MeshData m; m.loft(rings, C(1, 1, 1), true, true); glass = uploadMesh(g, m);
-    const S rf[] = { {0.38f, 0.50f, 1.255f, 1.285f}, {0.1f, 0.64f, 1.30f, 1.335f}, {-0.35f, 0.665f, 1.335f, 1.372f}, {-0.8f, 0.65f, 1.315f, 1.352f}, {-1.15f, 0.59f, 1.22f, 1.25f}, {-1.36f, 0.5f, 1.14f, 1.17f} };
-    std::vector<std::vector<Vec3>> rr; for (auto& s : rf) rr.push_back(ring(s.z, s.hw, s.yb, s.yt, 30, 2.8f));
-    MeshData r; r.loft(rr, C(1, 1, 1), true, true); roof = uploadMesh(g, r);
+  { // The glasshouse of a DB5: a raked windscreen, a roof with the highest point behind the driver, door glass and a quarter light split by a
+    // thin pillar, a wide sloping fastback sail and a small rear window. One lofted shell with a flat-sided section, then every triangle goes
+    // to the glass mesh or the painted mesh depending on where it is (so the pillars and roof stay body colour).
+    Curve hwB = { { -1.60f, 0.60f }, { -1.30f, 0.71f }, { -0.90f, 0.775f }, { 0.10f, 0.785f }, { 0.50f, 0.74f } };                // half width at the belt
+    Curve hwT = { { -1.60f, 0.62f }, { -1.30f, 0.57f }, { -0.95f, 0.53f }, { -0.45f, 0.56f }, { 0.14f, 0.50f }, { 0.50f, 0.66f } };   // half width at the roof / glass top
+    Curve yT = { { -1.60f, 0.985f }, { -1.25f, 1.12f }, { -0.95f, 1.265f }, { -0.60f, 1.305f }, { -0.30f, 1.318f }, { 0.00f, 1.296f }, { 0.14f, 1.268f }, { 0.30f, 1.12f }, { 0.50f, 0.965f } };
+    Curve yB = { { -1.60f, 0.975f }, { -1.20f, 0.93f }, { -0.60f, 0.905f }, { 0.10f, 0.905f }, { 0.30f, 0.93f }, { 0.50f, 0.955f } };
+    auto section = [&](float z) {
+      float hb = hwB.at(z), ht = hwT.at(z), yb = yB.at(z), yt = std::max(yT.at(z), yb + 0.03f), h = yt - yb; std::vector<Vec3> r;
+      const float P[14][2] = { { hb, 0 }, { hb * 0.99f, 0.45f }, { ht * 1.04f, 0.86f }, { ht * 0.97f, 0.985f }, { ht * 0.55f, 1.0f }, { 0.0f, 1.012f / 1.0f }, { -ht * 0.55f, 1.0f }, { -ht * 0.97f, 0.985f }, { -ht * 1.04f, 0.86f }, { -hb * 0.99f, 0.45f }, { -hb, 0 }, { -hb * 0.5f, -0.02f }, { 0.0f, -0.03f }, { hb * 0.5f, -0.02f } };
+      for (auto& q : P) r.push_back(Vec3(q[0], yb + h * q[1], z));
+      return r;
+    };
+    std::vector<std::vector<Vec3>> rings; for (float z = 0.50f; z >= -1.60f; z -= 0.04f) rings.push_back(section(z));
+    MeshData gh; gh.loft(rings, C(1, 1, 1), true, true);
+    MeshData gm, pm; const uint32_t glassC = C(0.012f, 0.016f, 0.02f), paintC = C(1, 1, 1);
+    for (size_t k = 0; k + 2 < gh.i.size(); k += 3) {
+      const MeshVertex& a = gh.v[gh.i[k]], & b = gh.v[gh.i[k + 1]], & c = gh.v[gh.i[k + 2]];
+      Vec3 cen((a.px + b.px + c.px) / 3, (a.py + b.py + c.py) / 3, (a.pz + b.pz + c.pz) / 3), n((a.nx + b.nx + c.nx) / 3, (a.ny + b.ny + c.ny) / 3, (a.nz + b.nz + c.nz) / 3);
+      float yb = yB.at(cen.z), h = std::max(0.03f, yT.at(cen.z) - yb), fr = (cen.y - yb) / h;           // how far up the cross-section this triangle is (0 belt, 1 roof)
+      bool side = fr > 0.02f && fr < 0.9f && cen.z < 0.42f - (cen.y - 0.9f) * 0.75f && cen.z > -1.1f + (cen.y - 0.9f) * 0.3f && std::fabs(cen.z + 0.5f) > 0.075f;
+      bool screen = fr >= 0.93f && cen.z > 0.12f && std::fabs(cen.x) < hwT.at(cen.z) * 0.86f;
+      bool rear = fr >= 0.93f && cen.z < -0.95f && std::fabs(cen.x) < hwT.at(cen.z) * 0.88f; (void)n;
+      bool gl = side || screen || rear; MeshData& d = gl ? gm : pm; uint32_t col = gl ? glassC : paintC;
+      uint32_t i0 = d.add(Vec3(a.px, a.py, a.pz), Vec3(a.nx, a.ny, a.nz), col, 0, 0), i1 = d.add(Vec3(b.px, b.py, b.pz), Vec3(b.nx, b.ny, b.nz), col, 0, 0), i2 = d.add(Vec3(c.px, c.py, c.pz), Vec3(c.nx, c.ny, c.nz), col, 0, 0); d.tri(i0, i1, i2);
+    }
+    glass = uploadMesh(g, gm); roof = uploadMesh(g, pm);
   }
   { // Dark trim: grille interior, sills, lamp wells, door shuts, the exhausts and the gadget nozzles.
     MeshData m; ellipseZ(m, 0, 0.43f, 2.255f, 0.40f, 0.125f, 0.12f, C(0.01f, 0.01f, 0.012f));                                    // the grille's dark interior
@@ -114,7 +133,7 @@ void BondModel::draw(Renderer& r, const Vehicle& v, double alpha, const BondStat
     r.drawMeshMat(shield, mul(M, translation(0, (float)(1.15 - 0.5 * (1.0 - st.shield)), -1.62f)), gunM);
     return;
   }
-  Material paint; paint.type = 1; paint.tint[0] = 0.50f; paint.tint[1] = 0.52f; paint.tint[2] = 0.55f;                          // silver birch
+  Material paint; paint.type = 1; paint.metal = 0.45f; paint.tint[0] = 0.66f; paint.tint[1] = 0.68f; paint.tint[2] = 0.72f;                          // silver birch
   Material glassM; glassM.type = 3; Material trimM; trimM.type = 0; trimM.rough = 0.5f; trimM.twoSided = true;
   Material chromeM; chromeM.type = 0; chromeM.rough = 0.1f; chromeM.metal = 1.0f; chromeM.twoSided = true;
   Material headM; headM.type = 4; headM.emissive = st.headlights ? 2.0f : 0.5f; Material tailM; tailM.type = 4; tailM.emissive = st.braking ? 8.0f : 1.6f;
