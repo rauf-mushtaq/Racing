@@ -1,0 +1,201 @@
+// City traffic. Cars drive on the right in their lanes, follow the car ahead,
+// slow for turns, wait for cars already crossing a junction, brake for you,
+// and get knocked aside if you hit them. Traffic stays around the player:
+// cars that fall far behind are moved to roads further ahead.
+import * as THREE from 'three';
+import { N, SP, hw, isBlvd, laneCount, laneOffset } from './city.js';
+import { trafficModels } from './carModel.js';
+import { mulberry32, clamp, wrapAngle } from './util.js';
+
+const COLORS = ['#e8e8e8', '#111214', '#9aa0a6', '#5b6066', '#1e2f55', '#8a1c1c', '#c8b89a', '#2f4a3a', '#d7d3cc', '#30343a', '#6b1f2e', '#2a5d8f'].map(c => new THREE.Color(c));
+const COUNTS = { off: 0, light: 24, normal: 44, heavy: 70 };
+
+export class Traffic {
+  constructor(scene, parked, shadows) {
+    this.models = trafficModels();
+    this.rnd = mulberry32(77);
+    this.cars = [];
+    this.parked = parked;
+    this.meshes = this.models.map(md => {
+      const body = new THREE.InstancedMesh(md.geo, new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.32, envMapIntensity: 1.1 }), 90);
+      const lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), 90);
+      body.castShadow = shadows; body.count = 0; lights.count = 0;
+      body.receiveShadow = true;
+      body.frustumCulled = false; lights.frustumCulled = false;
+      scene.add(body); scene.add(lights);
+      return { body, lights, list: [] };
+    });
+    this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1); this.up = new THREE.Vector3(0, 1, 0);
+    // Parked cars never move; they're drawn with the same meshes.
+    this.statics = parked.map(([x, z, h, y]) => ({ x, z, h, y, type: (this.rnd() * 3) | 0, color: COLORS[(this.rnd() * COLORS.length) | 0] }));
+  }
+
+  setDensity(level, player) {
+    const n = COUNTS[level] ?? COUNTS.normal;
+    while (this.cars.length > n) this.cars.pop();
+    while (this.cars.length < n) {
+      const c = { active: true, type: (this.rnd() * 4) | 0, color: COLORS[(this.rnd() * COLORS.length) | 0], len: 4.7 };
+      c.type = this.rnd() < 0.12 ? 3 : (this.rnd() * 3) | 0;
+      c.len = this.models[c.type].len;
+      this.cars.push(c);
+      this.spawn(c, player, 30, 520, true);
+    }
+  }
+
+  // --- Road graph ------------------------------------------------------------
+  edgeInfo(a, b) {
+    const alongZ = a[0] === b[0];
+    const k = alongZ ? a[0] : a[1];
+    const dx = alongZ ? 0 : Math.sign(b[0] - a[0]), dz = alongZ ? Math.sign(b[1] - a[1]) : 0;
+    const rx = -dz, rz = dx;
+    const crossA = alongZ ? hw(a[1]) : hw(a[0]), crossB = alongZ ? hw(b[1]) : hw(b[0]);
+    return { k, dx, dz, rx, rz, crossA, crossB };
+  }
+  lanePoints(a, b, lane) {
+    const e = this.edgeInfo(a, b), off = laneOffset(e.k, lane);
+    const ax = a[0] * SP, az = a[1] * SP, bx = b[0] * SP, bz = b[1] * SP;
+    return [
+      { x: ax + e.dx * (e.crossA + 7) + e.rx * off, z: az + e.dz * (e.crossA + 7) + e.rz * off },
+      { x: bx - e.dx * (e.crossB + 7) + e.rx * off, z: bz - e.dz * (e.crossB + 7) + e.rz * off },
+      e,
+    ];
+  }
+  neighbours(n) {
+    const out = [];
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const i = n[0] + di, j = n[1] + dj;
+      if (Math.abs(i) <= N && Math.abs(j) <= N) out.push([i, j]);
+    }
+    return out;
+  }
+  pickNext(from, to) {
+    const opts = this.neighbours(to).filter(n => n[0] !== from[0] || n[1] !== from[1]);
+    const d0 = [to[0] - from[0], to[1] - from[1]];
+    const straight = opts.find(n => n[0] - to[0] === d0[0] && n[1] - to[1] === d0[1]);
+    if (straight && this.rnd() < 0.55) return straight;
+    return opts[(this.rnd() * opts.length) | 0];
+  }
+  // Build the path for one edge plus the turn into the next.
+  buildPath(c, from, to, lane) {
+    const nl = laneCount(this.edgeInfo(from, to).k);
+    lane = clamp(lane, 0, nl - 1);
+    const next = this.pickNext(from, to);
+    const [p0, p1, e1] = this.lanePoints(from, to, lane);
+    const e2 = this.edgeInfo(to, next);
+    const straight = e1.dx === e2.dx && e1.dz === e2.dz;
+    const nl2 = laneCount(e2.k);
+    // Right turns end in the outer lane, left turns in the inner one.
+    const turnRight = !straight && (e1.rx * e2.dx + e1.rz * e2.dz) > 0;
+    const lane2 = straight ? clamp(lane, 0, nl2 - 1) : turnRight ? nl2 - 1 : 0;
+    const [q0] = this.lanePoints(to, next, lane2);
+    const pts = [p0, p1];
+    const ctrl = straight ? { x: (p1.x + q0.x) / 2, z: (p1.z + q0.z) / 2 } : (e1.dz !== 0 ? { x: p1.x, z: q0.z } : { x: q0.x, z: p1.z });
+    for (let k = 1; k <= 10; k++) {
+      const t = k / 10, u = 1 - t;
+      pts.push({ x: u * u * p1.x + 2 * u * t * ctrl.x + t * t * q0.x, z: u * u * p1.z + 2 * u * t * ctrl.z + t * t * q0.z });
+    }
+    const cum = [0];
+    for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z));
+    Object.assign(c, { from, to, next, lane: lane2, pts, cum, total: cum[cum.length - 1], straightLen: cum[1], turning: !straight, s: 0, blvd: isBlvd(e1.k) });
+  }
+
+  spawn(c, player, minD, maxD, initial = false) {
+    for (let tries = 0; tries < 40; tries++) {
+      const i = Math.floor(this.rnd() * (2 * N + 1)) - N, j = Math.floor(this.rnd() * (2 * N + 1)) - N;
+      const nb = this.neighbours([i, j]); const to = nb[(this.rnd() * nb.length) | 0];
+      const lane = (this.rnd() * 3) | 0;
+      this.buildPath(c, [i, j], to, lane);
+      c.s = this.rnd() * c.straightLen * 0.9;
+      this.place(c);
+      const d = Math.hypot(c.x - player.x, c.z - player.z);
+      if (d < minD || d > maxD) continue;
+      // Don't drop a car on top of another one.
+      if (this.cars.some(o => o !== c && o.pts && Math.hypot(o.x - c.x, o.z - c.z) < 12)) continue;
+      // Respawns go out of sight, ahead of the player.
+      if (!initial) { const f = [Math.sin(player.h), Math.cos(player.h)]; if ((c.x - player.x) * f[0] + (c.z - player.z) * f[1] < 60) continue; }
+      break;
+    }
+    c.mode = 'drive'; c.speed = c.blvd ? 15 : 10; c.vmax = (c.blvd ? 19 : 13.5) * (0.85 + this.rnd() * 0.3); c.wait = 0; c.knockT = 0;
+  }
+
+  place(c) {
+    let k = 1; while (k < c.cum.length - 1 && c.cum[k] < c.s) k++;
+    const a = c.pts[k - 1], b = c.pts[k], seg = c.cum[k] - c.cum[k - 1] || 1, t = clamp((c.s - c.cum[k - 1]) / seg, 0, 1);
+    c.x = a.x + (b.x - a.x) * t; c.z = a.z + (b.z - a.z) * t;
+    const h = Math.atan2(b.x - a.x, b.z - a.z);
+    c.h = c.h == null ? h : c.h + wrapAngle(h - c.h) * 0.5;
+  }
+
+  velocityOf(c) { return c.mode === 'knocked' ? [c.vx, c.vz] : [Math.sin(c.h) * c.speed, Math.cos(c.h) * c.speed]; }
+  knock(c, vx, vz, spin) {
+    if (c.mode !== 'knocked') { c.mode = 'knocked'; c.knockT = 0; c.spin = 0; }
+    c.vx = vx; c.vz = vz; c.spin += spin;
+  }
+
+  update(dt, player) {
+    const pf = [Math.sin(player.h), Math.cos(player.h)];
+    for (const c of this.cars) {
+      if (c.mode === 'knocked') {
+        c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.spin * dt;
+        const sp = Math.hypot(c.vx, c.vz), dec = Math.max(0, sp - 7 * dt) / (sp || 1);
+        c.vx *= dec; c.vz *= dec; c.spin *= Math.exp(-2 * dt);
+        if (sp < 0.3) c.knockT += dt;
+        const far = Math.hypot(c.x - player.x, c.z - player.z);
+        if (c.knockT > 6 && far > 60) this.spawn(c, player, 160, 420);
+        continue;
+      }
+      const f = [Math.sin(c.h), Math.cos(c.h)], r = [-f[1], f[0]];
+      let target = c.vmax;
+      const toTurn = c.straightLen - c.s;
+      if (c.turning) target = Math.min(target, toTurn > 0 ? 7 + toTurn * 0.45 : 7);
+      // Follow whoever is ahead in the lane, the player included.
+      const look = (ox, oz, gap) => {
+        const dx = ox - c.x, dz = oz - c.z, df = dx * f[0] + dz * f[1], dl = dx * r[0] + dz * r[1];
+        if (df > 0 && df < 40 && Math.abs(dl) < 2.3) target = Math.min(target, Math.max(0, (df - gap) * 0.8));
+      };
+      look(player.x, player.z, 7.5);
+      // Wait at the junction for cars already crossing it.
+      const approaching = toTurn > 0 && toTurn < 11;
+      let blocked = false;
+      for (const o of this.cars) {
+        if (o === c) continue;
+        const dx = o.x - c.x, dz = o.z - c.z; if (dx * dx + dz * dz > 1600) continue;
+        look(o.x, o.z, 7);
+        if (approaching && o.mode === 'drive' && o.s > o.straightLen && Math.abs(wrapAngle(o.h - c.h)) > 0.4 && dx * dx + dz * dz < 900) blocked = true;
+      }
+      if (blocked && c.wait < 4) { target = Math.min(target, Math.max(0, toTurn - 2) * 0.6); c.wait += dt; }
+      else if (!approaching) c.wait = 0;
+      c.speed += clamp(target - c.speed, -8 * dt, 3 * dt);
+      c.speed = Math.max(0, c.speed);
+      c.s += c.speed * dt;
+      if (c.s >= c.total) {
+        const over = c.s - c.total;
+        this.buildPath(c, c.to, c.next, c.lane);
+        c.s = over;
+      }
+      this.place(c);
+      // Keep traffic near the player.
+      const dx = c.x - player.x, dz = c.z - player.z, d2 = dx * dx + dz * dz;
+      if (d2 > 520 * 520 || (d2 > 260 * 260 && dx * pf[0] + dz * pf[1] < -200)) this.spawn(c, player, 180, 460);
+    }
+  }
+
+  render(player) {
+    for (const m of this.meshes) { m.list.length = 0; }
+    const near = (c, r) => (c.x - player.x) ** 2 + (c.z - player.z) ** 2 < r * r;
+    for (const c of this.cars) if (near(c, 450)) this.meshes[c.type].list.push(c);
+    for (const c of this.statics) if (near(c, 200)) this.meshes[c.type].list.push(c);
+    const { m4, q, v, one, up } = this;
+    for (const m of this.meshes) {
+      let i = 0;
+      for (const c of m.list) {
+        q.setFromAxisAngle(up, c.h); v.set(c.x, c.y ?? 0, c.z); m4.compose(v, q, one);
+        m.body.setMatrixAt(i, m4); m.lights.setMatrixAt(i, m4); m.body.setColorAt(i, c.color);
+        if (++i >= 90) break;
+      }
+      m.body.count = m.lights.count = i;
+      m.body.instanceMatrix.needsUpdate = true; m.lights.instanceMatrix.needsUpdate = true;
+      if (m.body.instanceColor) m.body.instanceColor.needsUpdate = true;
+    }
+  }
+}

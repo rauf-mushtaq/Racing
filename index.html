@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a1022">
+<title>Sunset City</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:ital,wght@0,600;0,800;1,800;1,900&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  :root {
+    --accent: #ff7a2a; --accent2: #ff3d7f; --cyan: #3fd8f2;
+    --panel: rgba(16, 12, 26, 0.72); --line: rgba(255,255,255,0.12); --text: #f4f1f6; --dim: rgba(244,241,246,0.6);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #120c18; color: var(--text);
+    font-family: Barlow, system-ui, -apple-system, Segoe UI, sans-serif; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  canvas#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .hidden { display: none !important; }
+  button { font: inherit; color: inherit; touch-action: manipulation; cursor: pointer; }
+
+  /* ---------- Loading ---------- */
+  #loading { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; text-align: center;
+    background: radial-gradient(ellipse at 50% 90%, #ff8a4c 0%, #c2386e 30%, #3b1747 62%, #120c18 100%); }
+  #loading h1, #menu h1 { font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-weight: 900; letter-spacing: 1px; margin: 0; line-height: 0.9; }
+  #loading h1 { font-size: clamp(54px, 10vw, 120px); }
+  #loading p { color: var(--dim); font-weight: 600; letter-spacing: 3px; text-transform: uppercase; }
+  .sun-title span { display: block; background: linear-gradient(180deg, #ffe08a, #ff7a2a 55%, #ff3d7f); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  /* ---------- Menu ---------- */
+  #menu { position: fixed; inset: 0; z-index: 20; display: flex; pointer-events: none; }
+  #menu .side { pointer-events: auto; width: min(420px, 100%); height: 100%; padding: max(28px, env(safe-area-inset-top)) 28px 28px max(28px, env(safe-area-inset-left));
+    background: linear-gradient(90deg, rgba(12,8,20,0.88) 0%, rgba(12,8,20,0.7) 75%, rgba(12,8,20,0) 100%); display: flex; flex-direction: column; overflow-y: auto; }
+  #menu h1 { font-size: 64px; }
+  #menu .sub { color: var(--dim); font-weight: 600; letter-spacing: 3px; font-size: 13px; margin: 8px 0 26px; text-transform: uppercase; }
+  .mbtn { display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 3px solid transparent; padding: 11px 16px; margin: 2px 0;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-style: italic; font-size: 28px; letter-spacing: 0.5px; color: var(--text); opacity: 0.82; transition: all .15s; }
+  .mbtn:hover, .mbtn.sel { opacity: 1; border-left-color: var(--accent); background: linear-gradient(90deg, rgba(255,122,42,0.25), rgba(255,122,42,0)); padding-left: 22px; }
+  .mbtn small { display: block; font-family: Barlow, sans-serif; font-style: normal; font-weight: 500; font-size: 13px; letter-spacing: 0; color: var(--dim); }
+  #menu .panel { pointer-events: auto; position: absolute; right: max(24px, env(safe-area-inset-right)); top: 50%; transform: translateY(-50%); width: min(560px, calc(100vw - 460px));
+    max-height: calc(100% - 48px); overflow-y: auto; background: var(--panel); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; }
+  .panel h2 { margin: 0 0 4px; font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-weight: 800; font-size: 30px; }
+  .panel .hint { color: var(--dim); font-size: 14px; margin: 0 0 14px; }
+  .card { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: rgba(255,255,255,0.05); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 8px 0; transition: all .15s; }
+  .card:hover, .card.sel { background: rgba(255,122,42,0.16); border-color: rgba(255,122,42,0.6); }
+  .card .t { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-style: italic; font-size: 22px; }
+  .card .d { color: var(--dim); font-size: 13px; }
+  .card .r { margin-left: auto; text-align: right; font-size: 13px; color: var(--dim); white-space: nowrap; }
+  .medal { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-left: 4px; }
+  .m-gold { background: radial-gradient(circle at 35% 35%, #fff2a8, #e0a91d); } .m-silver { background: radial-gradient(circle at 35% 35%, #fff, #9aa3ad); }
+  .m-bronze { background: radial-gradient(circle at 35% 35%, #ffd2a8, #b0682c); } .m-none { background: rgba(255,255,255,0.12); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .row label { font-weight: 600; }
+  .seg { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+  .seg button { background: rgba(255,255,255,0.07); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; font-size: 14px; font-weight: 600; }
+  .seg button.on { background: var(--accent); border-color: var(--accent); color: #1a0c06; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 10px; }
+  .sw { border: 2px solid transparent; border-radius: 10px; padding: 8px; background: rgba(255,255,255,0.05); font-size: 12px; font-weight: 600; text-align: center; }
+  .sw i { display: block; height: 36px; border-radius: 6px; margin-bottom: 6px; box-shadow: inset 0 -10px 18px rgba(0,0,0,0.35), inset 0 6px 10px rgba(255,255,255,0.35); }
+  .sw.on { border-color: var(--accent); }
+  .spec { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0; }
+  .spec div { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 8px; text-align: center; font-size: 12px; color: var(--dim); }
+  .spec b { display: block; font-size: 18px; color: var(--text); font-family: 'Barlow Condensed', sans-serif; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
+  .keys kbd { font-family: inherit; font-weight: 700; background: rgba(255,255,255,0.1); border: 1px solid var(--line); border-radius: 5px; padding: 1px 7px; white-space: nowrap; }
+  .big { display: inline-block; background: linear-gradient(90deg, var(--accent), var(--accent2)); border: 0; border-radius: 10px; padding: 12px 22px; font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-style: italic; font-size: 22px; color: #fff; margin-top: 10px; }
+  .ghost { background: rgba(255,255,255,0.08); border: 1px solid var(--line); border-radius: 10px; padding: 10px 18px; font-weight: 700; margin: 10px 6px 0 0; }
+
+  /* ---------- Overlays ---------- */
+  .overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: rgba(10,6,16,0.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  .overlay .box { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 26px 30px; min-width: min(380px, 92vw); max-width: 92vw; max-height: 92vh; overflow-y: auto; text-align: center; }
+  .overlay h2 { margin: 0 0 12px; font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-weight: 900; font-size: 44px; }
+  .overlay .mbtn { text-align: center; }
+  #finish .time { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 64px; line-height: 1; }
+  #finish .medal-big { font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin: 6px 0 12px; }
+  #finish table { margin: 8px auto 6px; border-collapse: collapse; font-size: 15px; }
+  #finish td { padding: 3px 12px; text-align: left; } #finish td:last-child { text-align: right; font-weight: 600; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
+  #dial { position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: 14px; width: min(30vh, 290px); height: min(30vh, 290px); }
+  #minimap { position: absolute; right: max(18px, env(safe-area-inset-right)); top: max(18px, env(safe-area-inset-top)); width: min(22vh, 190px); height: min(22vh, 190px); }
+  #race-info { position: absolute; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+  #r-time { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
+  #r-cp, #r-best { font-weight: 700; font-size: 14px; letter-spacing: 2px; opacity: 0.85; }
+  #nav { position: absolute; top: max(104px, calc(env(safe-area-inset-top) + 90px)); left: 50%; transform: translateX(-50%); text-align: center; }
+  #nav-arrow { width: 0; height: 0; margin: 0 auto; border-left: 16px solid transparent; border-right: 16px solid transparent; border-bottom: 30px solid #ffd23f; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6)); transform-origin: 50% 66%; }
+  #nav-dist { font-weight: 700; font-size: 13px; margin-top: 4px; text-shadow: 0 1px 4px #000; }
+  #toast { position: absolute; top: 30%; left: 50%; transform: translate(-50%, -10px); opacity: 0; transition: all .25s; font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-weight: 800;
+    font-size: 30px; text-shadow: 0 2px 12px rgba(0,0,0,0.7); text-align: center; white-space: nowrap; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #countdown { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-weight: 900; font-size: 140px; text-shadow: 0 4px 24px rgba(0,0,0,0.6); }
+  #title-card { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-weight: 700; font-size: 14px; letter-spacing: 3px; opacity: 0.6; text-transform: uppercase; }
+
+  /* ---------- Touch controls ---------- */
+  #touch { position: fixed; inset: 0; z-index: 12; }
+  #touch .tb { position: absolute; display: grid; place-items: center; border-radius: 18px; background: rgba(255,255,255,0.12); border: 1.5px solid rgba(255,255,255,0.28);
+    color: rgba(255,255,255,0.9); font-weight: 800; font-size: 15px; letter-spacing: 1px; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+  #touch .tb.on { background: rgba(255,122,42,0.55); border-color: #ffb27a; }
+  #touch .sq { width: 104px; height: 104px; bottom: max(26px, env(safe-area-inset-bottom)); font-size: 34px; }
+  #t-left { left: max(22px, env(safe-area-inset-left)); } #t-right { left: calc(max(22px, env(safe-area-inset-left)) + 118px); }
+  #t-gas { right: max(22px, env(safe-area-inset-right)); bottom: max(26px, env(safe-area-inset-bottom)); width: 104px; height: 156px; }
+  #t-brake { right: calc(max(22px, env(safe-area-inset-right)) + 118px); bottom: max(26px, env(safe-area-inset-bottom)); width: 96px; height: 104px; }
+  #t-nitro { right: max(22px, env(safe-area-inset-right)); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 168px); width: 104px; height: 64px; color: var(--cyan); }
+  #t-hand { right: calc(max(22px, env(safe-area-inset-right)) + 118px); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 116px); width: 96px; height: 64px; }
+  #touch .small { top: max(14px, env(safe-area-inset-top)); width: 54px; height: 54px; border-radius: 14px; font-size: 20px; }
+  #t-pause { left: max(14px, env(safe-area-inset-left)); } #t-cam { left: calc(max(14px, env(safe-area-inset-left)) + 64px); } #t-reset { left: calc(max(14px, env(safe-area-inset-left)) + 128px); }
+  body.touchmode #dial { left: max(14px, env(safe-area-inset-left)); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 112px); width: min(26vh, 200px); height: min(26vh, 200px); }
+  body.touchmode.tilt #dial { bottom: 10px; }
+  body.tilt #t-left, body.tilt #t-right { display: none; }
+
+  @media (max-width: 820px) {
+    #menu .side { width: 100%; background: rgba(12,8,20,0.82); }
+    #menu .panel { position: fixed; inset: auto 12px 12px 12px; top: auto; transform: none; width: auto; max-height: 62%; }
+    #menu h1 { font-size: 48px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="loading">
+  <div>
+    <h1 class="sun-title"><span>SUNSET</span><span>CITY</span></h1>
+    <p id="load-msg">Building the city…</p>
+  </div>
+</div>
+
+<div id="hud" class="hidden">
+  <canvas id="dial"></canvas>
+  <canvas id="minimap"></canvas>
+  <div id="race-info" class="hidden"><div id="r-time"></div><div id="r-cp"></div><div id="r-best"></div></div>
+  <div id="nav" class="hidden"><div id="nav-arrow"></div><div id="nav-dist"></div></div>
+  <div id="toast"></div>
+  <div id="countdown"></div>
+</div>
+
+<div id="touch" class="hidden">
+  <div class="tb sq" id="t-left" data-k="left">◀</div>
+  <div class="tb sq" id="t-right" data-k="right">▶</div>
+  <div class="tb" id="t-brake" data-k="brake">BRAKE</div>
+  <div class="tb" id="t-gas" data-k="gas">GAS</div>
+  <div class="tb" id="t-nitro" data-k="nitro">NOS</div>
+  <div class="tb" id="t-hand" data-k="hand">DRIFT</div>
+  <div class="tb small" id="t-pause" data-tap="pause">❚❚</div>
+  <div class="tb small" id="t-cam" data-tap="camera">◉</div>
+  <div class="tb small" id="t-reset" data-tap="reset">↺</div>
+</div>
+
+<div id="menu" class="hidden">
+  <div class="side">
+    <h1 class="sun-title"><span>SUNSET</span><span>CITY</span></h1>
+    <div class="sub">A Mushtaq Racing game</div>
+    <button class="mbtn" data-m="free">FREE ROAM<small>Cruise the city at golden hour</small></button>
+    <button class="mbtn" data-m="events">EVENTS<small>Six races against the clock</small></button>
+    <button class="mbtn" data-m="garage">GARAGE<small>Paint your Vento SV</small></button>
+    <button class="mbtn" data-m="settings">SETTINGS<small>Graphics, driver aids, wheel set-up</small></button>
+    <button class="mbtn" data-m="controls">CONTROLS<small>Keyboard, gamepad, wheel and touch</small></button>
+  </div>
+  <div class="panel hidden" id="panel"></div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <div class="box">
+    <h2>PAUSED</h2>
+    <button class="mbtn" data-p="resume">RESUME</button>
+    <button class="mbtn" data-p="restart">RESTART</button>
+    <button class="mbtn" data-p="settings">SETTINGS</button>
+    <button class="mbtn" data-p="quit">QUIT TO MENU</button>
+    <div id="pause-panel" class="hidden" style="text-align:left"></div>
+  </div>
+</div>
+
+<div id="finish" class="overlay hidden">
+  <div class="box">
+    <h2 id="f-title">FINISH</h2>
+    <div class="time" id="f-time"></div>
+    <div class="medal-big" id="f-medal"></div>
+    <table id="f-table"></table>
+    <button class="big" data-f="retry">RETRY</button>
+    <div><button class="ghost" data-f="next">NEXT EVENT</button><button class="ghost" data-f="menu">MENU</button></div>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
