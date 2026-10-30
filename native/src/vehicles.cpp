@@ -5,6 +5,7 @@
 uint32_t vcol(float r, float g, float b) { return packColor(r, g, b); }
 
 namespace {
+MeshData g_wheelMesh;                                            // one alloy wheel and its tyre (the front left of the Ferrari model, simplified), outer face towards +x, centred on the axle
 using Poly = std::vector<std::array<float, 2>>;
 float sample(const Poly& c, float z) {
   if (z <= c.front()[0]) return c.front()[1]; if (z >= c.back()[0]) return c.back()[1];
@@ -17,7 +18,7 @@ struct Spec {
 };
 // The body: a loft of cross-sections from tail to nose. Each section is the lower body (to the shoulder line) and the cabin above it.
 CarMesh buildCar(Gfx& g, const Spec& s, bool police, const float lightBarY) {
-  const float zr = -s.len / 2, zf = s.len / 2; const int M = 44, NP = 16;
+  const float zr = -s.len / 2, zf = s.len / 2; const int M = 64, NP = 16;
   float wz[2] = { zf - s.fo, zr + s.ro }, archR = s.wr + 0.07f;
   std::vector<std::vector<Vec3>> rings;
   for (int k = 0; k <= M; k++) {
@@ -38,7 +39,8 @@ CarMesh buildCar(Gfx& g, const Spec& s, bool police, const float lightBarY) {
   auto shoulderAt = [&](float z) { return std::min(sample(s.shoulder, z), sample(s.top, z) - 0.05f); };
   MeshData lb = colourTriangles(body, [&](Vec3 c, Vec3 n) {
     float ySh = shoulderAt(c.z);
-    bool side = std::fabs(n.x) > 0.55f && c.y > ySh + 0.05f && c.z > s.gz[0] && c.z < s.gz[1];
+    float bPillar = (s.gz[0] + s.gz[1]) * 0.5f + 0.15f; bool hasPillar = s.gz[1] - s.gz[0] > 1.8f;
+    bool side = std::fabs(n.x) > 0.55f && c.y > ySh + 0.05f && c.z > s.gz[0] && c.z < s.gz[1] && !(hasPillar && std::fabs(c.z - bPillar) < 0.08f);
     bool wind = n.z > 0.2f && n.y > 0.15f && c.y > ySh && c.z > s.ws[0] && c.z < s.ws[1];
     bool rear = n.z < -0.2f && n.y > 0.1f && c.y > ySh && c.z > s.rw[0] && c.z < s.rw[1];
     if (side || wind || rear) return vcol(0.05f, 0.06f, 0.07f);
@@ -50,14 +52,26 @@ CarMesh buildCar(Gfx& g, const Spec& s, bool police, const float lightBarY) {
     return vcol(1, 1, 1);
   });
   MeshData acc;
+  MeshData wheelsM;
   for (float wzv : wz) for (int sd = -1; sd <= 1; sd += 2) {
-    acc.cylinder(Vec3(sd * (s.w - 0.27f), s.wr, wzv), Vec3(sd * (s.w - 0.03f), s.wr, wzv), s.wr, s.wr, 14, vcol(0.035f, 0.035f, 0.04f));
-    acc.cylinder(Vec3(sd * (s.w - 0.035f), s.wr, wzv), Vec3(sd * (s.w - 0.012f), s.wr, wzv), s.wr * 0.62f, s.wr * 0.62f, 10, vcol(0.4f, 0.41f, 0.43f));
+    if (!g_wheelMesh.empty()) {                                                                  // the real wheel, scaled to this vehicle's tyre and set flush with its side (mirrored on the right)
+      float sc = s.wr / 0.358f, cx = sd * (s.w - 0.15f * sc - 0.012f); uint32_t base = (uint32_t)wheelsM.v.size();
+      for (const MeshVertex& v : g_wheelMesh.v) { MeshVertex o = v; o.px = sd * v.px * sc + cx; o.py = v.py * sc + s.wr; o.pz = v.pz * sc + wzv; o.nx = sd * v.nx; wheelsM.v.push_back(o); }
+      for (size_t k = 0; k + 2 < g_wheelMesh.i.size(); k += 3) { if (sd > 0) wheelsM.tri(base + g_wheelMesh.i[k], base + g_wheelMesh.i[k + 1], base + g_wheelMesh.i[k + 2]); else wheelsM.tri(base + g_wheelMesh.i[k], base + g_wheelMesh.i[k + 2], base + g_wheelMesh.i[k + 1]); }
+    } else {
+      acc.cylinder(Vec3(sd * (s.w - 0.27f), s.wr, wzv), Vec3(sd * (s.w - 0.03f), s.wr, wzv), s.wr, s.wr, 14, vcol(0.035f, 0.035f, 0.04f));
+      acc.cylinder(Vec3(sd * (s.w - 0.035f), s.wr, wzv), Vec3(sd * (s.w - 0.012f), s.wr, wzv), s.wr * 0.62f, s.wr * 0.62f, 10, vcol(0.4f, 0.41f, 0.43f));
+    }
   }
   acc.box(Vec3(-s.w * 0.8f, s.clear - 0.02f, zr - 0.02f), Vec3(s.w * 0.8f, s.clear + 0.16f, zr + 0.1f), vcol(0.03f, 0.03f, 0.035f));   // rear bumper
   acc.box(Vec3(-s.w * 0.8f, s.clear - 0.02f, zf - 0.1f), Vec3(s.w * 0.8f, s.clear + 0.14f, zf + 0.02f), vcol(0.03f, 0.03f, 0.035f));   // front bumper
+  if (s.ws[1] > -5.0f) for (int sd = -1; sd <= 1; sd += 2) {                                                   // wing mirrors on stalks, and the grille between the headlamps
+    float zm = s.ws[1] - 0.12f, ym = shoulderAt(zm) + 0.16f;
+    acc.box(Vec3(sd * (s.w + 0.02f) - 0.07f, ym - 0.06f, zm - 0.07f), Vec3(sd * (s.w + 0.17f) + 0.07f, ym + 0.06f, zm + 0.07f), vcol(0.04f, 0.04f, 0.045f));
+  }
+  acc.box(Vec3(-s.w * 0.42f, s.clear + 0.16f, zf - 0.03f), Vec3(s.w * 0.42f, s.clear + 0.34f, zf + 0.02f), vcol(0.025f, 0.025f, 0.03f));
   lb.append(acc);
-  CarMesh o; o.body = uploadMesh(g, lb); o.len = s.len; o.halfW = s.w; o.mass = s.mass; o.rad = s.rad; o.wheelR = s.wr;
+  CarMesh o; if (!wheelsM.empty()) o.wheels = uploadMesh(g, wheelsM); o.body = uploadMesh(g, lb); o.len = s.len; o.halfW = s.w; o.mass = s.mass; o.rad = s.rad; o.wheelR = s.wr;
   { MeshData m; for (int sd = -1; sd <= 1; sd += 2) m.box(Vec3(sd * s.w * 0.62f - 0.15f, s.hlY - 0.045f, zf - 0.2f), Vec3(sd * s.w * 0.62f + 0.15f, s.hlY + 0.045f, zf - 0.05f), vcol(1.0f, 0.95f, 0.82f)); o.head = uploadMesh(g, m); }
   { MeshData m; for (int sd = -1; sd <= 1; sd += 2) m.box(Vec3(sd * s.w * 0.64f - 0.17f, s.tlY - 0.05f, zr + 0.05f), Vec3(sd * s.w * 0.64f + 0.17f, s.tlY + 0.05f, zr + 0.2f), vcol(1.0f, 0.07f, 0.03f)); o.tail = uploadMesh(g, m); }
   if (police) {                                                                                  // the light bar: a dark base with a red and a blue half (drawn as separate meshes, see CarMesh::bar)
@@ -72,6 +86,7 @@ CarMesh buildCar(Gfx& g, const Spec& s, bool police, const float lightBarY) {
 }
 
 void VehicleModels::build(Gfx& g) {
+  { std::vector<CpuPart> parts; if (loadCarCpu(g.assetDir + "/cars/wheel.scm", parts)) for (CpuPart& p : parts) { uint32_t base = (uint32_t)g_wheelMesh.v.size(); g_wheelMesh.v.insert(g_wheelMesh.v.end(), p.m.v.begin(), p.m.v.end()); for (uint32_t k : p.m.i) g_wheelMesh.i.push_back(base + k); } }
   auto C = [](std::initializer_list<std::array<float, 2>> l) { return Poly(l); };
   Spec saloon = { 4.75f, 0.9f, 0.33f, 0.95f, 1.05f, 0.2f, 0.25f, 0.18f, 0.82f, 0.7f, 1400, 0.95f,
     C({ { -2.375f, 0.95f }, { -2.0f, 1.0f }, { -1.4f, 1.02f }, { -0.9f, 1.42f }, { 0.4f, 1.45f }, { 1.0f, 1.0f }, { 2.0f, 0.88f }, { 2.375f, 0.72f } }),
@@ -98,7 +113,7 @@ void VehicleModels::build(Gfx& g) {
   // Real models, when their baked files are there: the saloon and the police cruiser become the concept car (lighter, merged, simplified versions).
   auto useAsset = [&](CarMesh& m, const char* file) -> bool {
     CarAsset a; if (!a.load(g, g.assetDir + "/cars/" + file)) return false;
-    releaseMesh(g, m.body); releaseMesh(g, m.head); releaseMesh(g, m.tail);
+    releaseMesh(g, m.body); releaseMesh(g, m.head); releaseMesh(g, m.tail); releaseMesh(g, m.wheels);
     m.body = a.body[CR_PAINT]; m.head = a.body[CR_HEAD]; m.tail = a.body[CR_TAIL]; m.len = a.bmax[2] - a.bmin[2]; m.halfW = 1.0f; m.wheelR = a.wheelR[0]; return true;
   };
   useAsset(traffic[TK_SALOON], "carconcept_traffic.scm");

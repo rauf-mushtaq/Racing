@@ -5,6 +5,8 @@
 #include "renderer.h"
 #include "vehicle.h"
 
+struct CpuPart { int role = 0, slot = -1; MeshData m; };
+bool loadCarCpu(const std::string& path, std::vector<CpuPart>& out);   // the parts of a baked file kept in memory instead of uploaded (to merge them into procedural meshes)
 enum CarRole { CR_PAINT, CR_GLASS, CR_TRIM, CR_CHROME, CR_HEAD, CR_TAIL, CR_CARBON, CR_TIRE, CR_RIM, CR_BRAKE, CR_INTERIOR, CR_STEER, CR_COUNT };
 struct CarAsset {
   GpuMesh body[CR_COUNT];                  // by role (the wheel roles are unused here)

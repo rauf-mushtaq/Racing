@@ -183,6 +183,7 @@ void Scenery::draw(Renderer& r, bool shadow, const Frustum& f) {
     if (!f.boxVisible(t.x0, t.minY, t.z0, t.x1, t.maxY, t.z1)) continue;
     if (!shadow) { r.drawMeshMat(t.asphalt, I, asph); r.drawMeshMat(t.gravel, I, grav); }
     r.drawMeshMat(t.conc, I, conc); r.drawMeshMat(t.metal, I, steel);
-    for (int k = 0; k < P_COUNT; k++) if (t.count[k]) r.drawMeshMat(props.mesh[k], I, (k == P_ROCK || k == P_CACTUS) ? solid : foliage, &t.inst[k], t.count[k]);
+    float tdx = (t.x0 + t.x1) * 0.5f - r.cam.pos.x, tdz = (t.z0 + t.z1) * 0.5f - r.cam.pos.z; bool nearTile = tdx * tdx + tdz * tdz < (shadow ? 170.0f * 170.0f : 250.0f * 250.0f);   // tiles are 256 m wide
+    for (int k = 0; k < P_COUNT; k++) if (t.count[k]) r.drawMeshMat(k == P_TREE && !nearTile ? props.treeFar : props.mesh[k], I, (k == P_ROCK || k == P_CACTUS) ? solid : foliage, &t.inst[k], t.count[k]);
   }
 }

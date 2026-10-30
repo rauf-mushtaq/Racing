@@ -179,11 +179,11 @@ void Traffic::prepare(Gfx& g, const Pose& player, const Frustum& f, double clock
     t.paint = g.dynVB(lists[i].paint.data(), t.n * (UINT)sizeof(InstanceData), sizeof(InstanceData)); t.plain = g.dynVB(lists[i].plain.data(), t.n * (UINT)sizeof(InstanceData), sizeof(InstanceData));
   }
   { // Parked cars: the cells within 250 m, the ones in view.
-    const double CELL = 90.0; struct PL { std::vector<InstanceData> v; } pl[TK_COUNT]; int cx0 = (int)std::floor((player.x - 250) / CELL), cx1 = (int)std::floor((player.x + 250) / CELL), cz0 = (int)std::floor((player.z - 250) / CELL), cz1 = (int)std::floor((player.z + 250) / CELL);
+    const double CELL = 90.0; struct PL { std::vector<InstanceData> v, plain; } pl[TK_COUNT]; int cx0 = (int)std::floor((player.x - 250) / CELL), cx1 = (int)std::floor((player.x + 250) / CELL), cz0 = (int)std::floor((player.z - 250) / CELL), cz1 = (int)std::floor((player.z + 250) / CELL);
     for (int cz = cz0; cz <= cz1; cz++) for (int cx = cx0; cx <= cx1; cx++) { auto it = parked.find((int64_t)(cx + 1000) * 4096 + (cz + 1000)); if (it == parked.end()) continue;
       for (const Parked& p : it->second) { double dx = p.x - player.x, dz = p.z - player.z; if (dx * dx + dz * dz > 250.0 * 250.0) continue; if (dx * dx + dz * dz > 30 * 30 && !f.sphereVisible(p.x, 1.0f, p.z, 4.0f)) continue;
-        const float* c = PALETTE[p.color]; pl[p.type].v.push_back({ p.x, 0.0f, p.z, 1.0f, p.yaw, packColor(c[0] * 0.5f, c[1] * 0.5f, c[2] * 0.5f), 0, 0 }); } }
-    for (int i = 0; i < TK_COUNT; i++) { TypeDraw& t = parkedDraw[i]; t.n = (UINT)pl[i].v.size(); if (t.n) t.paint = g.dynVB(pl[i].v.data(), t.n * (UINT)sizeof(InstanceData), sizeof(InstanceData)); }
+        const float* c = PALETTE[p.color]; pl[p.type].v.push_back({ p.x, 0.0f, p.z, 1.0f, p.yaw, packColor(c[0] * 0.5f, c[1] * 0.5f, c[2] * 0.5f), 0, 0 }); pl[p.type].plain.push_back({ p.x, 0.0f, p.z, 1.0f, p.yaw, neutral, 0, 0 }); } }
+    for (int i = 0; i < TK_COUNT; i++) { TypeDraw& t = parkedDraw[i]; t.n = (UINT)pl[i].v.size(); if (t.n) { t.paint = g.dynVB(pl[i].v.data(), t.n * (UINT)sizeof(InstanceData), sizeof(InstanceData)); t.plain = g.dynVB(pl[i].plain.data(), t.n * (UINT)sizeof(InstanceData), sizeof(InstanceData)); } }
   }
   prepareSignals(g, Vec3((float)player.x, 0, (float)player.z), clock);
 }
@@ -203,13 +203,13 @@ void Traffic::prepareSignals(Gfx& g, const Vec3& cam, double clock) {
   sigPole.n = (UINT)poles.size(); if (sigPole.n) { sigPole.paint = g.dynVB(poles.data(), sigPole.n * (UINT)sizeof(InstanceData), sizeof(InstanceData)); for (int w = 0; w < 3; w++) sigLamp[w].paint = g.dynVB(lamps[w].data(), sigPole.n * (UINT)sizeof(InstanceData), sizeof(InstanceData)); }
 }
 void Traffic::draw(Renderer& r, bool shadow) {
-  Material paint; paint.type = 1; Material head; head.type = 4; head.emissive = 3.0f; Material tail; tail.type = 4; tail.emissive = 1.8f;
+  Material paint; paint.type = 1; Material head; head.type = 4; head.emissive = 3.0f; Material tail; tail.type = 4; tail.emissive = 1.8f; Material wheelM; wheelM.type = 0; wheelM.rough = 0.45f; wheelM.metal = 0.4f; wheelM.twoSided = true;
   for (int i = 0; i < TK_COUNT; i++) {
     const TypeDraw& t = drawList[i]; if (!t.n) continue; const CarMesh& m = models->traffic[i];
     r.drawMeshInst(m.body, paint, t.paint, t.n);
-    if (!shadow) { r.drawMeshInst(m.head, head, t.plain, t.n); r.drawMeshInst(m.tail, tail, t.plain, t.n); }
+    if (!shadow) { r.drawMeshInst(m.head, head, t.plain, t.n); r.drawMeshInst(m.tail, tail, t.plain, t.n); r.drawMeshInst(m.wheels, wheelM, t.plain, t.n); }
   }
-  for (int i = 0; i < TK_COUNT; i++) { const TypeDraw& t = parkedDraw[i]; if (t.n) r.drawMeshInst(models->traffic[i].body, paint, t.paint, t.n); }
+  for (int i = 0; i < TK_COUNT; i++) { const TypeDraw& t = parkedDraw[i]; if (t.n) { r.drawMeshInst(models->traffic[i].body, paint, t.paint, t.n); if (!shadow) r.drawMeshInst(models->traffic[i].wheels, wheelM, t.plain, t.n); } }
   if (sigPole.n) {
     Material metal; metal.type = 0; metal.rough = 0.5f; metal.metal = 0.5f; r.drawMeshInst(poleMesh, metal, sigPole.paint, sigPole.n);
     if (!shadow) { Material lamp; lamp.type = 4; lamp.emissive = 5.0f; for (int w = 0; w < 3; w++) r.drawMeshInst(lampMesh[w], lamp, sigLamp[w].paint, sigPole.n); }

@@ -41,7 +41,8 @@ struct Toast { std::string text; double age = 0; };
 class Game {
 public:
   Vehicle car; CarModel model; BondModel bond; BondState bondState; int carKind = 0;   // 0 supercar, 1 the gadget grand tourer
-  Scenery scenery; City city; VehicleModels vmodels; Traffic traffic; Peds peds; Fx fx; PoliceChase escape; float color[3] = { 0.85f, 0.20f, 0.03f };
+  Scenery scenery; City city; VehicleModels vmodels; Traffic traffic; Peds peds; Fx fx; PoliceChase escape; float color[3] = { 0.50f, 0.012f, 0.02f };
+  int showcase = -1; Vec3 showAt;                       // --showcase N: draw one vehicle model (0-5 traffic, 6 cruiser, 7 pursuit truck) or the pedestrians (8) ahead of the car, for looking at them
   double clock = 0, trafficAcc = 0; int camMode = 0; bool freeCam = false; double camYaw = 0, orbit = 0, orbitPitch = 0; Vec3 camPos, camLookSmooth; bool camInit = false; double speedKmh = 0; bool braking = false;
   // Modes
   State state = State::Free, menuFrom = State::Free; bool quit = false, showStats = false;

@@ -45,7 +45,7 @@ public:
                                             // descriptor block used by scene shaders (t0 = shadow map)
   DXGI_FORMAT ldrFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 private:
-  ComPtr<ID3D12PipelineState> psoMesh[2][2], psoShMesh, psoShInst, psoShTerrain;   // mesh[instanced][twoSided]
+  ComPtr<ID3D12PipelineState> psoMesh[2][2], psoShMesh, psoShInst, psoShTerrain, psoShFoliage;   // mesh[instanced][twoSided]
   ComPtr<ID3D12PipelineState> psoMeshR[2][2], psoMeshC[2][2], psoSkyR, psoFx, psoSky, psoWater, psoBloomFirst, psoBloomDown, psoBloomUp, psoAO, psoAOBlur, psoComposite, psoDof;
   Texture probeW, probeR, probeVD, probeDepth;   // the reflection probe: six faces drawn into probeW one per frame and copied into probeR, which the shaders read
   UINT probeFace = 0, probeTick = 0, staticRtv = 0, staticDsv = 0; bool probeReady = false;

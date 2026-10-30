@@ -65,3 +65,18 @@ void CarAsset::draw(Renderer& r, const Mat4& M, const Vehicle* v, const float ti
     if (!r.inShadow) r.drawMeshMat(wheel[i][2], base, brake);   // the brake disc steers with the wheel but does not spin (it would only blur)
   }
 }
+
+bool loadCarCpu(const std::string& path, std::vector<CpuPart>& out) {
+  std::ifstream f(path, std::ios::binary); if (!f) return false;
+  char magic[4]; uint32_t ver = 0, nParts = 0; f.read(magic, 4); f.read((char*)&ver, 4); f.read((char*)&nParts, 4);
+  if (!f || std::memcmp(magic, "SCM1", 4) != 0 || ver != 2 || nParts > 256) return false;
+  f.seekg(4 + 4 + 4 + 64 + 24 + 24, std::ios::beg);
+  for (uint32_t p = 0; p < nParts && f; p++) {
+    uint32_t role = 0, nv = 0, ni = 0; int32_t slot = -1; f.read((char*)&role, 4); f.read((char*)&slot, 4); f.read((char*)&nv, 4); f.read((char*)&ni, 4);
+    if (!f || nv > 4000000 || ni > 12000000) return false;
+    CpuPart cp; cp.role = (int)role; cp.slot = slot; cp.m.v.resize(nv); cp.m.i.resize(ni);
+    f.read((char*)cp.m.v.data(), (std::streamsize)nv * sizeof(MeshVertex)); f.read((char*)cp.m.i.data(), (std::streamsize)ni * 4); if (!f) return false;
+    out.push_back(std::move(cp));
+  }
+  return true;
+}

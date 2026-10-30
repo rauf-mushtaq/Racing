@@ -101,7 +101,7 @@ float3 EnvReflect(float3 r, float3 wp) {
   float3 sky = SkyColor(r);
   float cityK = 1.0 - smoothstep(2000.0, 2700.0, max(abs(wp.x), abs(wp.z)));
   float lit = saturate(dot(normalize(r.xz + 1e-4), normalize(gSunDir.xz + 1e-4)) * 0.5 + 0.5);
-  float3 wall = lerp(float3(0.05, 0.06, 0.085), lerp(float3(0.62, 0.46, 0.32), float3(0.60, 0.55, 0.50), gWeather.w), lit * lit) * (0.8 + 0.4 * vnoise(float2((r.x + r.z * 0.7) * 7.0, r.y * 5.0 + r.z * 3.0)));
+  float3 wall = lerp(float3(0.05, 0.06, 0.085), lerp(float3(0.62, 0.46, 0.32), float3(0.34, 0.345, 0.36), gWeather.w), lit * lit) * (0.9 + 0.2 * vnoise(float2((r.x + r.z * 0.7) * 2.5, r.y * 2.0 + r.z * 1.5)));
   float w = (1.0 - smoothstep(0.10, 0.62, r.y)) * cityK * smoothstep(-0.12, 0.04, r.y);
   float3 c = lerp(sky, wall, w);
 #ifndef NO_SHADOW_MAP
@@ -119,6 +119,23 @@ float3 BumpNormal(float3 n, float3 wp, float hgt, float strength) {
   float3 nb = abs(det) * n - sign(det) * (dh.x * r1 + dh.y * r2);
   float nl = length(nb);
   return (abs(det) > 1e-12 && nl > 1e-12) ? nb / nl : n;
+}
+
+// --- Foliage cut-outs, shared by the scene and the shadow passes so that shadows have the same holes as the leaves ---------------
+// uv.x in [2,3]: a palm frond (leaflets cut into a strip); [4,5]: one leaf of a canopy; >= 6: bark. Returns 0..1, discard below 0.5.
+float FrondKeepAmt(float2 uv) {
+  float across = abs(uv.x - 2.5) * 2.0, along = uv.y, nl = 22.0, sgn = sign(uv.x - 2.5);
+  float q = along * nl - sgn * across * 1.1, tooth = abs(frac(q) - 0.5);
+  float keep = step(tooth, 0.36 * (1.0 - 0.4 * across * across)) + step(across, 0.07);
+  float fadeL = saturate(max(abs(ddx(along * nl)), abs(ddy(along * nl))) * 2.2 - 0.3);
+  return lerp(saturate(keep), 1.0, fadeL);
+}
+float LeafKeepAmt(float2 uv) {
+  float lx = uv.x - 4.0, ly = uv.y;
+  float w = 0.47 * pow(saturate(sin(PI * saturate(ly * 0.94 + 0.03))), 0.65);              // an ovate leaf with a pointed tip
+  float keep = step(abs(lx - 0.5), w);
+  float fw = max(max(abs(ddx(lx)), abs(ddy(lx))), max(abs(ddx(ly)), abs(ddy(ly))));
+  return lerp(keep, 0.75, saturate((fw - 0.16) * 5.0));                                     // far away the holes average out into a solid card
 }
 
 // --- Haze: thins with height, cooler away from the sun, warm and bright towards it -----------------

@@ -3,6 +3,6 @@
 #pragma once
 #include "mesh.h"
 enum PropKind { P_PINE, P_SNOWPINE, P_TREE, P_PALM, P_CACTUS, P_ROCK, P_SHRUB, P_COUNT };
-struct PropSet { GpuMesh mesh[P_COUNT]; };
+struct PropSet { GpuMesh mesh[P_COUNT]; GpuMesh treeFar; };   // treeFar: the cheap blobby tree used beyond about 150 m (mesh[P_TREE] is the detailed one)
 void buildProps(Gfx& g, PropSet& out);
 MeshData blobMesh(Vec3 centre, Vec3 radii, int seg, uint32_t col, float noiseAmp, int seed);

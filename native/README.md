@@ -17,6 +17,7 @@ The same world as the web game, as a native Windows program: C++17, Direct3D 12 
 - **Real car models**: the supercar is a Ferrari 458 Spider and the gadget car and the police cars are a modern concept coupe, both modelled by other people (credits in `assets/CREDITS.md`). The wheels spin and steer, the lights work, and the driver view has a real cockpit with a steering wheel that turns with yours. If the `assets` folder is missing the game falls back to its built-in procedural cars.
 - Time of day: it starts at midday (blue sky, white sun, grey asphalt); press T to ease into golden hour and back.
 - Live reflections: a cube of the surroundings (city, traffic, sky) is drawn from your car, one face every other frame, and the car's paint, its glass and the building windows reflect it. F7 turns reflections off (this and the wet-road mirror) if you need the frames.
+- Real structure: trees are modelled with a trunk, limbs and about a thousand leaf cards each (palms and trees cast shadows with the same holes as their leaves), pedestrians are smooth humanoids with a walk cycle, and every vehicle rolls on real alloy wheels.
 - Surfaces: brick courses with mortar, recessed windows with frames, curtains, blinds and lit rooms, weathering streaks, speckled and cracked asphalt with worn paint, palms with real leaflets, leafy trees with ragged edges, and reflections that see the street and its buildings instead of an empty sky.
 - Rendering: cascaded shadows, ambient occlusion, 4× MSAA HDR, bloom, depth of field, camera motion blur, haze,
   golden-hour sky and clouds, particles (smoke, fire, sparks, tracers).
@@ -83,6 +84,7 @@ sunset.exe --fullscreen --vsync                             borderless fullscree
 sunset.exe --shot out.bmp --drive 5 --cam chase|close|driver|hood|free      save a picture and exit
 sunset.exe --simulate 60 --escape                           run the game logic only, log what the police do
 sunset.exe --check-shaders                                  compile every shader and list errors
+sunset.exe --shot out.bmp --showcase 0..8                  one model on the ground ahead of the car: 0-5 traffic (saloon, SUV, hatchback, van, truck, bus), 6 police car, 7 pursuit truck, 8 pedestrians
 ```
 
 ## How it is put together

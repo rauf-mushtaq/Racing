@@ -79,8 +79,8 @@ PSOut PSMain(V i) {
   if (type < 0.5) {                                            // plain
     col = Shade(i.col.rgb * gP1.rgb, gP0.z, gP0.y, n, v, sh);
   } else if (type < 1.5) {                                     // car paint: metal flake base under a clear coat
-    float flake = lerp(vnoise(i.wpos.xz * 340.0 + i.wpos.y * 290.0), 0.5, saturate(dist / 25.0));    // a fine metallic flake that fades into an even colour with distance
-    float3 base = i.col.rgb * gP1.rgb * (0.95 + 0.10 * flake);
+    float3 fp3 = i.wpos * 320.0; float flake = lerp(0.333 * (vnoise(fp3.xy) + vnoise(fp3.yz + 3.1) + vnoise(fp3.zx + 7.7)), 0.5, saturate(dist / 18.0));    // a fine metallic flake (no direction to it) that fades into an even colour with distance
+    float3 base = i.col.rgb * gP1.rgb * (0.965 + 0.07 * flake);
     float nv = saturate(dot(n, v)), F = 0.04 + 0.96 * pow(1.0 - nv, 5.0);
     col = Shade(base, 0.16, 0.30 + 0.08 * flake, n, v, sh);                               // the base coat: mostly coloured diffuse with a tinted sheen
     float3 rc = reflect(-v, n);
@@ -120,12 +120,25 @@ PSOut PSMain(V i) {
       wallCol *= 1.0 - 0.08 * step(0.5, frac(h * 2.4)) * (1.0 - fade); roughW = 0.75;
     }
     glassAmt = lerp(glassAmt, 0.0, 0.0) * step(2.0, h + (style < 0.34 ? 3.0 : 0.0));
-    if (shop) {                                                   // storefronts: big glass between piers, an awning in a bold colour, a sign band
-      float bay = frac(i.uv.x / 5.0), bid = floor(i.uv.x / 5.0), r2 = hash12(float2(bid, floor(i.uv.y * 0.0) + 41.0) + cid * 0.0);
-      float pier = step(bay, 0.07) + step(0.93, bay), win = step(0.35, h) * step(h, 3.25) * (1.0 - saturate(pier));
-      glassAmt = win; wallCol = float3(0.14, 0.14, 0.15) * (0.8 + 0.4 * grit2); roughW = 0.5;
-      float aw = step(3.25, h) * step(h, 4.2); float3 awc = lerp(float3(0.75, 0.12, 0.1), float3(0.1, 0.35, 0.65), step(0.5, r2)); awc = lerp(awc, float3(0.85, 0.7, 0.2), step(0.8, r2)); awc *= 0.8 + 0.3 * step(0.5, frac(i.uv.x * 1.4));
-      wallCol = lerp(wallCol, awc, aw); float sgn = step(4.2, h) * step(h, 4.65); float3 sc = lerp(float3(0.08, 0.08, 0.09), float3(0.9, 0.85, 0.7), step(0.55, vnoise(float2(i.uv.x * 3.0, 5.0 + bid))) * step(0.1, bay) * step(bay, 0.9)); wallCol = lerp(wallCol, sc, sgn);
+    float shopEdge = 9.0;
+    if (shop) {                                                   // storefronts: glass in dark metal frames between stone piers, a plinth, muted awnings, a fascia board with lettering
+      float bay = frac(i.uv.x / 5.0), bid = floor(i.uv.x / 5.0), r2 = hash12(float2(bid, 41.0)), r3 = hash12(float2(bid, 77.0));
+      float pier = step(bay, 0.05) + step(0.95, bay), fx = frac(i.uv.x / 1.25);
+      float mull = max(step(fx, 0.022) + step(0.978, fx), step(abs(h - 2.55), 0.035));
+      float win = step(0.5, h) * step(h, 3.4) * (1.0 - saturate(pier)) * (1.0 - saturate(mull));
+      glassAmt = win; roughW = 0.45; shopEdge = min(min(h - 0.5, 3.4 - h), min(fx, 1.0 - fx) * 1.25);
+      float3 frameC = lerp(float3(0.045, 0.045, 0.05), float3(0.16, 0.14, 0.11), step(0.6, r3)) * (0.8 + 0.4 * grit2);   // black or bronze aluminium
+      float3 pierC = wallCol * 0.8;
+      wallCol = lerp(frameC, pierC, saturate(pier)); wallCol = lerp(wallCol, pierC * 0.65, step(h, 0.5));                // a stone plinth
+      float aw = step(3.4, h) * step(h, 4.1) * step(r2, 0.45);                                                          // about half the shops have an awning
+      float3 awc = r2 < 0.1 ? float3(0.05, 0.08, 0.16) : r2 < 0.2 ? float3(0.05, 0.12, 0.08) : r2 < 0.3 ? float3(0.16, 0.05, 0.06) : r2 < 0.38 ? float3(0.07, 0.07, 0.075) : float3(0.40, 0.37, 0.30);
+      awc *= 0.8 + 0.3 * saturate((h - 3.4) / 0.7);
+      float sgn = step(4.1, h) * step(h, 4.7);                                                                          // the fascia board
+      float3 sc = r3 < 0.3 ? float3(0.045, 0.045, 0.05) : r3 < 0.55 ? float3(0.34, 0.31, 0.26) : r3 < 0.8 ? float3(0.09, 0.12, 0.11) : float3(0.52, 0.50, 0.47);
+      float dk = (r3 < 0.3 || (r3 >= 0.55 && r3 < 0.8)) ? 1.0 : 0.0;
+      float letters = step(0.6, vnoise(float2(i.uv.x * 6.0, 3.0 + bid * 3.1))) * step(0.12, bay) * step(bay, 0.88) * step(abs(h - 4.4), 0.11) * (1.0 - fade);
+      sc = lerp(sc, dk > 0.5 ? float3(0.55, 0.53, 0.48) : float3(0.07, 0.07, 0.08), letters * 0.9);
+      wallCol = lerp(wallCol, awc, aw); wallCol = lerp(wallCol, sc, sgn);
     }
     // A cornice and a parapet at the top, and horizontal floor bands on the mid-rise.
     float corn = step(fromTop, 0.45), band = step(fromTop, 1.1) * (1.0 - corn);
@@ -145,28 +158,41 @@ PSOut PSMain(V i) {
     float3 nW = BumpNormal(n, i.wpos, relief, 1.2 * (1.0 - smoothstep(60.0, 220.0, dist)));
     float3 wallLit = Shade(wallCol, 0.0, roughW, nW, v, sh);
     // --- Windows: what is behind the glass (curtains, blinds, a dark room or a lit one) and a reflection of the street opposite.
-    float nv = saturate(dot(n, v)), F = 0.05 + 0.95 * pow(1.0 - nv, 4.0), glassK = style < 0.34 ? 0.5 : 0.28;
-    float r1 = hash12(cid * 2.3 + 11.0), r2 = hash12(cid * 3.1 + 29.0);
-    float3 room = float3(0.012, 0.014, 0.017);
-    float3 drape = lerp(float3(0.45, 0.38, 0.30), float3(0.30, 0.34, 0.40), r2) * (0.55 + 0.35 * (0.5 + 0.5 * sin(f.x * 44.0)));
-    float cover = r1 < 0.2 ? 1.0 : 0.0; float blinds = (r1 >= 0.2 && r1 < 0.42) ? step(frac(f.y * 11.0), 0.62) * step(f.y, 0.4 + 0.5 * r2) : 0.0;
-    room = lerp(room, drape * 0.5, cover * (1.0 - fade * 0.5)); room = lerp(room, float3(0.55, 0.52, 0.46) * 0.4, blinds * (1.0 - fade * 0.6));
-    float3 warm = float3(1.0, 0.72, 0.42) * (0.5 + 0.8 * r2) * lit * 0.8; room += warm * (1.0 - 0.5 * cover);
+    float nv = saturate(dot(n, v)), F = 0.05 + 0.95 * pow(1.0 - nv, 4.0), glassK = style < 0.34 ? 0.62 : 0.42;
+    float r1 = hash12(cid * 2.3 + 11.0), r2 = hash12(cid * 3.1 + 29.0), dayK = saturate(gWeather.w);
+    float3 room = float3(0.018, 0.02, 0.024) * (0.6 + 0.8 * r2);                                       // a dim room seen through tinted glass
+    float3 drape = lerp(float3(0.22, 0.19, 0.15), float3(0.15, 0.17, 0.20), r2) * (0.55 + 0.35 * (0.5 + 0.5 * sin(f.x * 44.0))) * 0.5;
+    float cover = r1 < 0.16 ? 1.0 : 0.0; float blinds = (r1 >= 0.16 && r1 < 0.36) ? step(frac(f.y * 11.0), 0.62) * step(f.y, 0.4 + 0.5 * r2) : 0.0;
+    room = lerp(room, drape, cover * (1.0 - fade * 0.5)); room = lerp(room, float3(0.34, 0.32, 0.28) * 0.22, blinds * (1.0 - fade * 0.6));
+    float litAmt = lit * lerp(1.0, 0.08, dayK);                                                          // the lights are on at dusk; by day they hardly show against the glare
+    float3 warm = float3(1.0, 0.72, 0.42) * (0.5 + 0.8 * r2) * litAmt * 0.8; room += warm * (1.0 - 0.5 * cover);
+    if (shop) room = lerp(room, float3(0.45, 0.38, 0.28) * (0.10 + 0.30 * r1), 0.8 * glassAmt);       // lit shop interiors
+    // How deep inside its frame the glass sits: darker within a few centimetres of the reveal.
+    float4 wr = style < 0.34 ? float4(0.05, 0.95, 0.24, 0.97) : style < 0.67 ? float4(0.2, 0.8, 0.22, 0.8) : float4(0.27, 0.73, 0.3, 0.78);
+    float edgeM = shop ? shopEdge : min(min((f.x - wr.x) * cell.x, (wr.y - f.x) * cell.x), min((f.y - wr.z) * cell.y, (wr.w - f.y) * cell.y));
+    float reveal = lerp(0.35, 1.0, saturate(edgeM / 0.12));
     float3 refl = EnvReflect(reflect(-v, n), i.wpos) * (glassK + (1.0 - glassK) * F);
-    float3 glass = room * (1.0 - F) + refl * (0.7 + 0.5 * r1);
+    float3 glass = (room * (1.0 - F) + refl * (0.75 + 0.35 * r1)) * lerp(1.0, reveal, 1.0 - fade * 0.7);
     float3 hh = normalize(gSunDir.xyz + v); glass += gSunColor.rgb * pow(saturate(dot(n, hh)), 300.0) * 5.0 * sh;
     // A thin frame round every pane catches the light.
     float frameK = glassAmt * (style < 0.34 ? 0.0 : 1.0) * (1.0 - smoothstep(0.0, 0.06 + fpUV, min(min(f.x - 0.2, 0.8 - f.x), min(f.y - 0.22, 0.8 - f.y)))) * (1.0 - fade);
     col = lerp(wallLit, glass, saturate(glassAmt)); col = lerp(col, wallLit * 1.25, frameK * 0.0);
   } else {                                                     // foliage: lit from behind as well
     float ndl = dot(n, gSunDir.xyz), back = saturate(-ndl) * 0.6;
-    float3 alb = i.col.rgb * gP1.rgb;
-    if (i.uv.x > 1.5) {                                        // a palm frond: a spine with leaflets (a comb cut into the strip)
+    float3 alb = i.col.rgb * gP1.rgb, tr = float3(1, 1, 1); float spec = 0.35, rgh = 0.55;
+    if (i.uv.x > 5.5) {                                        // bark: furrows running up the trunk and branches
+      float fur = vnoise(float2((i.wpos.x + i.wpos.z) * 38.0, i.wpos.y * 1.6)), fur2 = vnoise(float2((i.wpos.x - i.wpos.z) * 90.0, i.wpos.y * 5.0));
+      alb *= (0.55 + 0.9 * fur) * (0.85 + 0.3 * fur2); back = 0.0; spec = 0.08; rgh = 0.9;
+    } else if (i.uv.x > 3.5) {                                 // a leaf: ovate with a pale midrib, light shining through it
+      if (LeafKeepAmt(i.uv) < 0.5) discard;
+      float lx = i.uv.x - 4.0, rib = smoothstep(0.05, 0.0, abs(lx - 0.5)) * step(0.04, i.uv.y), veins = 0.5 + 0.5 * sin((i.uv.y * 9.0 - abs(lx - 0.5) * 7.0) * 3.14159);
+      float fwL = max(abs(ddx(lx)), abs(ddy(lx))), far_ = saturate((fwL - 0.16) * 5.0);
+      alb = lerp(alb, alb * float3(1.7, 1.6, 0.9), rib * 0.55 * (1.0 - far_)) * (0.92 + 0.12 * veins * (1.0 - far_)) * lerp(1.0, 0.82, far_);
+      back = saturate(-ndl) * 0.9; tr = float3(0.95, 1.0, 0.40);
+    } else if (i.uv.x > 1.5) {                                 // a palm frond: a spine with leaflets (a comb cut into the strip)
       float across = abs(i.uv.x - 2.5) * 2.0, along = i.uv.y, nl = 22.0, sgn = sign(i.uv.x - 2.5);
-      float q = along * nl - sgn * across * 1.1, tooth = abs(frac(q) - 0.5);
-      float keep = step(tooth, 0.36 * (1.0 - 0.4 * across * across)) + step(across, 0.07);
-      float fadeL = saturate(max(abs(ddx(along * nl)), abs(ddy(along * nl))) * 2.2 - 0.3);
-      if (lerp(saturate(keep), 1.0, fadeL) < 0.5) discard;
+      float q = along * nl - sgn * across * 1.1;
+      if (FrondKeepAmt(i.uv) < 0.5) discard;
       alb *= lerp(0.55, 1.25, across) * (0.9 + 0.2 * hash12(floor(float2(q, sgn))));  // darker towards the spine
       alb = lerp(alb, float3(0.40, 0.36, 0.14) * 0.8, step(across, 0.07) * 0.8);        // the pale spine
     } else {
@@ -174,8 +200,8 @@ PSOut PSMain(V i) {
       float edgeK = 1.0 - abs(dot(n, v)); if (lf2 < 0.20 * edgeK * edgeK + 0.04 * edgeK) discard;     // ragged leaf-clump edges
       alb *= (0.72 + 0.55 * lf) * (0.85 + 0.3 * lf2);
     }
-    col = alb * (gSunColor.rgb * (saturate(ndl) + back) * sh + AmbientSky(n) * 1.05);
-    col += SpecularLight(n, v, float3(0.03, 0.03, 0.03), 0.55, sh) * 0.35;
+    col = alb * (gSunColor.rgb * (saturate(ndl) + back * tr) * sh + AmbientSky(n) * 1.05);
+    col += SpecularLight(n, v, float3(0.03, 0.03, 0.03), rgh, sh) * spec;
   }
   col = ApplyFog(col, i.wpos);
   return Out(col, dist);

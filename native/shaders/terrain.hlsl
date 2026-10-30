@@ -56,7 +56,9 @@ float3 CityGround(float2 p, float fp, out float rough, out float hgt, out float 
     col = lerp(col, float3(0.82, 0.60, 0.10) * wm, saturate(yellow));
     // The gutter, and the raised concrete median.
     float gut = smoothstep(hwr - 0.9, hwr - 0.1, aa); col *= 1.0 - 0.35 * gut;
-    float3 median = lerp(float3(0.46, 0.44, 0.40), float3(0.22, 0.30, 0.12), smoothstep(0.45, 0.62, fbmAA(p, fp, 0.9))) * (0.85 + 0.3 * g);
+    float3 lawn = lerp(float3(0.055, 0.10, 0.032), float3(0.19, 0.16, 0.075), smoothstep(0.55, 0.78, fbmAA(p, fp, 1.7))) * (0.7 + 0.6 * fbmAA(p + 5.0, fp, 9.0)) * (0.85 + 0.3 * fbmAA(p, fp, 0.25));   // mown grass with dry patches
+    float kerbBand = smoothstep(mh - 0.40, mh - 0.32, aa);                                  // a concrete kerb round the planted strip
+    float3 median = lerp(lawn, float3(0.46, 0.44, 0.40) * (0.85 + 0.3 * g), kerbBand);
     col = lerp(col, median, conc * (junction ? 0.0 : 1.0)); hgt = 0.0;
     rough = lerp(0.52 + 0.22 * g2 - 0.1 * trk, 0.85, conc);
     float puddle = smoothstep(0.52, 0.66, fbmAA(p, fp, 0.13)) * wet;
@@ -95,7 +97,7 @@ PSOut PSMain(V i) {
   float rw = saturate(1.0 - fp * 0.7);
   float rip = (0.5 + 0.5 * sin((p.x * 0.8 + p.y * 0.45 + 3.0 * vnoise(p * 0.07)) * 2.4)) * rw;
   float patch = fbmAA(p, fp, 0.035);
-  float3 grass = lerp(float3(0.14, 0.26, 0.05), float3(0.34, 0.31, 0.11), saturate(dry * 0.9 + (patch - 0.5) * 1.1)) * (0.62 + 0.76 * fine) * (0.8 + 0.4 * patch);
+  float3 grass = lerp(float3(0.095, 0.165, 0.04), float3(0.27, 0.245, 0.10), saturate(dry * 0.9 + (patch - 0.5) * 1.1)) * (0.62 + 0.76 * fine) * (0.8 + 0.4 * patch) * (0.86 + 0.28 * fbmAA(p + 9.0, fp, 17.0));
   float3 sand = lerp(float3(0.64, 0.46, 0.27), float3(0.80, 0.64, 0.42), fine) * (0.9 + 0.18 * rip) * (0.92 + 0.16 * grit);
   float3 snow = float3(0.90, 0.93, 1.0) * (0.93 + 0.07 * grit);
   float3 lake = lerp(float3(0.66, 0.58, 0.47), float3(0.78, 0.70, 0.58), fine) * (0.93 + 0.07 * grit);

@@ -5,7 +5,7 @@
 #include "mesh.h"
 
 struct CarMesh {
-  GpuMesh body, head, tail, bar, lampL, lampR;   // bar: the roof light bar base and its two lamps (police only); body is lofted and coloured, head/tail are emissive boxes
+  GpuMesh body, head, tail, bar, lampL, lampR, wheels;   // wheels: real alloy wheels and tyres (the same model on every vehicle), drawn with a neutral tint so the rims keep their colour;   // bar: the roof light bar base and its two lamps (police only); body is lofted and coloured, head/tail are emissive boxes
   float len = 4.7f, halfW = 0.9f, mass = 1400, rad = 0.95f, barY = 0, wheelR = 0.33f;
 };
 enum TrafficKind { TK_SALOON, TK_SUV, TK_HATCH, TK_PICKUP, TK_TRUCK, TK_BUS, TK_COUNT };

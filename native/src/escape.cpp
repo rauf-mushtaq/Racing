@@ -286,7 +286,7 @@ void PoliceChase::draw(Renderer& r, bool shadow, double clock) {
   for (const Cop& c : cops) {
     const CarMesh& m = c.kind ? vm->swat : vm->cruiser; Mat4 M = mul(mul(translation((float)c.x, (float)c.y, (float)c.z), rotationY((float)c.h)), mul(rotationX((float)c.pitch), rotationZ((float)c.roll)));
     Material body = paint; if (c.kind) { body.tint[0] = body.tint[1] = body.tint[2] = 0.1f; } if (c.wreck) { body.tint[0] = body.tint[1] = body.tint[2] = 0.05f; }
-    r.drawMeshMat(m.body, M, body); r.drawMeshMat(m.bar, M, dark);
+    r.drawMeshMat(m.body, M, body); r.drawMeshMat(m.bar, M, dark); if (!shadow) { Material wm; wm.type = 0; wm.rough = 0.45f; wm.metal = 0.4f; wm.twoSided = true; r.drawMeshMat(m.wheels, M, wm); }
     if (shadow) continue;
     if (!c.wreck) {
       bool phase = std::fmod(clock * 3.6 + c.flash, 1.0) < 0.5; Material red; red.type = 4; red.emissive = phase ? 16.0f : 0.5f; red.tint[0] = 1; red.tint[1] = 0.05f; red.tint[2] = 0.03f; Material blue; blue.type = 4; blue.emissive = phase ? 0.5f : 18.0f; blue.tint[0] = 0.08f; blue.tint[1] = 0.22f; blue.tint[2] = 1.0f;

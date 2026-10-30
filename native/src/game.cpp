@@ -243,4 +243,12 @@ void Game::draw(Renderer& r, bool shadow, const Frustum& f) {
   if (r.inProbe) return;                                   // the reflection probe looks out from inside the car: it doesn't draw the car or the gates
   if (carKind == 1) { bondState.braking = braking; bond.cockpit = camMode >= 2; bond.draw(r, car, alpha, bondState); } else { model.cockpit = camMode >= 2; model.draw(r, car, alpha, color, braking); }
   drawGates(r, shadow);
+  if (showcase >= 0) {
+    Mat4 M = mul(translation(showAt.x, (float)heightAt(showAt.x, showAt.z), showAt.z), rotationY(0.5f));
+    if (showcase == 8) { peds.showcase(r, showAt.x, showAt.z); return; }
+    const CarMesh& m = showcase < TK_COUNT ? vmodels.traffic[showcase] : showcase == 6 ? vmodels.cruiser : vmodels.swat;
+    Material paint; paint.type = 1; paint.tint[0] = 0.55f; paint.tint[1] = 0.10f; paint.tint[2] = 0.08f; if (showcase == 6) paint.tint[0] = paint.tint[1] = paint.tint[2] = 1.0f; if (showcase == 7) paint.tint[0] = paint.tint[1] = paint.tint[2] = 0.1f;
+    Material dark; dark.type = 0; dark.rough = 0.6f; dark.metal = 0.2f; dark.twoSided = true; Material head; head.type = 4; head.emissive = 3.0f; Material tail; tail.type = 4; tail.emissive = 1.8f;
+    r.drawMeshMat(m.body, M, paint); r.drawMeshMat(m.bar, M, dark); if (!shadow) { Material wm; wm.type = 0; wm.rough = 0.45f; wm.metal = 0.4f; wm.twoSided = true; r.drawMeshMat(m.wheels, M, wm); r.drawMeshMat(m.head, M, head); r.drawMeshMat(m.tail, M, tail); }
+  }
 }

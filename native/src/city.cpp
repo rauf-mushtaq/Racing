@@ -111,6 +111,6 @@ void City::draw(Renderer& r, bool shadow, const Frustum& f, const Vec3& cam) {
     if (c.nRoofs) r.drawMeshMat(cube, I, roof, &c.roofs, c.nRoofs);
     if (c.nSigns && !shadow) r.drawMeshMat(cube, I, neon, &c.signs, c.nSigns);
     if (c.nLamps) { r.drawMeshMat(lampPole, I, metal, &c.lamps, c.nLamps); if (!shadow) r.drawMeshMat(lampHead, I, lampLight, &c.lamps, c.nLamps); }
-    if (c.nTrees && (!shadow || (std::fabs(c.x0 + 360 - cam.x) < 600 && std::fabs(c.z0 + 360 - cam.z) < 600))) r.drawMeshMat(props.mesh[P_TREE], I, foliage, &c.trees, c.nTrees);
+    if (c.nTrees && (!shadow || (std::fabs(c.x0 + 360 - cam.x) < 600 && std::fabs(c.z0 + 360 - cam.z) < 600))) { float cdx = c.x0 + 360 - cam.x, cdz = c.z0 + 360 - cam.z; bool nearC = cdx * cdx + cdz * cdz < (shadow ? 260.0f * 260.0f : 420.0f * 420.0f); r.drawMeshMat(nearC ? props.mesh[P_TREE] : props.treeFar, I, foliage, &c.trees, c.nTrees); }
   }
 }

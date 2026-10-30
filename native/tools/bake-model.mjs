@@ -59,6 +59,7 @@ const MODELS = {
   },
 };
 
+const wheelMode = process.argv.includes('--wheel');
 const name = process.argv[2], survey = process.argv.includes('--survey'), trafficIdx = process.argv.indexOf('--traffic'), trafficTris = trafficIdx > 0 ? parseInt(process.argv[trafficIdx + 1]) : 0, police = process.argv.includes('--police');
 const M = MODELS[name]; if (!M) { console.error('usage: node bake-model.mjs ' + Object.keys(MODELS).join('|') + ' [--survey]'); process.exit(1); }
 await MeshoptSimplifier.ready;
@@ -91,10 +92,22 @@ scene.traverse((node) => {
       for (let i = 0; i < ind.length; i++) { const o = ind[i], key = q(v[o * 6], 40000) + ',' + q(v[o * 6 + 1], 40000) + ',' + q(v[o * 6 + 2], 40000) + ',' + q(v[o * 6 + 3], 400) + ',' + q(v[o * 6 + 4], 400) + ',' + q(v[o * 6 + 5], 400); let r = map.get(key); if (r === undefined) { r = map.size; map.set(key, r); nv.push(v[o * 6], v[o * 6 + 1], v[o * 6 + 2], v[o * 6 + 3], v[o * 6 + 4], v[o * 6 + 5]); } out[i] = r; }
       v = Float32Array.from(nv); ind = out; }
     if (flip) for (let i = 0; i < ind.length; i += 3) { const s = ind[i + 1]; ind[i + 1] = ind[i + 2]; ind[i + 2] = s; }
+    // Draco quantises normals coarsely, which shows as banding in shiny paint: rebuild smooth normals from the geometry (hard edges are kept:
+    // only faces within about 40 degrees of the original normal are averaged in).
+    { const key = (i) => Math.round(v[i * 6] * 10000) + ',' + Math.round(v[i * 6 + 1] * 10000) + ',' + Math.round(v[i * 6 + 2] * 10000), groups = new Map(), fns = new Float32Array(ind.length);
+      for (let f = 0; f < ind.length; f += 3) { const a = ind[f] * 6, b = ind[f + 1] * 6, c = ind[f + 2] * 6; const ux = v[b] - v[a], uy = v[b + 1] - v[a + 1], uz = v[b + 2] - v[a + 2], wx = v[c] - v[a], wy = v[c + 1] - v[a + 1], wz = v[c + 2] - v[a + 2];
+        fns[f] = uy * wz - uz * wy; fns[f + 1] = uz * wx - ux * wz; fns[f + 2] = ux * wy - uy * wx;
+        for (let k = 0; k < 3; k++) { const kk = key(ind[f + k]); let l = groups.get(kk); if (!l) groups.set(kk, l = []); l.push(f); } }
+      const nv = Float32Array.from(v);
+      for (let i = 0; i < n2(v); i++) { const l = groups.get(key(i)); if (!l) continue; const ox = v[i * 6 + 3], oy = v[i * 6 + 4], oz = v[i * 6 + 5]; let ax = 0, ay = 0, az = 0;
+        for (const f of l) { const fl = Math.hypot(fns[f], fns[f + 1], fns[f + 2]) || 1; if ((fns[f] * ox + fns[f + 1] * oy + fns[f + 2] * oz) / fl > 0.75) { ax += fns[f]; ay += fns[f + 1]; az += fns[f + 2]; } }
+        const al = Math.hypot(ax, ay, az); if (al > 1e-12) { nv[i * 6 + 3] = ax / al; nv[i * 6 + 4] = ay / al; nv[i * 6 + 5] = az / al; } }
+      v = nv; }
     const em = mat ? mat.getEmissiveFactor() : [0, 0, 0], emS = mat?.getExtension?.('KHR_materials_emissive_strength')?.getEmissiveStrength?.() ?? 1;
     parts.push({ node: node.getName(), mat: mat ? mat.getName() : '', color: mat ? mat.getBaseColorFactor() : [0.5, 0.5, 0.5, 1], emissive: em, emissiveStrength: emS, wheelNode: wheelNode ? wheelNode.getName() : null, wheelPos: wheelNode ? wheelNode.getWorldTranslation() : null, v, ind });
   }
 });
+function n2(v) { return v.length / 6; }
 const roleOf = (p) => M.classify(p.node, p.mat, !!p.wheelNode);
 
 // ---- 2. orientation: the car must face +z; the tail lights tell us which way it faces -------------------------------------
@@ -156,6 +169,38 @@ for (const p of parts) {
   const remap = new Map(), nv = [], out = new Uint32Array(ni.length);
   for (let i = 0; i < ni.length; i++) { const o = ni[i]; let r = remap.get(o); if (r === undefined) { r = remap.size; remap.set(o, r); nv.push(...p.v.subarray(o * 6, o * 6 + 6)); } out[i] = r; }
   p.v = Float32Array.from(nv); p.ind = out;
+}
+
+// ---- 4a. wheel mode: one wheel (front left), simplified, centred, for the procedural vehicles -----------------------------------
+if (wheelMode) {
+  const keep = parts.filter((p) => p.wheelNode && slotOf0(p) === 0 && [ROLE.TIRE, ROLE.RIM, ROLE.BRAKE].includes(roleOf(p)));
+  function slotOf0(p) { return wheels.find((w) => w.n === p.wheelNode).slot; }
+  const wc = wheels.find((w) => w.slot === 0).c, outParts = [];
+  const target = { [ROLE.TIRE]: 700, [ROLE.RIM]: 1500, [ROLE.BRAKE]: 1 };
+  for (const role of [ROLE.TIRE, ROLE.RIM]) {                      // the brake disc hides behind the rim: left out
+    const g = { v: [], col: [], ind: [] };
+    for (const p of keep.filter((q) => roleOf(q) === role)) {
+      const base = g.v.length / 6; let c = p.color.slice(0, 3);
+      if (role === ROLE.TIRE) c = [0.03, 0.03, 0.033]; else if (role === ROLE.RIM) c = p.node === 'centre' ? [0.6, 0.5, 0.1] : [0.5, 0.5, 0.52]; else c = [0.2, 0.2, 0.21];
+      for (let i = 0; i < p.v.length; i += 6) { g.v.push(p.v[i] - wc[0], p.v[i + 1] - wc[1], p.v[i + 2] - wc[2], p.v[i + 3], p.v[i + 4], p.v[i + 5]); g.col.push(c); }
+      for (const x of p.ind) g.ind.push(base + x);
+    }
+    const sp = { v: Float32Array.from(g.v), ind: Uint32Array.from(g.ind), node: 'wheel' }; const tris = sp.ind.length / 3;
+    if (tris > target[role]) { const [ni] = MeshoptSimplifier.simplify(sp.ind, sp.v, 6, target[role] * 3, 0.5, ['Permissive']); const remap = new Map(), nv = [], nc = [], out = new Uint32Array(ni.length);
+      for (let i = 0; i < ni.length; i++) { const o = ni[i]; let r = remap.get(o); if (r === undefined) { r = remap.size; remap.set(o, r); nv.push(...sp.v.subarray(o * 6, o * 6 + 6)); nc.push(g.col[o]); } out[i] = r; } outParts.push({ role, slot: 0, v: nv, col: nc, ind: Array.from(out) }); }
+    else outParts.push({ role, slot: 0, v: g.v, col: g.col, ind: g.ind });
+  }
+  const hdr3 = Buffer.alloc(4 + 4 + 4 + 64 + 24 + 24); let o3 = 0; hdr3.write('SCM1', o3); o3 += 4; hdr3.writeUInt32LE(2, o3); o3 += 4; hdr3.writeUInt32LE(outParts.length, o3); o3 += 4;
+  hdr3.writeFloatLE(0, o3); hdr3.writeFloatLE(0, o3 + 4); hdr3.writeFloatLE(0, o3 + 8); hdr3.writeFloatLE(tireR, o3 + 12);
+  const ch3 = [hdr3];
+  for (const g of outParts) {
+    const nvv = g.v.length / 6, nii = g.ind.length, vb = Buffer.alloc(nvv * 36), ib = Buffer.alloc(nii * 4), h = Buffer.alloc(16);
+    h.writeUInt32LE(g.role, 0); h.writeInt32LE(0, 4); h.writeUInt32LE(nvv, 8); h.writeUInt32LE(nii, 12);
+    for (let i = 0; i < nvv; i++) { for (let k = 0; k < 6; k++) vb.writeFloatLE(g.v[i * 6 + k], i * 36 + k * 4); const c = g.col[i]; vb.writeUInt32LE(((Math.round(Math.min(1, c[0]) * 255)) | (Math.round(Math.min(1, c[1]) * 255) << 8) | (Math.round(Math.min(1, c[2]) * 255) << 16) | (255 << 24)) >>> 0, i * 36 + 24); }
+    for (let i = 0; i < nii; i++) ib.writeUInt32LE(g.ind[i], i * 4);
+    ch3.push(h, vb, ib); console.log(`  wheel part role=${g.role} verts=${nvv} tris=${nii / 3}`);
+  }
+  fs.mkdirSync(OUT, { recursive: true }); const b3 = Buffer.concat(ch3); fs.writeFileSync(OUT + 'wheel.scm', b3); console.log(`wrote ${OUT}wheel.scm ${(b3.length / 1024).toFixed(0)} KB, tyre radius ${tireR.toFixed(3)}`); process.exit(0);
 }
 
 // ---- 4b. traffic version: everything visible merged into one coloured mesh, wheels at rest, centred, simplified ------------------

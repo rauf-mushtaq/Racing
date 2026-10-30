@@ -64,6 +64,8 @@ void Renderer::init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& qu
     d.cull = D3D12_CULL_MODE_NONE; d.depthBias = 1200; d.slopeBias = 2.5f; return gfx.makePso(d);
   };
   psoShMesh = shadowPso("VSMain", meshLayout()); psoShInst = shadowPso("VSInst", instancedLayout());
+  { PsoDesc d; d.file = "shadow.hlsl"; d.vsEntry = "VSInstFoliage"; d.psEntry = "PSFoliage"; d.numRT = 0; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = 1; d.layout = instancedLayout(); d.defines = { "INSTANCED" }; d.depthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;   // leaves and fronds cast shadows with their holes
+    d.cull = D3D12_CULL_MODE_NONE; d.depthBias = 1200; d.slopeBias = 2.5f; psoShFoliage = gfx.makePso(d); }
   psoShTerrain = shadowPso("VSTerrain", { { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }, { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }, { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 } });
   { PsoDesc d; d.file = "fx.hlsl"; d.numRT = 2; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = S; d.depthWrite = false; d.cull = D3D12_CULL_MODE_NONE; d.blend = true; d.premult = true; d.rt1NoWrite = true;
     d.layout = { { "PA", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 }, { "PB", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 }, { "PC", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1 } };
@@ -309,7 +311,7 @@ void Renderer::drawMeshMat(const GpuMesh& m, const Mat4& world, const Material& 
   if (!m.indexCount) return;
   struct DrawCB { Mat4 world; float p0[4], p1[4], p2[4], p3[4]; } cb = {}; cb.world = world;
   cb.p0[0] = mat.type; cb.p0[1] = mat.rough; cb.p0[2] = mat.metal; cb.p0[3] = mat.emissive; cb.p1[0] = mat.tint[0]; cb.p1[1] = mat.tint[1]; cb.p1[2] = mat.tint[2]; cb.p1[3] = 1; cb.p3[0] = mat.twoSided ? 1.0f : 0.0f;
-  if (inShadow) { gfx.cmd->SetPipelineState((inst ? psoShInst : psoShMesh).Get()); gfx.setDraw(gfx.cb(cb), blkNull); }
+  if (inShadow) { gfx.cmd->SetPipelineState((inst ? (mat.type > 4.5f && mat.type < 5.5f ? psoShFoliage : psoShInst) : psoShMesh).Get()); gfx.setDraw(gfx.cb(cb), blkNull); }
   else { gfx.cmd->SetPipelineState((inProbe ? psoMeshC : inReflection ? psoMeshR : psoMesh)[inst ? 1 : 0][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
   drawMesh(gfx, m, instances, inst);
 }

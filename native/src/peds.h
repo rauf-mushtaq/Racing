@@ -9,7 +9,9 @@ public:
   void init(Gfx& g);
   void prepare(Gfx& g, const Pose& player, const Frustum& f, double time);
   void draw(Renderer& r, bool shadow);
+  void showcase(Renderer& r, double x, double z);   // a few figures standing in a row, for looking at the models (--showcase)
 private:
-  GpuMesh shirt[2], rest[2];
-  struct List { D3D12_VERTEX_BUFFER_VIEW tint{}, plain{}; UINT n = 0; } lists[2];
+  static const int POSES = 4;                                       // phases of the walk cycle
+  GpuMesh shirt[POSES], legs[POSES], skin[POSES], rest[POSES];   // clothes take a per-person tint; skin has its own tint; hair and shoes are fixed
+  struct List { D3D12_VERTEX_BUFFER_VIEW shirt{}, legs{}, skin{}, plain{}; UINT n = 0; } lists[POSES];
 };

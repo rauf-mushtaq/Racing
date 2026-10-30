@@ -85,7 +85,7 @@ float4 PSComposite(V i) : SV_Target {
   col *= lerp(1.0 - gParams2.z, 1.0, 1.0 - smoothstep(0.3, 1.1, d));
   float l = dot(col, float3(0.2126, 0.7152, 0.0722));
   col = lerp(col, lerp(col * float3(0.94, 0.97, 1.08), col * float3(1.04, 1.0, 0.95), smoothstep(0.0, 0.7, l)), 0.5);   // cool shadows, warm lights
-  col = max(0.0, lerp(l.xxx, col, 1.04));
+  col = max(0.0, lerp(l.xxx, col, 0.93));                // a slightly restrained saturation: real colour is quieter than a game's
   col = 0.18 * pow(col / 0.18, 1.22.xxx);                // a firmer contrast curve: real light has deep shadows
   col *= gSunDir.w;                                  // exposure
   col = ACES(col);
