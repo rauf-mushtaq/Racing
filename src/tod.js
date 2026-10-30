@@ -16,6 +16,7 @@ const PRESETS = {
     plume: false, envGround: 0x5a4a3a,
     grade: { sat: 1.08, contrast: 1.12, warm: 0.04 }, road: 0xe8e0dc,
     split: 0.55, rays: 0.22, grain: 0.02, flare: [2.6, 2.0, 1.4], cloudTint: [3.2, 2.35, 1.6],
+    haze: { height: 0.0026, k2: 0.00028, forward: 1.8, focus: 5, glow: 0.85, sunFog: [2.6, 1.55, 0.78], cool: [0.8, 0.9, 1.08] },
   },
   day: {
     sun: [0.42, 0.62, 0.66], light: [0.42, 0.62, 0.66],
@@ -29,6 +30,7 @@ const PRESETS = {
     plume: false, envGround: 0x6a6660,
     grade: { sat: 1.12, contrast: 1.06, warm: 0.02 }, road: 0xf2eee8,
     split: 0, rays: 0.12, grain: 0.012, flare: [2.2, 2.0, 1.7], cloudTint: [2.4, 2.4, 2.5],
+    haze: { height: 0.0026, k2: 0.0002, forward: 0.8, focus: 6, glow: 0.4, sunFog: [1.6, 1.4, 1.1], cool: [0.9, 0.96, 1.04] },
   },
   sunset: {
     sun: [-0.30, 0.035, -0.95], light: [-0.42, 0.42, -0.80],
@@ -42,6 +44,7 @@ const PRESETS = {
     plume: true, envGround: 0x1d1a1e,
     grade: { sat: 1.0, contrast: 1.0, warm: 0.0 }, road: 0xb8b4c6,
     split: 1, rays: 0.4, grain: 0.02, flare: [2.2, 1.6, 1.2], cloudTint: [2.4, 2.4, 2.5],
+    haze: { height: 0.0026, k2: 0.00024, forward: 1.4, focus: 4, glow: 0.7, sunFog: [2.2, 1.0, 0.7], cool: [0.85, 0.85, 1.1] },
   },
 };
 

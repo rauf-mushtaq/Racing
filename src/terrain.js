@@ -45,6 +45,7 @@ export function buildTerrain(scene, day) {
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
           uniform sampler2D tGrass, tSand, tSnow, tRock, tLake; uniform vec4 uHole; uniform float uCity; varying vec4 vBiome; varying vec3 vWP; varying float vNY; varying vec3 vN;
+          float gFn, gBumpH, gBumpF;
           float hsh(vec2 q) { return fract(sin(dot(q, vec2(127.1, 311.7))) * 43758.5453); }
           float vnoise(vec2 q) { vec2 i = floor(q), f = fract(q); f = f * f * (3.0 - 2.0 * f); return mix(mix(hsh(i), hsh(i + vec2(1.0, 0.0)), f.x), mix(hsh(i + vec2(0.0, 1.0)), hsh(i + vec2(1.0, 1.0)), f.x), f.y); }`)
         .replace('#include <map_fragment>', `#include <map_fragment>
@@ -65,7 +66,25 @@ export function buildTerrain(scene, day) {
           float st = 0.5 + 0.5 * sin(vWP.y * 0.62 + 3.2 * texture2D(tGrass, vWP.xz * 0.0045).g + 1.4 * texture2D(tSand, vec2(vWP.x + vWP.z, vWP.y) * 0.01).g);
           rock *= mix(vec3(1.0), mix(vec3(1.35, 0.86, 0.58), vec3(0.92, 0.6, 0.42), st), clamp(vBiome.y * 1.3, 0.0, 1.0));
           base = mix(base, rock, clamp(rockW, 0.0, 1.0));
-          diffuseColor.rgb = base;`);
+          // Fine detail near the camera (grit, pebbles, ripples), fading out with distance so it never shimmers.
+          float vd = length(vViewPosition), nearF = 1.0 - smoothstep(35.0, 120.0, vd);
+          gFn = vnoise(p * 2.7) * 0.55 + vnoise(p * 7.1 + 3.0) * 0.33 + vnoise(p * 16.0 + 9.0) * 0.12;
+          base *= 1.0 + (gFn - 0.5) * 0.75 * nearF;
+          gBumpH = (dot(base, vec3(0.3, 0.55, 0.15)) * 0.9 + gFn * 0.7) * 0.035; gBumpF = nearF;
+          diffuseColor.rgb = base;`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          // Snow and the lakebed catch the low sun; sand and grass stay matt.
+          roughnessFactor = clamp(1.0 - vBiome.z * (0.6 - 0.32 * gFn) - vBiome.w * 0.28 - vBiome.y * 0.05, 0.3, 1.0);`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          if (gBumpF > 0.001) {
+            vec3 sX = dFdx(-vViewPosition), sY = dFdy(-vViewPosition), R1 = cross(sY, normal), R2 = cross(normal, sX);
+            float fDet = dot(sX, R1) * faceDirection, pxl = max(length(sX), length(sY));
+            // The tilt is bounded and the degenerate cases skipped, so a zero-length vector can never become NaN.
+            vec2 dh = clamp(vec2(dFdx(gBumpH), dFdy(gBumpH)) * gBumpF * 1.3, vec2(-0.7 * pxl), vec2(0.7 * pxl));
+            vec3 nb = abs(fDet) * normal - sign(fDet) * (dh.x * R1 + dh.y * R2);
+            float nl = length(nb);
+            if (abs(fDet) > 1e-12 && nl > 1e-12) normal = nb / nl;
+          }`);
     };
     m.customProgramCacheKey = () => 'terrain' + (coarse ? 'c' : 'f');
     return m;

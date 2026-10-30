@@ -32,14 +32,19 @@ Built to look sharp on a PC, and still run on a tablet. The game picks a tier fo
 
 | | Ultra | High | Medium | Low |
 |---|---|---|---|---|
-| Pixels | screen's own density, up to 2× | up to 1.5× | up to 1.25× | 1× |
+| Pixels | screen's own density, up to 2× | up to 1.5× | up to 1.5× | 1× |
 | Anti-aliasing | 8× multisampling (and on foliage edges) | 4× | 2× | browser default |
 | Shadows | 4 cascades of 4096, out to 650 m | 3 cascades of 2048 | one 2048 map | off |
 | Car reflections | live, 256 px | live, 256 px | live, 128 px | off |
-| Textures | 4× sharper facades | same | half size | half size |
+| Textures | full size | full size | ¾ size | half size |
+| Ambient occlusion | yes | yes | no | no |
+| Grass around the car | 75 m, dense | 62 m | 46 m, lighter | none |
 | Draw distance | about 1.6 km | 1.2 km | 0.9 km | 0.9 km |
 
 - **Sharp:** facade textures are drawn at about 64 pixels per metre, with window frames, sills, mullions and brickwork you can see up close; glass is shiny and metallic and reflects the sky; windows sit back in the wall (relief maps); there's grime at the foot of walls; ground textures don't visibly repeat; a sharpening pass adds crispness; and the render scale setting (75% to 150%) lets you trade speed for a supersampled image.
+- **Atmosphere:** distance fades through a haze that thins with height (valleys are misty, peaks are clear), turns cooler and bluer away from the sun, and glows warm and bright when you look towards it, so the world layers up into depth like film footage.
+- **Ground detail:** sand, gravel, snow and grass have fine grit and relief that catches the low sun, and snow has a faint sheen. Cliffs are textured from the side. Roads are glossy enough to streak with the sun. Close to the car, a field of grass tufts sways in the wind, dense on grassland and sparse and dry in the desert.
+- **Contact shading:** on Ultra and High, screen-space ambient occlusion darkens the creases where tyres meet the road, kerbs, building bases, trunks and rocks meet the ground. A clarity pass adds local contrast, and there's a faint lens fringe towards the corners.
 - **Not blocky:** towers are round, chamfered or rounded rather than boxes, with smooth shading round the curves; balconies are thin slabs with real railings; trees have leafy crowns; the street corners are rounded.
 - **Lighting:** a physically based sky, real-time reflections on the car, cascaded shadows, bloom, a speed blur and a colour grade for each time of day. The resolution drops a little by itself if the frame rate falls, and rises again.
 
@@ -85,6 +90,9 @@ Fullscreen (F), a mouse-look camera, the city map, an FPS counter (Settings), re
 - `src/carModel.js`: lofted car bodies for the hero car and traffic
 - `src/traffic.js`: traffic drivers
 - `src/sky.js`: sky, light, mountains, clouds and the plume
+- `src/atmos.js`: the height-aware, sun-aware haze (it replaces three.js's fog shader)
+- `src/ao.js`: screen-space ambient occlusion from the depth buffer
+- `src/grass.js`: the streamed field of grass tufts around the car
 - `src/world.js`: the world: height, biomes, the motorway network and road profiles, ground and surface queries, bunkers and the airfield
 - `src/terrain.js`: the streamed terrain (a coarse whole-world mesh plus fine tiles), biome and cliff shading, and the sea
 - `src/roads.js`: motorway, bridge, runway and service-road ribbons, median barriers and guardrails

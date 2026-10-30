@@ -16,6 +16,7 @@ import { groundAt, ROADS, BUNKERS, AIRFIELD } from './world.js';
 import { buildTerrain } from './terrain.js';
 import { initRoads } from './roads.js';
 import { initScatter } from './scatter.js';
+import { initGrass } from './grass.js';
 import { initStructures } from './structures.js';
 import { TOD, TOD_NAME } from './tod.js';
 import { makeHeroCar, setPaint, PAINTS, HERO_DIMS, drawCluster } from './carModel.js';
@@ -27,6 +28,8 @@ import { HUD } from './hud.js';
 import { Input } from './input.js';
 import { AudioEngine } from './audio.js';
 import { EVENTS, buildRoute, Gates, inCheckpoint } from './events.js';
+import { installAtmosphere } from './atmos.js';
+import { AOPass } from './ao.js';
 
 const loadMsg = t => { $('load-msg').textContent = t; };
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -34,6 +37,7 @@ const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(
 // ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
+installAtmosphere();
 const quality = Q.name;
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: Q.msaa === 0, powerPreference: 'high-performance', stencil: false });
@@ -54,15 +58,17 @@ const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 12000);
 
 // Post-processing: bloom, a speed blur, vignette and a colour grade, then ACES.
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) }, uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) }, uSharpen: { value: Q.sharpen },
+  uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) }, uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) }, uSharpen: { value: Q.sharpen }, tAO: { value: null }, uAO: { value: 0 }, uClarity: { value: Q.clarity }, uCA: { value: 0.003 },
     uSat: { value: TOD.grade.sat }, uContrast: { value: TOD.grade.contrast }, uWarm: { value: TOD.grade.warm }, uSunset: { value: TOD.split },
     uSun: { value: new THREE.Vector2(0.5, 0.6) }, uRays: { value: TOD.rays }, uSunVis: { value: 0 }, uGrain: { value: TOD.grain }, uTime: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uBlur, uSharpen; uniform vec2 uCenter, uTexel; uniform float uSat, uContrast, uWarm, uSunset, uRays, uSunVis, uGrain, uTime; uniform vec2 uSun; varying vec2 vUv;
+    uniform sampler2D tDiffuse, tAO; uniform float uAO, uClarity, uCA; uniform float uBlur, uSharpen; uniform vec2 uCenter, uTexel; uniform float uSat, uContrast, uWarm, uSunset, uRays, uSunVis, uGrain, uTime; uniform vec2 uSun; varying vec2 vUv;
     void main(){
       vec2 dir = vUv - uCenter; float d = length(dir);
       vec3 col = texture2D(tDiffuse, vUv).rgb;
+      // A faint lens fringe towards the corners, like a real camera.
+      col.r = texture2D(tDiffuse, vUv + dir * (uCA * d)).r; col.b = texture2D(tDiffuse, vUv - dir * (uCA * d)).b;
       if (uBlur > 0.002) {
         // Jittered taps, with highlights held back, so bright lights smear softly instead of in steps.
         float jit = fract(sin(dot(vUv * 1000.0 + uTime, vec2(12.9898, 78.233))) * 43758.5453);
@@ -78,6 +84,14 @@ const GradeShader = {
                 + texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y)).rgb + texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y)).rgb;
         col = clamp(col + (col - nb * 0.25) * sh, col * 0.75, col * 1.3 + 0.01);
       }
+      // Clarity: local contrast over a wider radius than the sharpen, for that crisp, punchy look.
+      if (uClarity > 0.001) {
+        vec2 o = uTexel * 2.4;
+        vec3 wide = (texture2D(tDiffuse, vUv + o).rgb + texture2D(tDiffuse, vUv - o).rgb + texture2D(tDiffuse, vUv + vec2(o.x, -o.y)).rgb + texture2D(tDiffuse, vUv + vec2(-o.x, o.y)).rgb) * 0.25;
+        col = clamp(col + (col - wide) * uClarity * (1.0 - clamp(uBlur * 1.5, 0.0, 1.0)), col * 0.7, col * 1.35 + 0.01);
+      }
+      // Ambient occlusion (half-res, blurred): darkens creases and contact points.
+      if (uAO > 0.0) col *= mix(1.0, texture2D(tAO, vUv).r, uAO);
       // Sun shafts: smear the brightest parts of the picture towards the sun, so
       // light pours through gaps in the trees and buildings.
       if (uRays * uSunVis > 0.002) {
@@ -101,14 +115,16 @@ const GradeShader = {
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
-let composer = null, bloom = null, grade = null;
+let composer = null, bloom = null, grade = null, aoPass = null;
 if (quality !== 'low') {
-  const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: Q.msaa });
+  const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: Q.msaa, depthTexture: Q.ao ? new THREE.DepthTexture(4, 4, THREE.UnsignedIntType) : null });
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
+  if (Q.ao) { aoPass = new AOPass(camera, { radius: 2.0, gain: 3.2 }); composer.addPass(aoPass); }
   bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), (TOD.lampsOn ? 0.42 : 0.22) * Q.bloom, 0.55, TOD.lampsOn ? 0.92 : 1.6);
   composer.addPass(bloom);
   grade = new ShaderPass(GradeShader); composer.addPass(grade);
+  if (aoPass) { grade.uniforms.tAO.value = aoPass.texture; grade.uniforms.uAO.value = 0.9; }
   composer.addPass(new OutputPass());
 }
 function resize() {
@@ -129,7 +145,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let structures, sky, city, terrain, traffic, carMesh, fx, gates, hud, csm = null, probe = null;
+let grass = null, structures, sky, city, terrain, traffic, carMesh, fx, gates, hud, csm = null, probe = null;
 const car = new Vehicle();
 const input = new Input();
 const audio = new AudioEngine();
@@ -146,6 +162,7 @@ async function build() {
   terrain = buildTerrain(scene, !TOD.lampsOn);
   extraMats.push(...terrain.materials, ...initRoads(terrain, city));
   initScatter(terrain, city.props);
+  grass = initGrass(scene); if (grass) extraMats.push(grass.material);
   structures = initStructures(scene, city);
   await terrain.loadAround(START.x, START.z, 1, loadMsg);
   await city.loadAround(START.x, START.z, Math.min(2, Q.loadR), loadMsg);
@@ -276,7 +293,7 @@ function startEvent(ev) {
   game.route = route; game.next = 0; game.t = 0; game.cdT = 3.4; game.lastBeep = 4; game.splits = [];
   gates.build(route);
   resetCar(route.start.x, route.start.z, route.start.h);
-  city.loadNow(route.start.x, route.start.z, 1); terrain.loadNow(route.start.x, route.start.z, 1);
+  city.loadNow(route.start.x, route.start.z, 1); terrain.loadNow(route.start.x, route.start.z, 1); if (grass) grass.now(route.start.x, route.start.z);
   traffic.setDensity(settings.traffic, car);
   for (const c of traffic.cars) traffic.spawn(c, car, 40, 500, true);
   setState('countdown');
@@ -766,6 +783,7 @@ function tick(dt) {
   if (st !== 'paused' && st !== 'map') { wheelFx(pose); fx.update(dt); }
   camera.updateMatrixWorld(); camFrustum.setFromProjectionMatrix(projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   traffic.render(car, camFrustum);
+  if (grass) grass.update(performance.now() / 1000, camera.position.x, camera.position.z);
   updateCamera(dt, pose);
   sky.dome.position.set(camera.position.x, 0, camera.position.z);
   placeSun(sky.sun, tmpV.set(pose.x, 0, pose.z));
@@ -784,19 +802,20 @@ function tick(dt) {
   if (st === 'free' || st === 'race' || st === 'countdown') hud.drawMap(car, traffic, game.route, game.next, game.waypoint);
   if (settings.fps && (game.fpsT = (game.fpsT || 0) + dt) > 0.5) { game.fpsT = 0; $('fps').textContent = `${Math.round(1000 / frameAvg)} FPS · ${renderer.domElement.width}×${renderer.domElement.height} · ${quality}`; }
 
+  // Adapt resolution every couple of seconds. This is done before drawing: resizing clears the
+  // canvas, so doing it after the draw would flash a black frame each time.
+  adaptT += dt;
+  if (adaptT > 2) {
+    adaptT = 0;
+    if (frameAvg > 21 && resScale > 0.6) { resScale = Math.max(0.6, resScale * 0.9); resize(); }
+    else if (frameAvg < 14.5 && resScale < 1) { resScale = Math.min(1, resScale * 1.08); resize(); }
+  }
+
   if (composer) {
     const blur = clamp((car.speed - 35) / 55, 0, 1) * 0.8 + (car.nitroOn ? 0.5 : 0);
     grade.uniforms.uBlur.value = game.camMode <= 1 && st !== 'menu' ? blur : 0;
     composer.render(dt);
   } else renderer.render(scene, camera);
-
-  // Adapt resolution every couple of seconds.
-  adaptT += dt;
-  if (adaptT > 2) {
-    adaptT = 0;
-    if (frameAvg > 21 && resScale > 0.7) { resScale = Math.max(0.7, resScale * 0.9); resize(); }
-    else if (frameAvg < 14.5 && resScale < 1) { resScale = Math.min(1, resScale * 1.08); resize(); }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -822,4 +841,4 @@ function simulate(secs, inp) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-window.__game = { simulate, tick, game, car, Q, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+window.__game = { simulate, tick, game, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
