@@ -5,6 +5,7 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { fbm, mulberry32, lerp, clamp } from './util.js';
 import { puffTex } from './textures.js';
 import { TOD } from './tod.js';
+import { Q } from './quality.js';
 
 export const SUN_DIR = new THREE.Vector3(...TOD.sun).normalize();
 // Light (and shadow) direction; at sunset it's higher than the sun so shadows stay readable.
@@ -21,7 +22,7 @@ function setSky(sky) {
 
 export function buildSky(scene, renderer, quality) {
   const sky = new Sky();
-  sky.scale.setScalar(4000);
+  sky.scale.setScalar(9000);
   sky.renderOrder = -10;
   sky.frustumCulled = false;
   setSky(sky);
@@ -62,8 +63,8 @@ export function buildSky(scene, renderer, quality) {
   const hemi = new THREE.HemisphereLight(TOD.hemiSky, TOD.hemiGround, TOD.hemiI);
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(TOD.sunColor, TOD.sunI);
-  sun.castShadow = quality !== 'low';
-  const ms = quality === 'high' ? 4096 : 2048;
+  sun.castShadow = Q.shadows;
+  const ms = Math.min(Q.shadow || 1024, 4096);
   sun.shadow.mapSize.set(ms, ms);
   Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 300 });
   sun.shadow.bias = -0.0003; sun.shadow.normalBias = 0.04;
@@ -118,9 +119,9 @@ function ridge(radius, segs, base, height, seed, top, bottom, focus) {
 function buildMountains(scene) {
   const [r1, r2, r3] = TOD.ridges;
   const k = TOD.ridgeScale;
-  scene.add(ridge(7000, 360, 60, 1500 * k, 3, r1[0], r1[1], 0.15));
-  scene.add(ridge(5200, 300, 20, 800 * k, 9, r2[0], r2[1], 0.3));
-  if (TOD.plume) scene.add(ridge(2600, 260, 5, 160, 17, r3[0], r3[1], 0.0));
+  scene.add(ridge(10000, 360, 60, 2000 * k, 3, r1[0], r1[1], 0.15));
+  scene.add(ridge(7600, 300, 20, 1000 * k, 9, r2[0], r2[1], 0.3));
+  if (TOD.plume) scene.add(ridge(6800, 260, 5, 320, 17, r3[0], r3[1], 0.0));
 }
 
 // All the clouds are one mesh: quads that face the middle of the city (they're

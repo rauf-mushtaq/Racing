@@ -8,17 +8,18 @@ import { trafficModels } from './carModel.js';
 import { mulberry32, clamp, wrapAngle } from './util.js';
 
 const COLORS = ['#e8e8e8', '#111214', '#9aa0a6', '#5b6066', '#1e2f55', '#8a1c1c', '#c8b89a', '#2f4a3a', '#d7d3cc', '#30343a', '#6b1f2e', '#2a5d8f'].map(c => new THREE.Color(c));
-const COUNTS = { off: 0, light: 24, normal: 44, heavy: 70 };
+const COUNTS = { off: 0, light: 30, normal: 56, heavy: 96 };
+const CAP = 140;
 
 export class Traffic {
-  constructor(scene, parked, shadows) {
+  constructor(scene, city, shadows) {
     this.models = trafficModels();
     this.rnd = mulberry32(77);
     this.cars = [];
-    this.parked = parked;
+    this.city = city;
     this.meshes = this.models.map(md => {
-      const body = new THREE.InstancedMesh(md.geo, new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.32, envMapIntensity: 1.1 }), 90);
-      const lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), 90);
+      const body = new THREE.InstancedMesh(md.geo, new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.32, envMapIntensity: 1.1 }), CAP);
+      const lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), CAP);
       body.castShadow = false; body.count = 0; lights.count = 0;
       body.receiveShadow = true;
       body.frustumCulled = false; lights.frustumCulled = false;
@@ -30,12 +31,10 @@ export class Traffic {
     const gr = g.createRadialGradient(32, 32, 4, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
     const st = new THREE.CanvasTexture(c);
-    this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: st, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), 200);
+    this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: st, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), CAP * 2);
     this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.blobs.count = 0; scene.add(this.blobs);
     this.sphere = new THREE.Sphere(new THREE.Vector3(), 3.5);
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1); this.up = new THREE.Vector3(0, 1, 0);
-    // Parked cars never move; they're drawn with the same meshes.
-    this.statics = parked.map(([x, z, h, y]) => ({ x, z, h, y, type: (this.rnd() * 3) | 0, color: COLORS[(this.rnd() * COLORS.length) | 0] }));
   }
 
   setDensity(level, player) {
@@ -109,7 +108,8 @@ export class Traffic {
 
   spawn(c, player, minD, maxD, initial = false) {
     for (let tries = 0; tries < 40; tries++) {
-      const i = Math.floor(this.rnd() * (2 * N + 1)) - N, j = Math.floor(this.rnd() * (2 * N + 1)) - N;
+      // Pick a junction near the player (the map is far bigger than the traffic's reach).
+      const i = clamp(Math.round(player.x / SP) + Math.floor(this.rnd() * 9) - 4, -N, N), j = clamp(Math.round(player.z / SP) + Math.floor(this.rnd() * 9) - 4, -N, N);
       const nb = this.neighbours([i, j]); const to = nb[(this.rnd() * nb.length) | 0];
       const lane = (this.rnd() * 3) | 0;
       this.buildPath(c, [i, j], to, lane);
@@ -203,7 +203,8 @@ export class Traffic {
       this.sphere.center.set(c.x, (c.y ?? 0) + 1, c.z); return frustum.intersectsSphere(this.sphere);
     };
     for (const c of this.cars) if (near(c, 450)) this.meshes[c.type].list.push(c);
-    for (const c of this.statics) if (near(c, 200)) this.meshes[c.type].list.push(c);
+    // Parked cars never move; they live in the city regions and use the same meshes.
+    for (const p of this.city.parkedList()) { if (!near(p, 200)) continue; if (!p.color) p.color = COLORS[p.ci % COLORS.length]; this.meshes[p.type].list.push(p); }
     const { m4, q, v, one, up } = this;
     let nb = 0;
     for (const m of this.meshes) {
@@ -211,8 +212,8 @@ export class Traffic {
       for (const c of m.list) {
         q.setFromAxisAngle(up, c.h); v.set(c.x, c.y ?? 0, c.z); m4.compose(v, q, one);
         m.body.setMatrixAt(i, m4); m.lights.setMatrixAt(i, m4); m.body.setColorAt(i, c.color);
-        v.y += 0.03; m4.compose(v, q, one); if (nb < 200) this.blobs.setMatrixAt(nb++, m4);
-        if (++i >= 90) break;
+        v.y += 0.03; m4.compose(v, q, one); if (nb < CAP * 2) this.blobs.setMatrixAt(nb++, m4);
+        if (++i >= CAP) break;
       }
       m.body.count = m.lights.count = i;
       m.body.instanceMatrix.needsUpdate = true; m.lights.instanceMatrix.needsUpdate = true;

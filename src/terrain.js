@@ -4,7 +4,7 @@
 // flat to drive on.
 import * as THREE from 'three';
 import { fbm, mulberry32, clamp } from './util.js';
-import { LIMIT } from './city.js';
+import { LIMIT, EDGE } from './city.js';
 import * as T from './textures.js';
 
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -14,11 +14,11 @@ const SEA_Y = -1.2;
 export function terrainHeight(x, z) {
   const d = Math.max(Math.abs(x), Math.abs(z));
   const r = Math.hypot(x, z) || 1;
-  const rise = smooth(LIMIT + 60, LIMIT + 900, d);
+  const rise = smooth(LIMIT + 60, LIMIT + 1100, d);
   const north = clamp(-z / r * 0.8 + x / r * 0.5 + 0.35, 0, 1.2);
-  const n = fbm(x * 0.0011 + 7, z * 0.0011 + 3, 5, 21);
+  const n = fbm(x * 0.0006 + 7, z * 0.0006 + 3, 5, 21);
   const ridges = Math.pow(clamp(n * 1.4 - 0.25, 0, 1), 1.3);
-  let h = rise * (25 + 520 * ridges * north + 60 * n);
+  let h = rise * (25 + 620 * ridges * north + 70 * n);
   // Sea to the west: the land falls away into the water.
   const west = smooth(0.25, 0.6, -x / r) * smooth(LIMIT + 80, LIMIT + 380, d);
   h = h * (1 - west) + (SEA_Y - 6) * west;
@@ -27,26 +27,29 @@ export function terrainHeight(x, z) {
 
 export function buildTerrain(scene, day) {
   const group = new THREE.Group(); scene.add(group);
-  // Polar grid from inside the city edge out to the mountains.
-  const R0 = 700, R1 = 4200, NR = 70, NA = 220;
-  const pos = [], col = [], uv = [], idx = [];
+  // Polar grid from just inside the city edge out to the mountains; triangles
+  // that lie wholly under the city are left out.
+  const R0 = EDGE - 100, R1 = 6200, NR = 100, NA = 300;
+  const pos = [], col = [], uv = [], idx = [], inside = [];
   const cDry = new THREE.Color(day ? '#a89a68' : '#6b5a52'), cGreen = new THREE.Color(day ? '#4a5f30' : '#3f4a38');
   const cRock = new THREE.Color(day ? '#9a8a72' : '#5e5058'), cSand = new THREE.Color(day ? '#d9c9a2' : '#a08a80'), c = new THREE.Color();
   for (let i = 0; i <= NR; i++) {
-    const t = i / NR, r = R0 + (R1 - R0) * Math.pow(t, 1.6);
+    const t = i / NR, r = R0 + (R1 - R0) * Math.pow(t, 1.7);
     for (let j = 0; j <= NA; j++) {
       const a = j / NA * Math.PI * 2, x = Math.sin(a) * r, z = Math.cos(a) * r;
       const h = terrainHeight(x, z);
       pos.push(x, h, z); uv.push(x / 30, z / 30);
-      const g = fbm(x * 0.004, z * 0.004, 3, 8);
+      inside.push(Math.max(Math.abs(x), Math.abs(z)) < EDGE - 30);
+      const g = fbm(x * 0.002, z * 0.002, 3, 8);
       c.copy(cDry).lerp(cGreen, clamp(g * 2.2 - 0.55, 0, 0.9));
-      if (h > 320) c.lerp(cRock, clamp((h - 320) / 300, 0, 0.5));
+      if (h > 420) c.lerp(cRock, clamp((h - 420) / 350, 0, 0.5));
       if (h < 1.5 && h > SEA_Y - 4) c.lerp(cSand, 0.85);
       col.push(c.r, c.g, c.b);
     }
   }
   for (let i = 0; i < NR; i++) for (let j = 0; j < NA; j++) {
     const a = i * (NA + 1) + j, b = a + NA + 1;
+    if (inside[a] && inside[a + 1] && inside[b] && inside[b + 1]) continue;
     idx.push(a, b, a + 1, b, b + 1, a + 1);
   }
   const g = new THREE.BufferGeometry();
@@ -54,25 +57,28 @@ export function buildTerrain(scene, day) {
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx); g.computeVertexNormals();
-  const tex = T.ground();
-  const land = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, map: tex, roughness: 1 }));
-  land.position.y = -0.04; land.receiveShadow = true;
+  // Pushed back a little so it never flickers against the road surface.
+  const land = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, map: T.ground(), roughness: 1, polygonOffset: true, polygonOffsetFactor: 4, polygonOffsetUnits: 4 }));
+  land.position.y = -0.04; land.receiveShadow = true; land.layers.enable(2);
   group.add(land);
 
-  // The ocean.
-  const sea = new THREE.Mesh(new THREE.CircleGeometry(9000, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: day ? 0x1f5f7a : 0x3a3550, roughness: 0.12, metalness: 0.4, envMapIntensity: 1.2 }));
+  // The ocean, with ripples that drift.
+  const ripple = T.rippleNormal(); ripple.repeat.set(320, 320);
+  const sea = new THREE.Mesh(new THREE.CircleGeometry(12000, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({
+    color: day ? 0x1b5f7c : 0x3a3550, roughness: 0.07, metalness: 0.2, envMapIntensity: 1.6, normalMap: ripple, normalScale: new THREE.Vector2(0.7, 0.7),
+  }));
   sea.position.y = SEA_Y; group.add(sea);
 
   // Houses and trees on the hills.
-  const rnd = mulberry32(31);
-  const houses = [], trees = [];
-  for (let k = 0; k < 9000 && (houses.length < 700 || trees.length < 1600); k++) {
-    const a = rnd() * Math.PI * 2, r = LIMIT + 200 + Math.pow(rnd(), 1.5) * 2200;
-    const x = Math.sin(a) * r, z = Math.cos(a) * r, h = terrainHeight(x, z);
+  const rnd = mulberry32(31), houses = [], trees = [], S = LIMIT + 2600;
+  for (let k = 0; k < 20000 && (houses.length < 1500 || trees.length < 3600); k++) {
+    const x = (rnd() * 2 - 1) * S, z = (rnd() * 2 - 1) * S;
+    if (Math.max(Math.abs(x), Math.abs(z)) < LIMIT + 120) continue;
+    const h = terrainHeight(x, z);
     if (h < 0.5) continue;
     const slope = Math.abs(terrainHeight(x + 8, z) - h) + Math.abs(terrainHeight(x, z + 8) - h);
-    if (slope < 6 && houses.length < 700 && rnd() < 0.5) houses.push([x, h, z, rnd()]);
-    else if (trees.length < 1600) trees.push([x, h, z, rnd()]);
+    if (slope < 6 && houses.length < 1500 && rnd() < 0.5) houses.push([x, h, z, rnd()]);
+    else if (trees.length < 3600) trees.push([x, h, z, rnd()]);
   }
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
   const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 }), houses.length);
@@ -91,6 +97,6 @@ export function buildTerrain(scene, day) {
   tg.setAttribute('color', new THREE.Float32BufferAttribute(tc, 3));
   const treesM = new THREE.InstancedMesh(tg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }), trees.length);
   trees.forEach(([x, h, z, r], i) => { const sc = 5 + r * 7; q.setFromAxisAngle(up, r * 9); v.set(x, h - 2, z); s.set(sc, sc * (1 + r * 0.6), sc); m4.compose(v, q, s); treesM.setMatrixAt(i, m4); });
-  for (const m of [walls, roofs, treesM]) { m.computeBoundingSphere(); group.add(m); }
-  return group;
+  for (const m of [walls, roofs, treesM]) { m.computeBoundingSphere(); m.layers.enable(2); group.add(m); }
+  return { group, update(dt) { ripple.offset.x += dt * 0.006; ripple.offset.y += dt * 0.004; } };
 }

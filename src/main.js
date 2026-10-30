@@ -8,9 +8,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CSM } from 'three/addons/csm/CSM.js';
 import { $, clamp, damp, lerp, wrapAngle, LOW_POWER, fmtTime } from './util.js';
 import { settings, save } from './store.js';
-import { setAnisotropy, glowTex } from './textures.js';
+import { setAnisotropy, setTexScale, glowTex } from './textures.js';
+import { Q } from './quality.js';
 import { buildSky, placeSun, SUN_DIR, LIGHT_DIR } from './sky.js';
-import { buildCity, surfaceAt, SP, N, EDGE, laneOffset, queryColliders, signalState, showSignals } from './city.js';
+import { City, surfaceAt, SP, N, EDGE, laneOffset, queryColliders, signalState } from './city.js';
 import { buildTerrain } from './terrain.js';
 import { TOD, TOD_NAME } from './tod.js';
 import { makeHeroCar, setPaint, PAINTS, HERO_DIMS, drawCluster } from './carModel.js';
@@ -29,16 +30,19 @@ const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(
 // ---------------------------------------------------------------------------
 // Renderer
 // ---------------------------------------------------------------------------
-const quality = settings.quality || (LOW_POWER ? 'medium' : 'high');
+const quality = Q.name;
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality === 'low', powerPreference: 'high-performance', stencil: false });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: Q.msaa === 0, powerPreference: 'high-performance', stencil: false });
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = TOD.exposure;
-renderer.shadowMap.enabled = quality !== 'low';
+renderer.shadowMap.enabled = Q.shadows;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.info.autoReset = false;
-setAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
-const basePR = Math.min(devicePixelRatio || 1, quality === 'high' ? 2 : quality === 'medium' ? (LOW_POWER ? 1.25 : 1.5) : 1);
+setAnisotropy(Math.min(Q.aniso, renderer.capabilities.getMaxAnisotropy()));
+setTexScale(Q.tex);
+// Pixel density: the screen's own (up to the tier's cap) times the render scale
+// setting; the adaptive resolution below only ever steps down from there.
+const basePR = Math.min(Math.min(devicePixelRatio || 1, Q.dpr) * Q.renderScale, 3);
 let resScale = 1;
 
 const scene = new THREE.Scene();
@@ -46,11 +50,11 @@ const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 12000);
 
 // Post-processing: bloom, a speed blur, vignette and a colour grade, then ACES.
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) },
+  uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) }, uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) }, uSharpen: { value: Q.sharpen },
     uSat: { value: TOD.grade.sat }, uContrast: { value: TOD.grade.contrast }, uWarm: { value: TOD.grade.warm }, uSunset: { value: TOD_NAME === 'sunset' ? 1 : 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uBlur; uniform vec2 uCenter; uniform float uSat, uContrast, uWarm, uSunset; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float uBlur, uSharpen; uniform vec2 uCenter, uTexel; uniform float uSat, uContrast, uWarm, uSunset; varying vec2 vUv;
     void main(){
       vec2 dir = vUv - uCenter; float d = length(dir);
       vec3 col = texture2D(tDiffuse, vUv).rgb;
@@ -58,6 +62,14 @@ const GradeShader = {
         vec3 acc = col; float s = uBlur * smoothstep(0.12, 0.7, d) * 0.06;
         for (int i = 1; i < 8; i++) acc += texture2D(tDiffuse, vUv - dir * s * float(i)).rgb;
         col = acc / 8.0;
+      }
+      // Sharpen: add back the difference from the neighbours, held within a band
+      // round the original so bright highlights don't ring.
+      float sh = uSharpen * (1.0 - clamp(uBlur * 1.5, 0.0, 1.0));
+      if (sh > 0.001) {
+        vec3 nb = texture2D(tDiffuse, vUv + vec2(uTexel.x, 0.0)).rgb + texture2D(tDiffuse, vUv - vec2(uTexel.x, 0.0)).rgb
+                + texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y)).rgb + texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y)).rgb;
+        col = clamp(col + (col - nb * 0.25) * sh, col * 0.75, col * 1.3 + 0.01);
       }
       float vig = smoothstep(1.1, 0.3, d);
       col *= mix(mix(0.78, 0.62, uSunset), 1.0, vig);
@@ -72,10 +84,10 @@ const GradeShader = {
 };
 let composer = null, bloom = null, grade = null;
 if (quality !== 'low') {
-  const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: quality === 'high' ? 4 : 2 });
+  const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: Q.msaa });
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
-  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), TOD.lampsOn ? 0.42 : 0.22, 0.55, TOD.lampsOn ? 0.92 : 1.6);
+  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), (TOD.lampsOn ? 0.42 : 0.22) * Q.bloom, 0.55, TOD.lampsOn ? 0.92 : 1.6);
   composer.addPass(bloom);
   grade = new ShaderPass(GradeShader); composer.addPass(grade);
   composer.addPass(new OutputPass());
@@ -85,7 +97,9 @@ function resize() {
   renderer.setPixelRatio(pr); renderer.setSize(w, h, false);
   if (composer) {
     composer.setPixelRatio(pr); composer.setSize(w, h);
-    bloom.resolution.set(w * pr * (quality === 'high' ? 0.5 : 0.35), h * pr * (quality === 'high' ? 0.5 : 0.35));
+    const bs = Q.msaa >= 4 ? 0.5 : 0.35;
+    bloom.resolution.set(w * pr * bs, h * pr * bs);
+    grade.uniforms.uTexel.value.set(1 / (w * pr), 1 / (h * pr));
   }
   camera.aspect = w / h; camera.updateProjectionMatrix();
   if (csm) csm.updateFrustums();
@@ -95,20 +109,24 @@ addEventListener('resize', resize);
 // ---------------------------------------------------------------------------
 // World
 // ---------------------------------------------------------------------------
-let sky, city, traffic, carMesh, fx, gates, hud, csm = null, probe = null;
+let sky, city, terrain, traffic, carMesh, fx, gates, hud, csm = null, probe = null;
 const car = new Vehicle();
 const input = new Input();
 const audio = new AudioEngine();
-const START = { x: laneOffset(0, 1), z: N * SP - 42, h: Math.PI };
+const START = { x: laneOffset(0, 1), z: 3 * SP - 60, h: Math.PI };
 
 async function build() {
+  // Make sure the web fonts are in before any text is drawn onto a texture.
+  try { await Promise.race([Promise.all([document.fonts.load('900 52px "Barlow Condensed"'), document.fonts.load('700 40px "Barlow"')]), new Promise(r => setTimeout(r, 2500))]); } catch (e) { /* fallback fonts are fine */ }
   loadMsg('Painting the sky…'); await nextFrame();
   sky = buildSky(scene, renderer, quality);
-  loadMsg('Building the city…'); await nextFrame();
-  city = buildCity(scene, quality);
-  buildTerrain(scene, !TOD.lampsOn);
+  city = new City(scene);
+  await city.init(loadMsg);
+  loadMsg('Raising the hills…'); await nextFrame();
+  terrain = buildTerrain(scene, !TOD.lampsOn);
+  await city.loadAround(START.x, START.z, Math.min(2, Q.loadR), loadMsg);
   loadMsg('Starting the traffic…'); await nextFrame();
-  traffic = new Traffic(scene, city.parked, quality === 'high');
+  traffic = new Traffic(scene, city, Q.shadows);
   carMesh = makeHeroCar(settings.color);
   scene.add(carMesh);
   fx = new FX(scene);
@@ -118,7 +136,7 @@ async function build() {
   traffic.setDensity(settings.traffic, car);
   applyAids();
   setupProbe();
-  if (quality === 'high') setupCSM();
+  if (Q.csm) setupCSM();
   if (!TOD.lampsOn) addFlare();
   resize();
   loadMsg('Warming up…'); await nextFrame();
@@ -129,8 +147,8 @@ async function build() {
 // surroundings, re-rendered one face per frame (every other frame on Medium),
 // so the paint and glass reflect the actual street, buildings and traffic.
 function setupProbe() {
-  if (quality === 'low') return;
-  const rt = new THREE.WebGLCubeRenderTarget(quality === 'high' ? 256 : 128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+  if (!Q.probe) return;
+  const rt = new THREE.WebGLCubeRenderTarget(Q.probe, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
   const cam = new THREE.CubeCamera(0.5, 9000, rt);
   scene.add(cam);
   probe = { rt, cam, face: 0, frame: 0 };
@@ -141,7 +159,7 @@ function setupProbe() {
 }
 function updateProbe(pose) {
   if (!probe) return;
-  if (probe.frame++ % (quality === 'high' ? 2 : 3)) return;
+  if (probe.frame++ % Q.probeEvery) return;
   const { cam, rt } = probe;
   cam.position.set(pose.x, carY + 0.9, pose.z); cam.updateMatrixWorld(true);
   const face = probe.face; probe.face = (face + 1) % 6;
@@ -158,23 +176,24 @@ function updateProbe(pose) {
 // Cascaded shadow maps (High): sharp shadows near the car and building
 // shadows across the whole street ahead.
 function setupCSM() {
-  csm = new CSM({ maxFar: 450, cascades: 3, mode: 'practical', parent: scene, shadowMapSize: 2048, lightDirection: LIGHT_DIR.clone().negate(), camera, lightIntensity: TOD.sunI, lightFar: 1500, lightMargin: 120 });
+  csm = new CSM({ maxFar: Q.csmFar, cascades: Q.cascades, mode: 'practical', parent: scene, shadowMapSize: Q.shadow, lightDirection: LIGHT_DIR.clone().negate(), camera, lightIntensity: TOD.sunI, lightFar: 2000, lightMargin: 120 });
   for (const l of csm.lights) { l.color.set(TOD.sunColor); l.shadow.bias = -0.00025; l.shadow.normalBias = 0.06; }
-  // The far cascades only draw big things (layer 2: buildings, signs, terrain);
-  // trees, poles and other small props cast shadows in the nearest one only.
+  // The far cascades only draw big things (layer 2: buildings, hills); trees,
+  // poles and other small props cast shadows in the nearest one only.
   for (const l of csm.lights.slice(1)) l.shadow.camera.layers.set(2);
-  scene.traverse(o => { if (o.isMesh && !o.isInstancedMesh) o.layers.enable(2); });
   scene.remove(sky.sun); sky.sun.castShadow = false;
+  // Every lit material has to know about the cascades. The city's are created
+  // up front (its regions share them), so list them as well as walking the scene.
   const done = new Set();
-  scene.traverse(o => {
-    for (const m of [].concat(o.material || [])) {
-      if (done.has(m) || !(m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial)) continue;
-      done.add(m);
-      const own = Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile') ? m.onBeforeCompile : null;
-      csm.setupMaterial(m);
-      if (own) { const c = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { c(sh, r); own(sh, r); }; }
-    }
-  });
+  const setup = m => {
+    if (!m || done.has(m) || !(m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial)) return;
+    done.add(m);
+    const own = Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile') ? m.onBeforeCompile : null;
+    csm.setupMaterial(m);
+    if (own) { const c = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { c(sh, r); own(sh, r); }; }
+  };
+  for (const m of city.allMaterials()) setup(m);
+  scene.traverse(o => { for (const m of [].concat(o.material || [])) setup(m); });
 }
 
 // A soft glare around the sun in daylight; buildings in front of it hide it.
@@ -196,22 +215,24 @@ function applyAids() {
 // ---------------------------------------------------------------------------
 // Game state
 // ---------------------------------------------------------------------------
-const game = { state: 'loading', prev: null, route: null, next: 0, t: 0, cdT: 0, camMode: settings.cam ?? 0, shake: 0, menuT: 0, garage: false, splits: [] };
+const game = { state: 'loading', prev: null, route: null, waypoint: null, next: 0, t: 0, cdT: 0, camMode: settings.cam ?? 0, shake: 0, menuT: 0, garage: false, splits: [] };
 let carY = 0.0, camYaw = START.h, pitch = 0, roll = 0, pitchV = 0, rollV = 0;
 
 function setState(s) {
   game.state = s;
   const driving = s === 'free' || s === 'race' || s === 'countdown';
-  $('hud').classList.toggle('hidden', !driving && s !== 'finish');
+  $('hud').classList.toggle('hidden', !driving && s !== 'finish' && s !== 'map');
   $('menu').classList.toggle('hidden', s !== 'menu');
   $('pause').classList.toggle('hidden', s !== 'paused');
   $('finish').classList.toggle('hidden', s !== 'finish');
+  $('bigmap').classList.toggle('hidden', s !== 'map');
+  $('fps').classList.toggle('hidden', !settings.fps);
   const touch = (input.lastDevice === 'touch' || (LOW_POWER && input.lastDevice === 'keyboard')) && driving;
   $('touch').classList.toggle('hidden', !touch);
   document.body.classList.toggle('touchmode', touch);
   $('cam-name').textContent = CAMS[game.camMode] || '';
   document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
-  if (s !== 'race' && s !== 'countdown') hud && hud.race(null);
+  if (s !== 'race' && s !== 'countdown' && s !== 'map') { hud && hud.race(null); if (s !== 'free' && hud) hud.nav(null); }
   if (hud) hud.resize();
 }
 
@@ -278,12 +299,32 @@ function respawnOnRoad() {
 // ---------------------------------------------------------------------------
 // Input events
 // ---------------------------------------------------------------------------
+function toggleMap() {
+  if (game.state === 'map') { setState(game.prev); return; }
+  if (!['free', 'race', 'countdown'].includes(game.state)) return;
+  game.prev = game.state; setState('map'); drawBigMap();
+}
+function drawBigMap() { hud.drawBigMap($('bigmap-c'), car, game.route, game.waypoint); }
+input.on('map', toggleMap);
+$('map-btn').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
+$('bm-close').addEventListener('click', toggleMap);
+$('bm-clear').addEventListener('click', () => { game.waypoint = null; drawBigMap(); hud.nav(null); });
+$('bigmap-c').addEventListener('click', e => {
+  const r = e.currentTarget.getBoundingClientRect(), k = e.currentTarget.width / r.width;
+  game.waypoint = hud.bigToWorld((e.clientX - r.left) * k, (e.clientY - r.top) * k);
+  drawBigMap(); hud.toast('WAYPOINT SET', 1.4);
+});
+function toggleFullscreen() {
+  try { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); } catch (e) { /* not allowed here */ }
+}
+input.on('fullscreen', toggleFullscreen);
 function togglePause() {
+  if (game.state === 'map') { toggleMap(); return; }
   if (game.state === 'paused') { $('pause-panel').classList.add('hidden'); setState(game.prev); audio.resume(); }
   else if (['free', 'race', 'countdown'].includes(game.state)) { game.prev = game.state; setState('paused'); }
 }
 input.on('pause', togglePause);
-input.on('back', () => { if (game.state === 'paused') togglePause(); });
+input.on('back', () => { if (game.state === 'paused' || game.state === 'map') togglePause(); });
 const CAMS = ['WIDE CHASE', 'CLOSE CHASE', 'DRIVER VIEW', 'HOOD CAMERA', 'BUMPER CAMERA'];
 function nextCamera() {
   if (game.state === 'menu') return;
@@ -344,7 +385,9 @@ function garagePanel() {
 
 const SETTINGS = [
   { key: 'tod', label: 'Time of day', opts: [['day', 'Day'], ['sunset', 'Sunset']], reload: true },
-  { key: 'quality', label: 'Graphics', opts: [['high', 'High'], ['medium', 'Medium'], ['low', 'Low']], reload: true },
+  { key: 'quality', label: 'Graphics', opts: [['ultra', 'Ultra'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']], reload: true },
+  { key: 'renderScale', label: 'Render scale', opts: [[0.75, '75%'], [1, '100%'], [1.25, '125%'], [1.5, '150%']], reload: true },
+  { key: 'fps', label: 'FPS counter', opts: [[true, 'On'], [false, 'Off']] },
   { key: 'units', label: 'Speed', opts: [['kmh', 'km/h'], ['mph', 'mph']] },
   { key: 'auto', label: 'Gearbox', opts: [[true, 'Automatic'], [false, 'Manual']] },
   { key: 'abs', label: 'ABS', opts: [[true, 'On'], [false, 'Off']] },
@@ -358,13 +401,13 @@ const SETTINGS = [
   { key: 'volume', label: 'Volume', opts: [[0.3, '30%'], [0.55, '55%'], [0.8, '80%'], [1, '100%']] },
 ];
 function settingsPanel(el) {
-  const q = settings.quality || quality;
-  const cur = k => (k === 'quality' ? q : k === 'tod' ? TOD_NAME : settings[k]);
+  const cur = k => (k === 'quality' ? quality : k === 'tod' ? TOD_NAME : k === 'renderScale' ? Q.renderScale : settings[k]);
   const rows = SETTINGS.map(s => `<div class="row"><label>${s.label}</label><div class="seg">${s.opts.map(([v, t]) =>
     `<button data-s="${s.key}" data-v='${JSON.stringify(v)}' class="${cur(s.key) === v ? 'on' : ''}">${t}</button>`).join('')}</div></div>`).join('');
   const w = settings.wheel || {};
   el.innerHTML = `<h2>SETTINGS</h2>${rows}
-    <div class="row"><label>Steering wheel & pedals<br><span class="hint" id="wheel-state">${w.gas ? 'Set up' : 'Not set up'}</span></label><div class="seg"><button id="wheel-setup">Set up</button><button id="wheel-clear">Clear</button></div></div>`;
+    <div class="row"><label>Steering wheel & pedals<br><span class="hint" id="wheel-state">${w.gas ? 'Set up' : 'Not set up'}</span></label><div class="seg"><button id="wheel-setup">Set up</button><button id="wheel-clear">Clear</button></div></div>
+    <div class="row"><label>Fullscreen <span class="hint">(F)</span></label><div class="seg"><button id="fs-toggle">Toggle</button></div></div>`;
   el.classList.remove('hidden');
   el.querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', async () => {
     const key = b.dataset.s, v = JSON.parse(b.dataset.v), spec = SETTINGS.find(s => s.key === key);
@@ -372,10 +415,11 @@ function settingsPanel(el) {
     settings[key] = v; save();
     el.querySelectorAll(`[data-s="${key}"]`).forEach(x => x.classList.toggle('on', x === b));
     if (spec.reload) { location.reload(); return; }
-    applyAids(); audio.setVolume(settings.volume, settings.sound);
+    applyAids(); audio.setVolume(settings.volume, settings.sound); $('fps').classList.toggle('hidden', !settings.fps);
     if (key === 'traffic') traffic.setDensity(settings.traffic, car);
     document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
   }));
+  $('fs-toggle').addEventListener('click', toggleFullscreen);
   $('wheel-clear').addEventListener('click', () => { settings.wheel = null; save(); $('wheel-state').textContent = 'Not set up'; });
   $('wheel-setup').addEventListener('click', () => wheelSetup());
 }
@@ -399,7 +443,9 @@ function controlsPanel() {
     <kbd>W / ↑</kbd><span>Throttle</span><kbd>S / ↓</kbd><span>Brake, and reverse when stopped</span>
     <kbd>A D / ← →</kbd><span>Steer</span><kbd>Space</kbd><span>Handbrake (drift)</span>
     <kbd>Shift / N</kbd><span>Nitro (refills as you drive)</span><kbd>Q / E</kbd><span>Shift down / up (manual gearbox)</span>
-    <kbd>C</kbd><span>Change camera</span><kbd>R</kbd><span>Back on the road</span><kbd>Esc / P</kbd><span>Pause</span><kbd>M</kbd><span>Sound on/off</span>
+    <kbd>C</kbd><span>Change camera</span><kbd>R</kbd><span>Back on the road</span><kbd>Esc / P</kbd><span>Pause</span><kbd>U</kbd><span>Sound on/off</span>
+    <kbd>Tab / M</kbd><span>City map (click it to set a waypoint)</span><kbd>F</kbd><span>Fullscreen</span>
+    <kbd>Mouse drag</kbd><span>Look around the car (right or left button)</span><kbd>Mouse wheel</kbd><span>Zoom the chase camera</span><kbd>B</kbd><span>Look behind</span>
   </div>
   <p class="hint" style="margin-top:14px"><b>Gamepad:</b> left stick steers, RT throttle, LT brake, A handbrake, X nitro, LB/RB shift, Y camera, Start pause.</p>
   <p class="hint"><b>Steering wheel:</b> plug it in, press a pedal, then go to Settings → Set up, and follow the prompts (turn right, throttle, brake, paddles). Turn the steering assist off for the purest feel.</p>
@@ -515,10 +561,12 @@ function updateCamera(dt, pose) {
     if (spd > 4 && car.vx > 0) target += clamp(wrapAngle(velH - pose.h), -0.6, 0.6) * 0.45;
     if (car.vx < -2) target = pose.h;
     if (lookBack) target += Math.PI;
+    target += input.look.yaw;
     if (!camInit) { camYaw = target; camInit = true; }
     camYaw += wrapAngle(target - camYaw) * (1 - Math.exp(-dt * (lookBack ? 30 : wide ? 5 : 6.5)));
     let dist = wide ? 8.8 : 5.9, ht = wide ? 3.1 : 1.62;
     dist += clamp(spd * (wide ? 0.016 : 0.012), 0, wide ? 1.4 : 0.9);
+    dist *= input.look.zoom; ht = ht * input.look.zoom + input.look.pitch * dist * 0.9;
     // Pull in if a building is in the way.
     for (let k = 0; k < 5; k++) {
       const cx = pose.x - Math.sin(camYaw) * dist, cz = pose.z - Math.cos(camYaw) * dist;
@@ -540,6 +588,7 @@ function updateCamera(dt, pose) {
     if (lookBack) lookV.x = cp.eye.x;
     body.localToWorld(lookV);
     camera.up.set(0, 1, 0); camera.lookAt(lookV);
+    camera.rotateY(input.look.yaw * 0.8); camera.rotateX(-input.look.pitch * 0.5);
     camera.rotateZ(-roll * 0.5);
     fov = 70 + clamp(spd * 0.06, 0, 8);
     camInit = false;
@@ -581,6 +630,16 @@ function wheelFx(pose) {
       const v = car.worldVel(); fx.puff(wx, wi.ground, wz, slide * 1.5, v[0], v[1]);
     }
   }
+}
+
+// The arrow to the waypoint in free roam; it clears when you get there.
+function waypointUpdate() {
+  const w = game.waypoint;
+  if (!w) { hud.nav(null); return; }
+  const dx = w.x - car.x, dz = w.z - car.z, dist = Math.hypot(dx, dz);
+  if (dist < 25) { game.waypoint = null; hud.nav(null); hud.toast('YOU HAVE ARRIVED', 2); return; }
+  const camH = Math.atan2(camLook.x - camera.position.x, camLook.z - camera.position.z);
+  hud.nav({ arrow: wrapAngle(camH - Math.atan2(dx, dz)), dist, waypoint: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -632,7 +691,7 @@ function tick(dt) {
   const driving = st === 'free' || st === 'race';
   let inp = driving ? raw : NO_INPUT;
   if (st === 'countdown') inp = { ...NO_INPUT, gas: raw.gas };
-  if (st !== 'paused') {
+  if (st !== 'paused' && st !== 'map') {
     acc += dt;
     let n = 0;
     while (acc >= STEP && n < 16) {
@@ -647,13 +706,16 @@ function tick(dt) {
     if (n === 16) acc = 0;
     game.clock = (game.clock || 0) + dt;
     const sig = signalState(game.clock);
-    if (sig.Z !== game.sigZ || sig.X !== game.sigX) { game.sigZ = sig.Z; game.sigX = sig.X; showSignals(sig); }
+    if (sig.Z !== game.sigZ || sig.X !== game.sigX) { game.sigZ = sig.Z; game.sigX = sig.X; city.setSignals(sig); }
     traffic.update(dt, car, sig);
     if (st === 'race' || st === 'countdown') raceUpdate(dt);
+    else if (st === 'free') waypointUpdate();
   }
-  const alpha = st === 'paused' ? 1 : acc / STEP;
+  city.update(car.x, car.z, st === 'paused' || st === 'map' ? 2 : 3.5);
+  terrain.update(dt);
+  const alpha = st === 'paused' || st === 'map' ? 1 : acc / STEP;
   const pose = updateCarMesh(dt, alpha);
-  if (st !== 'paused') { wheelFx(pose); fx.update(dt); }
+  if (st !== 'paused' && st !== 'map') { wheelFx(pose); fx.update(dt); }
   camera.updateMatrixWorld(); camFrustum.setFromProjectionMatrix(projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   traffic.render(car, camFrustum);
   updateCamera(dt, pose);
@@ -663,7 +725,8 @@ function tick(dt) {
   updateProbe(pose);
   audio.update(car, st === 'free' || st === 'race' || st === 'countdown' || st === 'finish');
   if (st === 'free' || st === 'race' || st === 'countdown') hud.drawDial(car, settings.units, { abs: car.abs, esp: car.esp, tcs: car.tcs });
-  if (st === 'free' || st === 'race' || st === 'countdown') hud.drawMap(car, traffic, game.route, game.next);
+  if (st === 'free' || st === 'race' || st === 'countdown') hud.drawMap(car, traffic, game.route, game.next, game.waypoint);
+  if (settings.fps && (game.fpsT = (game.fpsT || 0) + dt) > 0.5) { game.fpsT = 0; $('fps').textContent = `${Math.round(1000 / frameAvg)} FPS · ${renderer.domElement.width}×${renderer.domElement.height} · ${quality}`; }
 
   if (composer) {
     const blur = clamp((car.speed - 35) / 55, 0, 1) * 0.8 + (car.nitroOn ? 0.5 : 0);
@@ -675,7 +738,7 @@ function tick(dt) {
   adaptT += dt;
   if (adaptT > 2) {
     adaptT = 0;
-    if (frameAvg > 21 && resScale > 0.6) { resScale = Math.max(0.6, resScale * 0.88); resize(); }
+    if (frameAvg > 21 && resScale > 0.7) { resScale = Math.max(0.7, resScale * 0.9); resize(); }
     else if (frameAvg < 14.5 && resScale < 1) { resScale = Math.min(1, resScale * 1.08); resize(); }
   }
 }
@@ -703,4 +766,4 @@ function simulate(secs, inp) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-window.__game = { simulate, tick, game, car, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+window.__game = { simulate, tick, game, car, Q, get city() { return city; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

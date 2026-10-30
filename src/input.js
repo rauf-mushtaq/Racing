@@ -15,11 +15,22 @@ export class Input {
     this.learn = null;
     this.lastDevice = 'keyboard';
     this.wheelSeen = false;
+    // Mouse: drag (either button) on the game to look around the car, wheel to zoom.
+    this.look = { yaw: 0, pitch: 0, zoom: 1, idle: 0 }; this.dragging = false;
+    addEventListener('mousedown', e => { if (e.target && e.target.id === 'c') { this.dragging = true; this.lastDevice = 'keyboard'; } });
+    addEventListener('mouseup', () => { this.dragging = false; });
+    addEventListener('mousemove', e => {
+      if (!this.dragging) return;
+      this.look.yaw = Math.max(-3.2, Math.min(3.2, this.look.yaw - e.movementX * 0.006));
+      this.look.pitch = Math.max(-0.4, Math.min(1.1, this.look.pitch + e.movementY * 0.004)); this.look.idle = 0;
+    });
+    addEventListener('wheel', e => { if (e.target && e.target.id === 'c') this.look.zoom = Math.max(0.6, Math.min(1.9, this.look.zoom * Math.exp(e.deltaY * 0.001))); }, { passive: true });
+    addEventListener('contextmenu', e => { if (e.target && e.target.id === 'c') e.preventDefault(); });
     addEventListener('keydown', e => {
       if (e.target && /input|textarea/i.test(e.target.tagName)) return;
       if (!this.keys.has(e.code)) this.edgeKey(e.code);
       this.keys.add(e.code); this.lastDevice = 'keyboard';
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab'].includes(e.code)) e.preventDefault();
       this.emit('any');
     });
     addEventListener('keyup', e => this.keys.delete(e.code));
@@ -28,7 +39,7 @@ export class Input {
   on(name, fn) { (this.handlers[name] ||= []).push(fn); }
   emit(name, ...a) { for (const f of this.handlers[name] || []) f(...a); }
   edgeKey(code) {
-    const map = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'pause', KeyE: 'shiftUp', KeyQ: 'shiftDown', Enter: 'confirm', KeyM: 'mute' };
+    const map = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'pause', KeyE: 'shiftUp', KeyQ: 'shiftDown', Enter: 'confirm', KeyU: 'mute', KeyM: 'map', Tab: 'map', KeyF: 'fullscreen' };
     if (map[code]) this.emit(map[code]);
   }
 
@@ -119,6 +130,7 @@ export class Input {
 
   read(dt) {
     const k = c => this.keys.has(c);
+    if (!this.dragging) { this.look.idle += dt; if (this.look.idle > 1.2) { const f = Math.exp(-dt * 3); this.look.yaw *= f; this.look.pitch *= f; } }
     let steer = (k('KeyD') || k('ArrowRight') || this.touch.right ? 1 : 0) - (k('KeyA') || k('ArrowLeft') || this.touch.left ? 1 : 0);
     let gas = k('KeyW') || k('ArrowUp') || this.touch.gas ? 1 : 0;
     let brake = k('KeyS') || k('ArrowDown') || this.touch.brake ? 1 : 0;

@@ -103,8 +103,12 @@
   #countdown { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-weight: 900; font-size: 140px; text-shadow: 0 4px 24px rgba(0,0,0,0.6); }
   #cam-btn { position: absolute; left: max(16px, env(safe-area-inset-left)); top: max(16px, env(safe-area-inset-top)); pointer-events: auto; display: flex; align-items: center; gap: 8px;
     background: rgba(12,10,20,0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 8px 14px; font-weight: 700; font-size: 14px; letter-spacing: 1px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
-  #cam-btn .ic { font-size: 18px; color: var(--accent); }
-  body.touchmode #cam-btn { display: none; }
+  #cam-btn .ic, #map-btn .ic { font-size: 18px; color: var(--accent); }
+  #map-btn { position: absolute; left: calc(max(16px, env(safe-area-inset-left)) + 176px); top: max(16px, env(safe-area-inset-top)); pointer-events: auto; display: flex; align-items: center; gap: 8px;
+    background: rgba(12,10,20,0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 8px 14px; font-weight: 700; font-size: 14px; letter-spacing: 1px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  body.touchmode #cam-btn, body.touchmode #map-btn { display: none; }
+  #fps { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: 12px; font: 600 13px Barlow, monospace; opacity: 0.8; text-shadow: 0 1px 3px #000; }
+  #bigmap-c { width: min(78vh, 92vw); height: min(78vh, 92vw); border-radius: 10px; display: block; cursor: crosshair; touch-action: manipulation; }
   #title-card { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-weight: 700; font-size: 14px; letter-spacing: 3px; opacity: 0.6; text-transform: uppercase; }
 
   /* ---------- Touch controls ---------- */
@@ -119,7 +123,7 @@
   #t-nitro { right: max(22px, env(safe-area-inset-right)); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 168px); width: 104px; height: 64px; color: var(--cyan); }
   #t-hand { right: calc(max(22px, env(safe-area-inset-right)) + 118px); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 116px); width: 96px; height: 64px; }
   #touch .small { top: max(14px, env(safe-area-inset-top)); width: 54px; height: 54px; border-radius: 14px; font-size: 20px; }
-  #t-pause { left: max(14px, env(safe-area-inset-left)); } #t-cam { left: calc(max(14px, env(safe-area-inset-left)) + 64px); } #t-reset { left: calc(max(14px, env(safe-area-inset-left)) + 158px); }
+  #t-pause { left: max(14px, env(safe-area-inset-left)); } #t-cam { left: calc(max(14px, env(safe-area-inset-left)) + 64px); } #t-reset { left: calc(max(14px, env(safe-area-inset-left)) + 158px); } #t-map { left: calc(max(14px, env(safe-area-inset-left)) + 222px); }
   body.touchmode #dial { left: max(14px, env(safe-area-inset-left)); bottom: calc(max(26px, env(safe-area-inset-bottom)) + 112px); width: min(26vh, 200px); height: min(26vh, 200px); }
   body.touchmode.tilt #dial { bottom: 10px; }
   body.tilt #t-left, body.tilt #t-right { display: none; }
@@ -149,6 +153,8 @@
   <div id="toast"></div>
   <div id="countdown"></div>
   <button id="cam-btn" title="Change camera (C)"><span class="ic">◉</span> <span id="cam-name"></span></button>
+  <button id="map-btn" title="City map (Tab)"><span class="ic">⌖</span> MAP</button>
+  <div id="fps" class="hidden"></div>
 </div>
 
 <div id="touch" class="hidden">
@@ -161,6 +167,7 @@
   <div class="tb small" id="t-pause" data-tap="pause">❚❚</div>
   <div class="tb small" id="t-cam" data-tap="camera" style="width:84px;font-size:14px">◉ CAM</div>
   <div class="tb small" id="t-reset" data-tap="reset">↺</div>
+  <div class="tb small" id="t-map" data-tap="map" style="width:64px;font-size:14px">MAP</div>
 </div>
 
 <div id="menu" class="hidden">
@@ -174,6 +181,13 @@
     <button class="mbtn" data-m="controls">CONTROLS<small>Keyboard, gamepad, wheel and touch</small></button>
   </div>
   <div class="panel hidden" id="panel"></div>
+</div>
+
+<div id="bigmap" class="overlay hidden">
+  <div class="box" style="padding:14px">
+    <canvas id="bigmap-c" width="1400" height="1400"></canvas>
+    <div class="hint" style="margin:8px 0 0">Click the map to set a waypoint · <button class="ghost" id="bm-clear" style="margin:0 0 0 8px;padding:5px 12px">Clear waypoint</button> <button class="ghost" id="bm-close" style="margin:0 0 0 4px;padding:5px 12px">Close (Tab)</button></div>
+  </div>
 </div>
 
 <div id="pause" class="overlay hidden">

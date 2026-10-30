@@ -7,7 +7,7 @@ const PRESETS = {
     sun: [0.42, 0.62, 0.66], light: [0.42, 0.62, 0.66],
     sky: { turbidity: 2.4, rayleigh: 0.9, mie: 0.004, mieG: 0.82 },
     exposure: 0.6,
-    fog: 0xbfcfdf, fogDensity: 0.00055,
+    fog: 0xbfcfdf, fogDensity: 0.00085,
     hemiSky: 0xcfe2ff, hemiGround: 0x8a7a62, hemiI: 1.35,
     sunColor: 0xfff1de, sunI: 5.6,
     windows: 0.12, signs: 0.7, lampsOn: false,

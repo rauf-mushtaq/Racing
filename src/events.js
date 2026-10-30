@@ -4,13 +4,26 @@ import * as THREE from 'three';
 import { SP, hw, laneOffset, N } from './city.js';
 import { glowTex } from './textures.js';
 
+// A staircase of turns from one corner to the opposite one.
+function stairs(x0, z0, x1, z1) {
+  const nodes = [[x0, z0]]; let x = x0, z = z0;
+  while (x !== x1 || z !== z1) {
+    if (z !== z1) { z += Math.sign(z1 - z); nodes.push([x, z]); }
+    if (x !== x1) { x += Math.sign(x1 - x); nodes.push([x, z]); }
+  }
+  return nodes;
+}
+
 export const EVENTS = [
-  { id: 'blvd', name: 'Boulevard Dash', desc: 'Flat out down Sunset Boulevard, straight into the sunset.', nodes: [[0, 4], [0, -4]] },
+  { id: 'blvd', name: 'Boulevard Dash', desc: 'Flat out down Sunset Boulevard, the whole length of the city.', nodes: [[0, 12], [0, -12]] },
   { id: 'downtown', name: 'Downtown Dash', desc: 'Short and twisty through the glass towers.', nodes: [[0, 3], [0, 1], [-1, 1], [-1, -1], [1, -1], [1, -3], [0, -3], [0, -4]] },
-  { id: 'palms', name: 'Palm Zigzag', desc: 'A staircase of turns across town under the palms.', nodes: [[-4, 4], [-4, 3], [-3, 3], [-3, 2], [-2, 2], [-2, 1], [-1, 1], [-1, 0], [0, 0], [0, -1], [1, -1], [1, -2], [2, -2], [2, -3], [3, -3], [3, -4], [4, -4]] },
-  { id: 'crosstown', name: 'Crosstown', desc: 'East to west on the big roads, with a detour downtown.', nodes: [[4, 2], [0, 2], [0, -2], [-4, -2], [-4, 0], [-2, 0]] },
-  { id: 'ring', name: 'Ring Road', desc: 'One lap of the six-lane ring around the city.', nodes: [[0, 4], [4, 4], [4, -4], [-4, -4], [-4, 4], [0, 4]], lap: true },
-  { id: 'grand', name: 'Grand Tour', desc: 'The long one: every district, every kind of road.', nodes: [[0, 4], [0, 2], [3, 2], [3, -1], [0, -1], [0, -4], [-4, -4], [-4, -1], [-2, -1], [-2, 2], [-4, 2], [-4, 4], [-1, 4]] },
+  { id: 'palms', name: 'Palm Zigzag', desc: 'A staircase of turns across the middle of town under the palms.', nodes: stairs(-6, 6, 6, -6) },
+  { id: 'crosstown', name: 'Crosstown', desc: 'East to west on the big roads, with a detour downtown.', nodes: [[12, 4], [0, 4], [0, -4], [-12, -4], [-12, 0], [-4, 0]] },
+  { id: 'ring', name: 'Inner Ring', desc: 'One lap of the six-lane ring road around downtown.', nodes: [[0, 4], [4, 4], [4, -4], [-4, -4], [-4, 4], [0, 4]], lap: true },
+  { id: 'coast', name: 'Coast Road', desc: 'Down the western edge of the city with the ocean beside you.', nodes: [[-12, 12], [-12, -12]] },
+  { id: 'hills', name: 'Hill Run', desc: 'Along the northern ring road under the hills.', nodes: [[-12, -12], [12, -12], [12, -4]] },
+  { id: 'suburb', name: 'Suburb Sprint', desc: 'Tight turns through the quiet streets of the south-east suburbs.', nodes: [[8, 8], [12, 8], [12, 12], [4, 12], [4, 9], [7, 9], [7, 11], [8, 11]] },
+  { id: 'grand', name: 'Grand Tour', desc: 'The long one: downtown, the hills road and the suburbs, 10 km in all.', nodes: [[0, 12], [0, 8], [8, 8], [8, 0], [4, 0], [4, -4], [-4, -4], [-4, 4], [-8, 4], [-8, 12]] },
 ];
 
 // Expand the route into checkpoints and a start pose.
@@ -40,7 +53,7 @@ export function buildRoute(ev) {
   for (let k2 = 1; k2 < path.length; k2++) length += Math.hypot(path[k2][0] - path[k2 - 1][0], path[k2][1] - path[k2 - 1][1]);
   // Medal times from the route: about 140 km/h on straights, less a bit per turn.
   const turns = nodes.length - 2;
-  const gold = Math.round((length / 36 + turns * 1.6) * 10) / 10;
+  const gold = Math.round((length / 50 + turns * 1.8) * 10) / 10;
   return { ev, cps, path, start, length, medals: { gold, silver: Math.round(gold * 1.12 * 10) / 10, bronze: Math.round(gold * 1.28 * 10) / 10 } };
 }
 

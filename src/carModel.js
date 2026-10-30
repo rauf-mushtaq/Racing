@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { curve, lerp, clamp } from './util.js';
 import { plateTex, glowTex } from './textures.js';
-import { mergeGeoms } from './city.js';
+import { mergeGeoms } from './geom.js';
 
 const HALF = 15; // points per half section
 

@@ -1,7 +1,7 @@
 // The heads-up display: the round rev counter and speedometer (gear in the
 // middle, driver aids, nitro gauge), the minimap, and race information.
 import { $, clamp, fmtTime } from './util.js';
-import { N, SP, hw, isBlvd, EDGE } from './city.js';
+import { N, SP, hw, isBlvd, EDGE, LIMIT, blockRect, isPark } from './city.js';
 
 const A0 = 125 * Math.PI / 180, SPAN = 290 * Math.PI / 180;
 
@@ -88,7 +88,7 @@ export class HUD {
     c.fillText(units === 'mph' ? 'mph' : 'km/h', cx, cy + R * 0.84);
   }
 
-  drawMap(car, traffic, route, nextCp) {
+  drawMap(car, traffic, route, nextCp, waypoint) {
     const c = this.mctx, W = this.map.width, H = this.map.height, cx = W / 2, cy = H * 0.62;
     const scale = W / 520; // metres to pixels
     c.clearRect(0, 0, W, H);
@@ -117,6 +117,14 @@ export class HUD {
     c.fillStyle = 'rgba(255,255,255,0.75)';
     for (const t of traffic.cars) { c.fillRect(t.x - 3, t.z - 3, 6, 6); }
     c.restore();
+    if (waypoint) {                                     // the waypoint, pinned to the rim when it's off the map
+      const dx = (waypoint.x - car.x) * scale, dz = (waypoint.z - car.z) * scale, th = car.h + Math.PI;
+      let px = dx * Math.cos(th) - dz * Math.sin(th), py = dx * Math.sin(th) + dz * Math.cos(th);
+      const lim = W / 2 - 14, dd = Math.hypot(px, py);
+      if (dd > lim) { px *= lim / dd; py *= lim / dd; }
+      c.fillStyle = '#ff3d9a'; c.strokeStyle = '#fff'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(cx + px, cy + py - 9); c.lineTo(cx + px + 7, cy + py); c.lineTo(cx + px, cy + py + 9); c.lineTo(cx + px - 7, cy + py); c.closePath(); c.fill(); c.stroke();
+    }
     // Player arrow.
     c.fillStyle = '#ff7a2a'; c.strokeStyle = '#fff'; c.lineWidth = 2;
     c.beginPath(); c.moveTo(cx, cy - 11); c.lineTo(cx + 7, cy + 8); c.lineTo(cx, cy + 4); c.lineTo(cx - 7, cy + 8); c.closePath(); c.fill(); c.stroke();
@@ -129,13 +137,57 @@ export class HUD {
   }
   race(info) {
     const el = $('race-info');
-    if (!info) { el.classList.add('hidden'); $('nav').classList.add('hidden'); return; }
+    if (!info) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     $('r-time').textContent = fmtTime(info.time);
     $('r-cp').textContent = `CHECKPOINT ${Math.min(info.cp, info.total)}/${info.total}`;
     $('r-best').textContent = info.best != null ? `BEST ${fmtTime(info.best)}` : '';
-    const nav = $('nav'); nav.classList.remove('hidden');
-    $('nav-arrow').style.transform = `rotate(${info.arrow}rad)`;
-    $('nav-dist').textContent = `${Math.round(info.dist)} m`;
+    this.nav(info);
   }
+  // The arrow and distance to the next checkpoint or the waypoint.
+  nav(info) {
+    const nav = $('nav');
+    if (!info) { nav.classList.add('hidden'); return; }
+    nav.classList.remove('hidden');
+    $('nav-arrow').style.transform = `rotate(${info.arrow}rad)`;
+    $('nav-arrow').style.borderBottomColor = info.waypoint ? '#ff3d9a' : '#ffd23f';
+    const m = info.dist;
+    $('nav-dist').textContent = m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
+  }
+
+  // The whole city, north up: districts, roads, parks, the route and the waypoint.
+  drawBigMap(cv, car, route, waypoint) {
+    const c = cv.getContext('2d'), W = cv.width, H = cv.height, ext = LIMIT + 500, s = Math.min(W, H) / (2 * ext);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.fillStyle = '#b6c49c'; c.fillRect(0, 0, W, H);
+    c.translate(W / 2, H / 2); c.scale(s, s);
+    c.fillStyle = '#5f9cbc'; c.fillRect(-ext - 400, -ext - 400, ext + 400 - LIMIT + 120, 2 * ext + 800);      // the ocean
+    c.fillStyle = '#e1d5ab'; c.fillRect(-LIMIT + 120, -ext, 260, 2 * ext);                                          // the beach
+    c.fillStyle = '#d6d3cc'; c.fillRect(-EDGE - 8, -EDGE - 8, 2 * EDGE + 16, 2 * EDGE + 16);
+    c.fillStyle = '#c3bfce'; c.fillRect(-520, -520, 1040, 1040);                                                    // downtown
+    c.fillStyle = '#c9cfa8'; for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) if (isPark(i, j)) { const b = blockRect(i, j); c.fillRect(b.x0, b.z0, b.x1 - b.x0, b.z1 - b.z0); }
+    c.lineCap = 'butt';
+    for (let k = -N; k <= N; k++) {
+      c.strokeStyle = isBlvd(k) ? '#ffffff' : '#f6f3ec'; c.lineWidth = Math.max(hw(k) * 2, 1.6 / s);
+      c.beginPath(); c.moveTo(k * SP, -EDGE); c.lineTo(k * SP, EDGE); c.stroke();
+      c.beginPath(); c.moveTo(-EDGE, k * SP); c.lineTo(EDGE, k * SP); c.stroke();
+    }
+    if (route) {
+      c.strokeStyle = '#18b5e0'; c.lineWidth = 6 / s; c.lineJoin = 'round';
+      c.beginPath(); route.path.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.stroke();
+      c.fillStyle = '#f0b400'; for (const p of route.cps) { c.beginPath(); c.arc(p.x, p.z, 7 / s, 0, Math.PI * 2); c.fill(); }
+    }
+    if (waypoint) {
+      c.fillStyle = '#ff3d9a'; c.strokeStyle = '#fff'; c.lineWidth = 2 / s;
+      c.beginPath(); c.arc(waypoint.x, waypoint.z, 10 / s, 0, Math.PI * 2); c.fill(); c.stroke();
+    }
+    c.save(); c.translate(car.x, car.z); c.rotate(Math.PI - car.h); c.scale(1 / s, 1 / s);
+    c.fillStyle = '#ff7a2a'; c.strokeStyle = '#fff'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(0, -13); c.lineTo(9, 10); c.lineTo(0, 5); c.lineTo(-9, 10); c.closePath(); c.fill(); c.stroke(); c.restore();
+    c.fillStyle = 'rgba(40,40,60,0.8)'; c.textAlign = 'center'; c.font = `${700} ${15 / s}px Barlow, sans-serif`;
+    for (const [t, x, z] of [['DOWNTOWN', 0, 0], ['THE BEACH', -LIMIT + 250, 0], ['THE HILLS', 700, -LIMIT - 250], ['SUBURBS', 1800, 1800], ['SUBURBS', -1500, 1900]]) c.fillText(t, x, z);
+    this.bigScale = s; this.bigW = W; this.bigH = H;
+  }
+  // Canvas pixel position on the big map -> world position.
+  bigToWorld(px, py) { const s = this.bigScale; return { x: (px - this.bigW / 2) / s, z: (py - this.bigH / 2) / s }; }
 }
