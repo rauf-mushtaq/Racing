@@ -1,0 +1,5 @@
+build*/
+*.log
+*.bmp
+*.obj
+*.pdb

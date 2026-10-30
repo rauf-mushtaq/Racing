@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.16)
+project(SunsetCityNative CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+file(GLOB SRC ${CMAKE_SOURCE_DIR}/src/*.cpp)
+add_executable(sunset WIN32 ${SRC})
+target_link_libraries(sunset PRIVATE d3d12 dxgi d3dcompiler user32 gdi32 xinput winmm)
+# The shaders are plain .hlsl files compiled when the game starts; keep a copy next to the exe.
+add_custom_command(TARGET sunset POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:sunset>/shaders)
+if(MSVC)
+  target_compile_options(sunset PRIVATE /utf-8 /W3 /O2)
+  target_link_options(sunset PRIVATE /ENTRY:mainCRTStartup)   # keep `main` as the entry point of the windowed program
+else()
+  target_compile_options(sunset PRIVATE -O2 -Wall -Wno-unknown-pragmas)
+  target_link_options(sunset PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()

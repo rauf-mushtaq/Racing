@@ -1,0 +1,25 @@
+# Builds the native Direct3D 12 game with Visual Studio and uploads a ready-to-run zip as an artifact.
+name: native-windows
+on:
+  push:
+    paths: ['native/**', '.github/workflows/native-windows.yml']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S native -B native/build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build native/build --config Release
+      - name: Check the shaders compile with the system HLSL compiler
+        run: native/build/Release/sunset.exe --check-shaders
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist/SunsetCityNative | Out-Null
+          Copy-Item native/build/Release/sunset.exe dist/SunsetCityNative/
+          Copy-Item -Recurse native/shaders dist/SunsetCityNative/shaders
+      - uses: actions/upload-artifact@v4
+        with: { name: SunsetCityNative-win64, path: dist }
