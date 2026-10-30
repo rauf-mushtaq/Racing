@@ -5,11 +5,11 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { CSM } from 'three/addons/csm/CSM.js';
 import { $, clamp, damp, lerp, wrapAngle, LOW_POWER, fmtTime } from './util.js';
 import { settings, save } from './store.js';
-import { setAnisotropy } from './textures.js';
-import { buildSky, placeSun } from './sky.js';
+import { setAnisotropy, glowTex } from './textures.js';
+import { buildSky, placeSun, SUN_DIR, LIGHT_DIR } from './sky.js';
 import { buildCity, surfaceAt, SP, N, EDGE, laneOffset, queryColliders, signalState, showSignals } from './city.js';
 import { buildTerrain } from './terrain.js';
 import { TOD, TOD_NAME } from './tod.js';
@@ -44,8 +44,7 @@ let resScale = 1;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 12000);
 
-// Post-processing: ambient occlusion (High), bloom, a speed blur, vignette and
-// a colour grade, then ACES.
+// Post-processing: bloom, a speed blur, vignette and a colour grade, then ACES.
 const GradeShader = {
   uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) },
     uSat: { value: TOD.grade.sat }, uContrast: { value: TOD.grade.contrast }, uWarm: { value: TOD.grade.warm }, uSunset: { value: TOD_NAME === 'sunset' ? 1 : 0 } },
@@ -71,27 +70,11 @@ const GradeShader = {
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
-let composer = null, bloom = null, grade = null, gtao = null;
+let composer = null, bloom = null, grade = null;
 if (quality !== 'low') {
   const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: quality === 'high' ? 4 : 2 });
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
-  if (quality === 'high') {
-    try {
-      gtao = new GTAOPass(scene, camera, 4, 4);
-      gtao.blendIntensity = 0.85;
-      // Leave out see-through things (clouds, leaf cards, glows), which the
-      // occlusion pass would otherwise treat as solid squares.
-      const hideBase = gtao.overrideVisibility.bind(gtao);
-      gtao.overrideVisibility = function () {
-        hideBase();
-        this.scene.traverse(o => { const m = o.material; if (m && !Array.isArray(m) && (m.transparent || m.alphaTest > 0 || !m.depthWrite)) o.visible = false; });
-      };
-      gtao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1.2, scale: 1.2, samples: 12 });
-      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
-      composer.addPass(gtao);
-    } catch (e) { gtao = null; }
-  }
   bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), TOD.lampsOn ? 0.42 : 0.22, 0.55, TOD.lampsOn ? 0.92 : 1.6);
   composer.addPass(bloom);
   grade = new ShaderPass(GradeShader); composer.addPass(grade);
@@ -105,13 +88,14 @@ function resize() {
     bloom.resolution.set(w * pr * (quality === 'high' ? 0.5 : 0.35), h * pr * (quality === 'high' ? 0.5 : 0.35));
   }
   camera.aspect = w / h; camera.updateProjectionMatrix();
+  if (csm) csm.updateFrustums();
 }
 addEventListener('resize', resize);
 
 // ---------------------------------------------------------------------------
 // World
 // ---------------------------------------------------------------------------
-let sky, city, traffic, carMesh, fx, gates, hud;
+let sky, city, traffic, carMesh, fx, gates, hud, csm = null, probe = null;
 const car = new Vehicle();
 const input = new Input();
 const audio = new AudioEngine();
@@ -133,9 +117,76 @@ async function build() {
   car.reset(START.x, START.z, START.h);
   traffic.setDensity(settings.traffic, car);
   applyAids();
+  setupProbe();
+  if (quality === 'high') setupCSM();
+  if (!TOD.lampsOn) addFlare();
   resize();
   loadMsg('Warming up…'); await nextFrame();
   renderer.compile(scene, camera);
+}
+
+// Real-time reflections for the player's car: a small cube map of the
+// surroundings, re-rendered one face per frame (every other frame on Medium),
+// so the paint and glass reflect the actual street, buildings and traffic.
+function setupProbe() {
+  if (quality === 'low') return;
+  const rt = new THREE.WebGLCubeRenderTarget(quality === 'high' ? 256 : 128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+  const cam = new THREE.CubeCamera(0.5, 9000, rt);
+  scene.add(cam);
+  probe = { rt, cam, face: 0, frame: 0 };
+  carMesh.traverse(o => {
+    for (const m of [].concat(o.material || [])) if ((m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) && m.envMapIntensity !== undefined && !m.userData.noProbe) m.envMap = rt.texture;
+  });
+  carMesh.visible = false; cam.position.set(car.x, carY + 0.9, car.z); cam.update(renderer, scene); carMesh.visible = true;
+}
+function updateProbe(pose) {
+  if (!probe) return;
+  if (probe.frame++ % (quality === 'high' ? 2 : 3)) return;
+  const { cam, rt } = probe;
+  cam.position.set(pose.x, carY + 0.9, pose.z); cam.updateMatrixWorld(true);
+  const face = probe.face; probe.face = (face + 1) % 6;
+  const auto = renderer.shadowMap.autoUpdate; renderer.shadowMap.autoUpdate = false;
+  carMesh.visible = false;
+  const prevRT = renderer.getRenderTarget();
+  renderer.setRenderTarget(rt, face);
+  renderer.render(scene, cam.children[face]);
+  renderer.setRenderTarget(prevRT);
+  carMesh.visible = true; renderer.shadowMap.autoUpdate = auto;
+  rt.texture.needsPMREMUpdate = true;
+}
+
+// Cascaded shadow maps (High): sharp shadows near the car and building
+// shadows across the whole street ahead.
+function setupCSM() {
+  csm = new CSM({ maxFar: 450, cascades: 3, mode: 'practical', parent: scene, shadowMapSize: 2048, lightDirection: LIGHT_DIR.clone().negate(), camera, lightIntensity: TOD.sunI, lightFar: 1500, lightMargin: 120 });
+  for (const l of csm.lights) { l.color.set(TOD.sunColor); l.shadow.bias = -0.00025; l.shadow.normalBias = 0.06; }
+  // The far cascades only draw big things (layer 2: buildings, signs, terrain);
+  // trees, poles and other small props cast shadows in the nearest one only.
+  for (const l of csm.lights.slice(1)) l.shadow.camera.layers.set(2);
+  scene.traverse(o => { if (o.isMesh && !o.isInstancedMesh) o.layers.enable(2); });
+  scene.remove(sky.sun); sky.sun.castShadow = false;
+  const done = new Set();
+  scene.traverse(o => {
+    for (const m of [].concat(o.material || [])) {
+      if (done.has(m) || !(m.isMeshStandardMaterial || m.isMeshLambertMaterial || m.isMeshPhongMaterial)) continue;
+      done.add(m);
+      const own = Object.prototype.hasOwnProperty.call(m, 'onBeforeCompile') ? m.onBeforeCompile : null;
+      csm.setupMaterial(m);
+      if (own) { const c = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { c(sh, r); own(sh, r); }; }
+    }
+  });
+}
+
+// A soft glare around the sun in daylight; buildings in front of it hide it.
+function addFlare() {
+  const glow = glowTex();
+  const g = new THREE.Group();
+  for (const [size, op] of [[2600, 0.55], [900, 0.9]]) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: new THREE.Color(2.2, 2.0, 1.7), transparent: true, opacity: op, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+    sp.scale.set(size, size, 1); g.add(sp);
+  }
+  scene.add(g);
+  game.flare = g;
 }
 
 function applyAids() {
@@ -165,7 +216,7 @@ function setState(s) {
 }
 
 function resetCar(x, z, h) {
-  car.reset(x, z, h); carY = surfaceAt(x, z).y; camYaw = h; fx.reset();
+  car.reset(x, z, h); carY = surfaceAt(x, z).y; car.baseY = carY; camYaw = h; fx.reset();
 }
 
 function startFree() {
@@ -378,7 +429,7 @@ function toMenu() {
 // ---------------------------------------------------------------------------
 // Simulation
 // ---------------------------------------------------------------------------
-const STEP = 1 / 120;
+const STEP = 1 / 240;
 let acc = 0;
 const NO_INPUT = { steer: 0, gas: 0, brake: 0, handbrake: false, nitro: false, analog: false, sens: 1 };
 
@@ -393,7 +444,7 @@ function onHit(j, px, pz) {
 function physics(dt, inp) {
   const surf = surfaceAt(car.x, car.z);
   car.onGrass = surf.grass;
-  car.step(dt, inp, surf.grass ? 0.72 : 1, surf.grass ? 380 : 0);
+  car.step(dt, inp, surfaceAt);
   collideStatic(car, onHit);
   collideTraffic(car, traffic, onHit);
 }
@@ -404,29 +455,37 @@ function physics(dt, inp) {
 const tmpV = new THREE.Vector3(), lookV = new THREE.Vector3(), camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
 let camInit = false;
 const camQuery = [];
+const camFrustum = new THREE.Frustum(), projScreen = new THREE.Matrix4();
 
+// The physics point is the centre of mass, which sits 0.26 m behind the
+// model's origin (between the axles' midpoint and the rear).
+const CG_OFF = 0.261;
 function updateCarMesh(dt, alpha) {
-  const x = lerp(car.px, car.x, alpha), z = lerp(car.pz, car.z, alpha), h = car.ph + wrapAngle(car.h - car.ph) * alpha;
-  const surf = surfaceAt(car.x, car.z);
-  carY = damp(carY, surf.y, 18, dt);
+  let x = lerp(car.px, car.x, alpha), z = lerp(car.pz, car.z, alpha);
+  const h = car.ph + wrapAngle(car.h - car.ph) * alpha;
+  x += Math.sin(h) * CG_OFF; z += Math.cos(h) * CG_OFF;
+  carY = car.baseY ?? surfaceAt(car.x, car.z).y;
   carMesh.position.set(x, carY, z);
   carMesh.rotation.y = h;
-  // Body pitch and roll on springs.
-  const tp = clamp(-car.ax * 0.0045, -0.05, 0.05), tr = clamp(-car.ay * 0.0055, -0.06, 0.06);
-  pitchV += ((tp - pitch) * 90 - pitchV * 11) * dt; pitch += pitchV * dt;
-  rollV += ((tr - roll) * 90 - rollV * 11) * dt; roll += rollV * dt;
+  // The body rides on the simulated suspension.
+  pitch = car.pitch; roll = car.roll;
   const ud = carMesh.userData;
   ud.body.rotation.set(pitch, 0, roll);
-  ud.body.position.y = Math.sin(performance.now() / 70) * 0.0015 * Math.min(1, car.speed / 30);
+  ud.body.position.y = car.hv;
+  for (const w of ud.wheels) {
+    const i = (w.front ? 0 : 2) + (w.side > 0 ? 0 : 1), wi = car.wheels[i];
+    const [lz, lx] = car.s.wheelPos[i];
+    // Tyre on the ground when touching it, otherwise hanging from the body.
+    const hang = car.hv - car.pitch * lz - car.roll * lx - 0.06;
+    w.steer.position.y = w.baseY + (wi.contact ? wi.ground - carY : hang);
+    w.spin.rotation.x = wi.ang;
+  }
   ud.cockpit.wheel.rotation.z = car.steer * 7;
   if (game.camMode === 2 && game.state !== 'menu') {
     const gear = car.gear === -1 ? 'R' : String(car.gear);
     drawCluster(ud.cockpit, car.rpm, car.speed * 3.6, gear, settings.units);
   }
-  for (const w of ud.wheels) {
-    if (w.front) w.steer.rotation.y = -car.steer;
-    w.spin.rotation.x = car.wheelAng;
-  }
+  for (const w of ud.wheels) if (w.front) w.steer.rotation.y = -car.steer;
   const braking = car.brakeIn > 0.05 && car.gear !== -1;
   ud.tail.emissiveIntensity = braking ? 9 : 3.2;
   for (const g of ud.tailGlow) { g.material.opacity = braking ? 0.95 : 0.5; g.scale.set(braking ? 1.4 : 0.9, braking ? 0.7 : 0.5, 1); }
@@ -509,18 +568,17 @@ function updateCamera(dt, pose) {
 
 function wheelFx(pose) {
   const c = Math.cos(pose.h), s = Math.sin(pose.h);
-  const slideR = car.slipR > 0.16 || car.spinR > 0.15;
-  const slideF = car.slipF > 0.24 || car.lockF;
-  const moving = car.speed > 3 && !car.onGrass;
+  const moving = car.speed > 3;
   let i = 0;
   for (const w of carMesh.userData.wheels) {
+    const wi = car.wheels[(w.front ? 0 : 2) + (w.side > 0 ? 0 : 1)];
     const lx = w.side * HERO_DIMS.track / 2, lz = w.front ? HERO_DIMS.wzf : HERO_DIMS.wzr;
     const wx = pose.x + c * lx + s * lz, wz = pose.z - s * lx + c * lz;
-    const on = moving && (w.front ? slideF : slideR);
-    fx.skid(i++, wx, carY, wz, on);
-    if (on && !w.front && Math.random() < 0.55) {
-      const str = Math.max(car.slipR - 0.12, car.spinR) * 2.2;
-      const v = car.worldVel(); fx.puff(wx, carY, wz, str, v[0], v[1]);
+    const slide = Math.max(Math.abs(wi.slipA) - 0.14, 0) * 3 + Math.max(Math.abs(wi.slipK) - 0.18, 0) * 2;
+    const on = moving && wi.contact && !wi.grass && slide > 0.05;
+    fx.skid(i++, wx, wi.ground, wz, on);
+    if (on && Math.random() < 0.5) {
+      const v = car.worldVel(); fx.puff(wx, wi.ground, wz, slide * 1.5, v[0], v[1]);
     }
   }
 }
@@ -577,16 +635,16 @@ function tick(dt) {
   if (st !== 'paused') {
     acc += dt;
     let n = 0;
-    while (acc >= STEP && n < 8) {
+    while (acc >= STEP && n < 16) {
       if (st === 'countdown' || st === 'menu' || st === 'finish') {
         // Hold the car still but let the engine rev.
-        car.step(STEP, st === 'finish' ? { ...NO_INPUT, brake: 1 } : inp, 1, 0);
+        car.step(STEP, st === 'finish' ? { ...NO_INPUT, brake: 1 } : inp, surfaceAt);
         if (st !== 'finish') { car.x = car.px; car.z = car.pz; car.h = car.ph; car.vx = car.vy = car.w = 0; }
         else { collideStatic(car, null); }
       } else physics(STEP, inp);
       acc -= STEP; n++;
     }
-    if (n === 8) acc = 0;
+    if (n === 16) acc = 0;
     game.clock = (game.clock || 0) + dt;
     const sig = signalState(game.clock);
     if (sig.Z !== game.sigZ || sig.X !== game.sigX) { game.sigZ = sig.Z; game.sigX = sig.X; showSignals(sig); }
@@ -596,9 +654,13 @@ function tick(dt) {
   const alpha = st === 'paused' ? 1 : acc / STEP;
   const pose = updateCarMesh(dt, alpha);
   if (st !== 'paused') { wheelFx(pose); fx.update(dt); }
-  traffic.render(car);
+  camera.updateMatrixWorld(); camFrustum.setFromProjectionMatrix(projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  traffic.render(car, camFrustum);
   updateCamera(dt, pose);
   placeSun(sky.sun, tmpV.set(pose.x, 0, pose.z));
+  if (csm) csm.update();
+  if (game.flare) game.flare.position.copy(SUN_DIR).multiplyScalar(3800).add(camera.position);
+  updateProbe(pose);
   audio.update(car, st === 'free' || st === 'race' || st === 'countdown' || st === 'finish');
   if (st === 'free' || st === 'race' || st === 'countdown') hud.drawDial(car, settings.units, { abs: car.abs, esp: car.esp, tcs: car.tcs });
   if (st === 'free' || st === 'race' || st === 'countdown') hud.drawMap(car, traffic, game.route, game.next);

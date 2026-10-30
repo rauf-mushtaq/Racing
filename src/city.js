@@ -113,9 +113,24 @@ class GB {
   }
 }
 
+// The same builder, split into 360 m chunks by where each quad is, so that
+// every rendering pass (view, shadow cascades, reflections) can skip the
+// chunks it can't see.
+class ChunkedGB extends GB {
+  constructor(colors = false) { super(colors); this.parts = new Map(); }
+  quad(o, U, V, u0, v0, u1, v1, col) {
+    const k = Math.floor((o[0] + U[0] / 2) / 360) + ',' + Math.floor((o[2] + V[2] / 2 + U[2] / 2) / 360);
+    let g = this.parts.get(k); if (!g) this.parts.set(k, g = new GB(this.colors));
+    g.quad(o, U, V, u0, v0, u1, v1, col);
+  }
+  geometries() { return [...this.parts.values()].map(g => g.geometry()); }
+}
+
 const col = h => new THREE.Color(h);
 const STUCCO = ['#efe6d8', '#e8d6c0', '#d9c3a5', '#f1ddd0', '#cfc6bd', '#e6cfc4', '#d8d0c0', '#c4b4a6', '#e9c9b0', '#d5c9b6'].map(col);
 const GLASS = ['#c9d6e3', '#b8c4d0', '#d6d0c8', '#a9b8c9', '#c0c8c0'].map(col);
+const BRICK = ['#ffffff', '#f0e4dc', '#e6d8d0', '#d8ccc4'].map(col);
+const MODERN = ['#ffffff', '#f2f0ea', '#e4e6e8'].map(col);
 const SHOP = ['#f2e8dc', '#e7d2bc', '#d4b79a', '#c9c2b8', '#e9dccb', '#d8c4ae', '#bfa58f'].map(col);
 const WHITE = new THREE.Color(1, 1, 1);
 
@@ -127,10 +142,10 @@ export function buildCity(scene, quality) {
   const shadows = quality !== 'low';
   const group = new THREE.Group(); scene.add(group);
 
-  const gbAsphalt = new GB(), gbWalk = new GB(), gbCurb = new GB(), gbPark = new GB(true), gbMark = new GB(true);
-  const gbGlass = new GB(true), gbApt = new GB(true), gbShop = new GB(true), gbRoof = new GB(true), gbSign = new GB();
-  const gbProps = new GB(true), gbLot = new GB();
-  const trees = [], palms = [], lamps = [], parked = [], billboards = [], gantries = [], hedges = [], poles = [], wires = [];
+  const gbAsphalt = new GB(), gbWalk = new ChunkedGB(), gbCurb = new ChunkedGB(), gbPark = new ChunkedGB(true), gbMark = new ChunkedGB(true);
+  const gbGlass = new ChunkedGB(true), gbApt = new ChunkedGB(true), gbShop = new ChunkedGB(true), gbBrick = new ChunkedGB(true), gbModern = new ChunkedGB(true), gbRoof = new ChunkedGB(true), gbSign = new ChunkedGB();
+  const gbProps = new ChunkedGB(true), gbLot = new GB();
+  const trees = [], palms = [], lamps = [], parked = [], billboards = [], gantries = [], hedges = [], poles = [], wires = [], hydrants = [], bins = [], benches = [];
 
   // --- Floors -------------------------------------------------------------
   gbAsphalt.flat(-EDGE, -EDGE, EDGE, EDGE, 0, 10);
@@ -172,6 +187,14 @@ export function buildCity(scene, quality) {
         const yaw = s.axis === 'x' ? (s.out < 0 ? -Math.PI / 2 : Math.PI / 2) : (s.out < 0 ? Math.PI : 0);
         const [x, z] = s.axis === 'x' ? [p, t] : [t, p];
         lamps.push([x, z, yaw, CURB]);
+        // Kerbside clutter: hydrants, bins and benches.
+        if (n < nLamps - 1) {
+          const r2 = rnd(), tq = t + (len - 16) / (nLamps - 1) * 0.28;
+          const [qx, qz] = s.axis === 'x' ? [s.c - s.out * 0.7, tq] : [tq, s.c - s.out * 0.7];
+          if (r2 < 0.12) hydrants.push([qx, qz, 0, CURB]);
+          else if (r2 < 0.3) bins.push([qx, qz, rnd() * 6, CURB]);
+          else if (r2 < 0.38 && blvd) { const [bx, bz] = s.axis === 'x' ? [s.c - s.out * 3.9, tq] : [tq, s.c - s.out * 3.9]; benches.push([bx, bz, yaw + Math.PI, CURB]); }
+        }
         // Wooden power poles along the back of the pavement on streets.
         if (!blvd && s.out > 0 && n % 2 === 0) {
           const pp = s.c - s.out * 4.3, [px, pz] = s.axis === 'x' ? [pp, t] : [t, pp];
@@ -211,7 +234,11 @@ export function buildCity(scene, quality) {
   }
 
   // --- Buildings ----------------------------------------------------------
-  const facG = T.facadeGlass(), facA = T.facadeApartment(), facS = T.facadeShop();
+  const facG = T.facadeGlass(), facA = T.facadeApartment(), facS = T.facadeShop(), facB = T.facadeBrick(), facM = T.facadeModern();
+  const STYLE = {
+    glass: { fac: facG, gb: gbGlass, pal: GLASS }, apt: { fac: facA, gb: gbApt, pal: STUCCO }, shop: { fac: facS, gb: gbShop, pal: SHOP },
+    brick: { fac: facB, gb: gbBrick, pal: BRICK }, modern: { fac: facM, gb: gbModern, pal: MODERN },
+  };
   let signN = 0;
   for (const { lot, faces, zone, d } of lotsAll) {
     const onBlvd = faces.some(f => isBlvd(f.line));
@@ -228,10 +255,13 @@ export function buildCity(scene, quality) {
       else { style = 'apt'; h = 7 + Math.floor(rnd() * 3) * 3.5; }
     }
     if (!faces.length && style === 'shop') { style = 'apt'; h = 7 + rnd() * 7; }
+    // More variety: brick walk-ups and modern banded offices.
+    if (style === 'apt' && zone !== 'down' && rnd() < 0.4) style = 'brick';
+    if (style === 'glass' && rnd() < (zone === 'down' ? 0.25 : 0.5)) style = 'modern';
     const g = 1.0 + rnd() * 1.6;
     const b = { x0: lot.x0 + g, z0: lot.z0 + g, x1: lot.x1 - g, z1: lot.z1 - g };
     // Shops and towers build right up to the pavement; apartments sit behind a hedge.
-    const front = style === 'apt' && zone !== 'down' ? 3.6 : 0.3;
+    const front = (style === 'apt' || style === 'brick') && zone !== 'down' ? 3.6 : 0.3;
     for (const f of faces) {
       if (f.dir[0] < 0) b.x0 = lot.x0 + front; if (f.dir[0] > 0) b.x1 = lot.x1 - front;
       if (f.dir[1] < 0) b.z0 = lot.z0 + front; if (f.dir[1] > 0) b.z1 = lot.z1 - front;
@@ -248,14 +278,12 @@ export function buildCity(scene, quality) {
   }
 
   function addBuilding(b, style, h, faces) {
-    const fac = style === 'glass' ? facG : style === 'apt' ? facA : facS;
-    const gb = style === 'glass' ? gbGlass : style === 'apt' ? gbApt : gbShop;
-    const pal = style === 'glass' ? GLASS : style === 'apt' ? STUCCO : SHOP;
+    const { fac, gb, pal } = STYLE[style];
     const c = pal[(rnd() * pal.length) | 0];
     const uOff = Math.floor(rnd() * 8) / 8;
     gb.walls(b.x0, b.z0, b.x1, b.z1, CURB, CURB + h, fac.w, fac.h, c, uOff, style === 'shop');
     const rc = new THREE.Color(0.55 + rnd() * 0.15, 0.53 + rnd() * 0.12, 0.52 + rnd() * 0.1);
-    if (style === 'glass' && h > 60 && rnd() < 0.7) {
+    if ((style === 'glass' || style === 'modern') && h > 60 && rnd() < 0.7) {
       // A narrower top section.
       const ix = (b.x1 - b.x0) * 0.15, iz = (b.z1 - b.z0) * 0.15, hb = h * (0.62 + rnd() * 0.15);
       gbRoof.flat(b.x0, b.z0, b.x1, b.z1, CURB + hb, 8, rc);
@@ -272,13 +300,13 @@ export function buildCity(scene, quality) {
       }
     }
     addCollider({ type: 'box', x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 });
-    if (style === 'apt' && h >= 10) balconies(b, h, faces);
+    if ((style === 'apt' || style === 'modern') && h >= 10 && h < 70) balconies(b, h, faces);
     if (style === 'shop' && faces.length) {
       for (const f of faces.slice(0, 2)) shopSign(b, f, h);
       const f = faces[0];
       if (isBlvd(f.line) && rnd() < 0.3) poleSign(b, f);
     }
-    if (style !== 'glass' && faces.length && billboards.length < 10 && rnd() < 0.05) billboard(b, faces[0], h);
+    if (style !== 'glass' && style !== 'modern' && faces.length && billboards.length < 10 && rnd() < 0.05) billboard(b, faces[0], h);
   }
 
   // Balconies with glass railings on each floor of the street-facing sides.
@@ -422,22 +450,26 @@ export function buildCity(scene, quality) {
   // --- Meshes -------------------------------------------------------------
   const asp = T.asphalt(), con = T.concrete(), grassTex = T.ground();
   const add = (gb, mat, cast = false, recv = true) => {
-    const m = new THREE.Mesh(gb.geometry(), mat); m.castShadow = cast && shadows; m.receiveShadow = recv && shadows; group.add(m); return m;
+    for (const geo of gb.geometries ? gb.geometries() : [gb.geometry()]) {
+      const m = new THREE.Mesh(geo, mat); m.castShadow = cast && shadows; m.receiveShadow = recv && shadows; group.add(m);
+    }
   };
-  add(gbAsphalt, new THREE.MeshStandardMaterial({ color: TOD.road, map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: new THREE.Vector2(0.6, 0.6), roughness: 1, metalness: 0.0, envMapIntensity: 0.9 }));
+  add(gbAsphalt, macro(new THREE.MeshStandardMaterial({ color: TOD.road, map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: new THREE.Vector2(0.6, 0.6), roughness: 1, metalness: 0.0, envMapIntensity: 0.9 }), 0.045, 0.35));
   add(gbLot, new THREE.MeshStandardMaterial({ color: 0x8a8486, map: asp.map, roughnessMap: asp.roughnessMap, roughness: 1 }));
-  add(gbWalk, new THREE.MeshStandardMaterial({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: 0.92 }));
+  add(gbWalk, macro(new THREE.MeshStandardMaterial({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: 0.92 }), 0.06, 0.3));
   add(gbCurb, new THREE.MeshStandardMaterial({ color: 0xc8c0bc, map: con.map, roughness: 0.9 }));
   add(gbPark, new THREE.MeshStandardMaterial({ color: 0x8fa070, map: grassTex, roughness: 1, vertexColors: true }));
   const markMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   add(gbMark, markMat);
   const facMat = (f, metal, rough, ei) => new THREE.MeshStandardMaterial({
-    map: f.map, emissiveMap: f.emissiveMap, roughnessMap: f.roughnessMap, emissive: 0xffffff, emissiveIntensity: ei,
-    vertexColors: true, metalness: metal, roughness: rough,
+    map: f.map, emissiveMap: f.emissiveMap, roughnessMap: f.roughnessMap, normalMap: f.normalMap, normalScale: new THREE.Vector2(0.8, 0.8),
+    emissive: 0xffffff, emissiveIntensity: ei, vertexColors: true, metalness: metal, roughness: rough,
   });
   add(gbGlass, facMat(facG, 0.6, 1, TOD.windows), true);
   add(gbApt, facMat(facA, 0.0, 1, TOD.windows * 1.05), true);
   add(gbShop, facMat(facS, 0.0, 1, TOD.lampsOn ? 2.0 : 0.45), true);
+  add(gbBrick, facMat(facB, 0.0, 1, TOD.windows * 1.05), true);
+  add(gbModern, facMat(facM, 0.35, 1, TOD.windows), true);
   add(gbRoof, new THREE.MeshStandardMaterial({ map: T.roofTex(), vertexColors: true, roughness: 0.95 }), true);
   add(gbProps, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.2 }), true);
   const atlas = T.signAtlas();
@@ -448,6 +480,8 @@ export function buildCity(scene, quality) {
   buildLamps(group, lamps, shadows);
   buildGantries(group, gantries, shadows);
   buildHedges(group, hedges, shadows);
+  buildClutter(group, hydrants, bins, benches, shadows);
+  for (const c of [...hydrants, ...bins]) addCollider({ type: 'circ', x: c[0], z: c[1], r: 0.3 });
   buildPoles(group, poles, shadows);
   buildSignals(group, shadows);
   buildBillboards(group, billboards);
@@ -631,6 +665,34 @@ function buildLamps(group, list, cast) {
   const pm = new THREE.MeshBasicMaterial({ map: T.glowTex(), color: new THREE.Color(0.32, 0.2, 0.1), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   const pl = instanced(group, pool, pm, list, (l) => { q.setFromAxisAngle(up, l[2]); s3.setScalar(1); v3.set(l[0], 0.03, l[1]); m4.compose(v3, q, s3); }, false);
   for (const m of pl) m.renderOrder = 1;
+}
+
+// Low-frequency variation on large surfaces, so the repeating texture doesn't
+// show: a second, much larger sample of the same texture darkens and
+// lightens big patches.
+function macro(mat, scale, amount) {
+  mat.onBeforeCompile = sh => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      { vec3 mc = texture2D(map, vMapUv * ${scale.toFixed(3)} + vec2(0.37, 0.11)).rgb;
+        vec3 mc2 = texture2D(map, vMapUv * ${(scale * 0.31).toFixed(4)} + vec2(0.71, 0.53)).rgb;
+        float mean = dot(texture2D(map, vec2(0.5), 16.0).rgb, vec3(0.3333)) + 1e-4;
+        float m = dot(mc + mc2, vec3(0.1667)) / mean - 1.0;
+        diffuseColor.rgb *= 1.0 + clamp(m, -1.0, 1.0) * ${amount.toFixed(2)}; }`);
+  };
+  mat.customProgramCacheKey = () => 'macro' + scale;
+  return mat;
+}
+
+function buildClutter(group, hydrants, bins, benches, cast) {
+  const place = (it) => { q.setFromAxisAngle(up, it[2]); s3.setScalar(1); v3.set(it[0], it[3], it[1]); m4.compose(v3, q, s3); };
+  const hyd = mergeGeoms([new THREE.CylinderGeometry(0.13, 0.15, 0.6, 10).translate(0, 0.3, 0), new THREE.SphereGeometry(0.14, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.6, 0),
+    new THREE.CylinderGeometry(0.06, 0.06, 0.38, 8).rotateZ(Math.PI / 2).translate(0, 0.42, 0), new THREE.CylinderGeometry(0.19, 0.19, 0.06, 10).translate(0, 0.03, 0)]);
+  instanced(group, hyd, new THREE.MeshStandardMaterial({ color: 0xc8b21c, roughness: 0.45, metalness: 0.3 }), hydrants, place, cast);
+  const bin = mergeGeoms([new THREE.CylinderGeometry(0.3, 0.27, 0.95, 12, 1, true).translate(0, 0.475, 0), new THREE.CylinderGeometry(0.32, 0.32, 0.06, 12).translate(0, 0.97, 0)]);
+  instanced(group, bin, new THREE.MeshStandardMaterial({ color: 0x2f4a3a, roughness: 0.55, metalness: 0.4, side: THREE.DoubleSide }), bins, place, cast);
+  const bench = mergeGeoms([new THREE.BoxGeometry(1.8, 0.06, 0.45).translate(0, 0.45, 0), new THREE.BoxGeometry(1.8, 0.4, 0.05).translate(0, 0.72, -0.21),
+    new THREE.BoxGeometry(0.06, 0.45, 0.4).translate(-0.8, 0.22, 0), new THREE.BoxGeometry(0.06, 0.45, 0.4).translate(0.8, 0.22, 0)]);
+  instanced(group, bench, new THREE.MeshStandardMaterial({ color: 0x6b4b33, roughness: 0.7 }), benches, place, cast);
 }
 
 function buildHedges(group, list, cast) {

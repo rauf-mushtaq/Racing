@@ -19,12 +19,20 @@ export class Traffic {
     this.meshes = this.models.map(md => {
       const body = new THREE.InstancedMesh(md.geo, new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.32, envMapIntensity: 1.1 }), 90);
       const lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), 90);
-      body.castShadow = shadows; body.count = 0; lights.count = 0;
+      body.castShadow = false; body.count = 0; lights.count = 0;
       body.receiveShadow = true;
       body.frustumCulled = false; lights.frustumCulled = false;
       scene.add(body); scene.add(lights);
       return { body, lights, list: [] };
     });
+    // Soft contact shadows under every car (cheaper than shadow-mapping them).
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(32, 32, 4, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    const st = new THREE.CanvasTexture(c);
+    this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: st, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), 200);
+    this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.blobs.count = 0; scene.add(this.blobs);
+    this.sphere = new THREE.Sphere(new THREE.Vector3(), 3.5);
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1); this.up = new THREE.Vector3(0, 1, 0);
     // Parked cars never move; they're drawn with the same meshes.
     this.statics = parked.map(([x, z, h, y]) => ({ x, z, h, y, type: (this.rnd() * 3) | 0, color: COLORS[(this.rnd() * COLORS.length) | 0] }));
@@ -185,22 +193,31 @@ export class Traffic {
     }
   }
 
-  render(player) {
+  render(player, frustum) {
     for (const m of this.meshes) { m.list.length = 0; }
-    const near = (c, r) => (c.x - player.x) ** 2 + (c.z - player.z) ** 2 < r * r;
+    // Only cars near enough and on screen (the reflection probe sees the close ones anyway).
+    const near = (c, r) => {
+      const d2 = (c.x - player.x) ** 2 + (c.z - player.z) ** 2;
+      if (d2 > r * r) return false;
+      if (!frustum || d2 < 30 * 30) return true;
+      this.sphere.center.set(c.x, (c.y ?? 0) + 1, c.z); return frustum.intersectsSphere(this.sphere);
+    };
     for (const c of this.cars) if (near(c, 450)) this.meshes[c.type].list.push(c);
     for (const c of this.statics) if (near(c, 200)) this.meshes[c.type].list.push(c);
     const { m4, q, v, one, up } = this;
+    let nb = 0;
     for (const m of this.meshes) {
       let i = 0;
       for (const c of m.list) {
         q.setFromAxisAngle(up, c.h); v.set(c.x, c.y ?? 0, c.z); m4.compose(v, q, one);
         m.body.setMatrixAt(i, m4); m.lights.setMatrixAt(i, m4); m.body.setColorAt(i, c.color);
+        v.y += 0.03; m4.compose(v, q, one); if (nb < 200) this.blobs.setMatrixAt(nb++, m4);
         if (++i >= 90) break;
       }
       m.body.count = m.lights.count = i;
       m.body.instanceMatrix.needsUpdate = true; m.lights.instanceMatrix.needsUpdate = true;
       if (m.body.instanceColor) m.body.instanceColor.needsUpdate = true;
     }
+    this.blobs.count = nb; this.blobs.instanceMatrix.needsUpdate = true;
   }
 }

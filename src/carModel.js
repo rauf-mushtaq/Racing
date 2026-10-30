@@ -170,7 +170,7 @@ export function makeHeroCar(paintKey = 'pearl') {
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body); // pitches and rolls on the suspension
   const pt = PAINTS[paintKey] || PAINTS.pearl;
-  const paint = new THREE.MeshPhysicalMaterial({ color: pt.color, metalness: pt.metal, roughness: pt.rough, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.25 });
+  const paint = new THREE.MeshPhysicalMaterial({ color: pt.color, metalness: pt.metal, roughness: pt.rough, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.0 });
   const glass = new THREE.MeshPhysicalMaterial({ color: 0x07080a, metalness: 0.1, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.6, transparent: true, opacity: 0.86 });
   const black = new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.45, metalness: 0.35 });
   const carbon = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.32, metalness: 0.5 });
@@ -288,6 +288,7 @@ export function makeHeroCar(paintKey = 'pearl') {
 function buildCockpit(body, bodyGeo) {
   const g = new THREE.Group(); body.add(g);
   const trim = new THREE.MeshStandardMaterial({ color: 0x17171a, roughness: 0.75, side: THREE.BackSide });
+  trim.userData.noProbe = true;
   const hidden = new THREE.MeshBasicMaterial({ visible: false });
   const inner = new THREE.Mesh(bodyGeo, [trim, hidden]);
   inner.scale.set(0.985, 0.99, 0.995); g.add(inner);

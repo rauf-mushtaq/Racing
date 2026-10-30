@@ -100,7 +100,20 @@ function facadeBase(cols, rows, cw, ch, seed, drawCell) {
   ge.fillStyle = '#000'; ge.fillRect(0, 0, W, Hh);
   const rnd = mulberry32(seed);
   for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) drawCell(g, ge, gr, k * cw, r * ch, cw, ch, rnd, r, k);
-  return { map: tex(c), emissiveMap: tex(ce), roughnessMap: tex(cr, false) };
+  return { map: tex(c), emissiveMap: tex(ce), roughnessMap: tex(cr, false), normalMap: reliefFrom(gr, W, Hh) };
+}
+// Window recesses: the roughness map is bright on walls and dark on glass, so
+// it doubles as a height map for a normal map.
+function reliefFrom(gr, W, Hh) {
+  const d = gr.getImageData(0, 0, W, Hh).data;
+  const [c, g] = mk(W, Hh); const img = g.createImageData(W, Hh); const o = img.data;
+  const H = (x, y) => d[(((y + Hh) % Hh) * W + ((x + W) % W)) * 4] / 255;
+  for (let y = 0; y < Hh; y++) for (let x = 0; x < W; x++) {
+    const dx = (H(x + 1, y) - H(x - 1, y)) * 2.5, dy = (H(x, y + 1) - H(x, y - 1)) * 2.5;
+    const l = Math.hypot(dx, dy, 1), i = (y * W + x) * 4;
+    o[i] = (-dx / l * 0.5 + 0.5) * 255; o[i + 1] = (dy / l * 0.5 + 0.5) * 255; o[i + 2] = (1 / l * 0.5 + 0.5) * 255; o[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0); return tex(c, false);
 }
 const litColors = ['#ffd49a', '#ffe2b8', '#ffc67a', '#fff1d6', '#d8e6ff'];
 
@@ -168,7 +181,44 @@ export function facadeShop() {
     g.fillStyle = ['#b23a3a', '#2f6b5a', '#c9a227'][k]; g.fillRect(x - 6, y - 26, w + 12, 18);
     g.fillStyle = 'rgba(255,255,255,0.35)'; for (let s = 0; s < w + 12; s += 24) g.fillRect(x - 6 + s, y - 26, 12, 18);
   }
-  return { map: tex(c), emissiveMap: tex(ce), roughnessMap: tex(cr, false), w: 12, h: 5 };
+  return { map: tex(c), emissiveMap: tex(ce), roughnessMap: tex(cr, false), normalMap: reliefFrom(gr, W, Hh), w: 12, h: 5 };
+}
+
+// Red-brown brick with white-framed sash windows.
+export function facadeBrick() {
+  const t = facadeBase(4, 4, 128, 128, 43, (g, ge, gr, x, y, w, h, rnd) => {
+    g.fillStyle = '#9c5a43'; g.fillRect(x, y, w, h);
+    gr.fillStyle = '#dcdcdc'; gr.fillRect(x, y, w, h);
+    for (let by = 0; by < h; by += 6) for (let bx = ((by / 6) % 2) * 8; bx < w; bx += 16) {
+      const v = 0.82 + rnd() * 0.3;
+      g.fillStyle = `rgb(${156 * v | 0},${86 * v | 0},${64 * v | 0})`; g.fillRect(x + bx, y + by, 15, 5);
+      gr.fillStyle = '#e8e8e8'; gr.fillRect(x + bx, y + by, 15, 5);
+    }
+    const ww = 52, wh = 74, wx = x + (w - ww) / 2, wy = y + 24;
+    g.fillStyle = '#efe9df'; g.fillRect(wx - 6, wy - 6, ww + 12, wh + 14);
+    gr.fillStyle = '#c8c8c8'; gr.fillRect(wx - 6, wy - 6, ww + 12, wh + 14);
+    const grad = g.createLinearGradient(0, wy, 0, wy + wh); grad.addColorStop(0, '#6c8093'); grad.addColorStop(1, '#202a33');
+    g.fillStyle = grad; g.fillRect(wx, wy, ww, wh);
+    g.fillStyle = '#efe9df'; g.fillRect(wx, wy + wh / 2 - 2, ww, 4); g.fillRect(wx + ww / 2 - 2, wy, 4, wh);
+    gr.fillStyle = '#1c1c1c'; gr.fillRect(wx, wy, ww, wh);
+    if (rnd() < 0.22) { ge.fillStyle = litColors[(rnd() * 4) | 0]; ge.globalAlpha = 0.5 + rnd() * 0.5; ge.fillRect(wx, wy, ww, wh); ge.globalAlpha = 1; }
+  });
+  return { ...t, w: 16, h: 14 };
+}
+
+// Modern offices: white concrete bands between continuous strips of glass.
+export function facadeModern() {
+  const t = facadeBase(4, 8, 128, 64, 53, (g, ge, gr, x, y, w, h, rnd) => {
+    g.fillStyle = '#ecebe6'; g.fillRect(x, y, w, h);
+    gr.fillStyle = '#d0d0d0'; gr.fillRect(x, y, w, h);
+    const gy = y + 18, gh = h - 22;
+    const grad = g.createLinearGradient(0, gy, 0, gy + gh); grad.addColorStop(0, '#7f97ab'); grad.addColorStop(1, '#2e3d4c');
+    g.fillStyle = grad; g.fillRect(x, gy, w, gh);
+    gr.fillStyle = '#181818'; gr.fillRect(x, gy, w, gh);
+    g.fillStyle = '#545c64'; for (let m = 0; m < 4; m++) g.fillRect(x + m * w / 4, gy, 2, gh);
+    if (rnd() < 0.25) { ge.fillStyle = litColors[(rnd() * litColors.length) | 0]; ge.globalAlpha = 0.3 + rnd() * 0.6; ge.fillRect(x, gy, w, gh); ge.globalAlpha = 1; }
+  });
+  return { ...t, w: 16, h: 28 };
 }
 
 export function roofTex(size = 256) {
