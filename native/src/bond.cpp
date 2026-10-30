@@ -14,14 +14,19 @@ static std::vector<Vec3> ring(float z, float hw, float yb, float yt, int N, floa
 void BondModel::configure(Vehicle& v) {
   VehicleSpec& s = v.s;
   s.mass = 1540; s.cgH = 0.5; s.rollH = 0.36;
-  s.wheelPos[0][0] = 1.25; s.wheelPos[0][1] = -0.70; s.wheelPos[1][0] = 1.25; s.wheelPos[1][1] = 0.70; s.wheelPos[2][0] = -1.24; s.wheelPos[2][1] = -0.70; s.wheelPos[3][0] = -1.24; s.wheelPos[3][1] = 0.70;
-  s.wheelR = 0.32; s.wheelI = 1.1; s.nGears = 5; s.gears[0] = 2.98; s.gears[1] = 1.88; s.gears[2] = 1.36; s.gears[3] = 1.0; s.gears[4] = 0.84; s.finalDrive = 3.77;
+  if (useAsset) {                                       // the baked model's axles and tyres (track 1.96 m, wheelbase 2.8 m, 0.384 m wheels); the final drive is scaled so the top speed stays the same
+    s.wheelPos[0][0] = 1.546; s.wheelPos[0][1] = -0.976; s.wheelPos[1][0] = 1.546; s.wheelPos[1][1] = 0.976; s.wheelPos[2][0] = -1.253; s.wheelPos[2][1] = -0.982; s.wheelPos[3][0] = -1.253; s.wheelPos[3][1] = 0.982; s.wheelR = 0.384;
+  } else {
+    s.wheelPos[0][0] = 1.25; s.wheelPos[0][1] = -0.70; s.wheelPos[1][0] = 1.25; s.wheelPos[1][1] = 0.70; s.wheelPos[2][0] = -1.24; s.wheelPos[2][1] = -0.70; s.wheelPos[3][0] = -1.24; s.wheelPos[3][1] = 0.70; s.wheelR = 0.32;
+  }
+  s.wheelI = 1.1; s.nGears = 5; s.gears[0] = 2.98; s.gears[1] = 1.88; s.gears[2] = 1.36; s.gears[3] = 1.0; s.gears[4] = 0.84; s.finalDrive = 3.77 * (useAsset ? 0.384 / 0.32 : 1.0);
   s.idle = 900; s.redline = 6600; s.limiter = 6800; s.Tmax = 640; s.peakRpm = 4300; s.drag = 0.34; s.down = 0.35; s.mu = 1.12; s.frontDrive = 0.0; s.steerMax = 0.58;
   s.spring[0] = s.spring[1] = 46000; s.spring[2] = s.spring[3] = 52000; s.damper[0] = s.damper[1] = 3400; s.damper[2] = s.damper[3] = 3800;
   v.configure(); v.reset(0, 0, 0);
 }
 
 void BondModel::build(Gfx& g) {
+  useAsset = asset.load(g, g.assetDir + "/cars/carconcept.scm");
   const float WR = 0.32f, ZF = 1.25f, ZR = -1.24f; const uint32_t chromeC = C(0.88f, 0.89f, 0.92f), dark = C(0.02f, 0.02f, 0.022f);
   { // The lower body: long bonnet, a high waist, a short tail with a flat end panel; wheel arches cut into it.
     BodySpec s; s.z0 = -2.28f; s.z1 = 2.29f; s.stations = 100; s.smooth = 2; s.noseR = 0.40f; s.tailR = 0.06f; s.deckStart = 0.80f; s.tumble = 0.035f; s.archY = WR; s.archMargin = 0.065f; s.arches = { { ZF, WR }, { ZR, WR } };
@@ -79,7 +84,8 @@ void BondModel::build(Gfx& g) {
     lamps = uploadMesh(g, h); tail = uploadMesh(g, t);
   }
   { // The machine guns: two barrels on slides. At rest their tips are inside the wing; deployed they project 0.3 m.
-    MeshData m; for (int s = -1; s <= 1; s += 2) { m.cylinder(Vec3(s * 0.42f, 0.42f, 1.9f), Vec3(s * 0.42f, 0.42f, 2.16f), 0.024f, 0.02f, 10, C(0.04f, 0.04f, 0.045f)); m.cylinder(Vec3(s * 0.42f, 0.42f, 2.16f), Vec3(s * 0.42f, 0.42f, 2.2f), 0.034f, 0.034f, 10, C(0.12f, 0.12f, 0.13f)); }
+    const float gx = useAsset ? 0.55f : 0.42f, gz = useAsset ? 0.2f : 0.0f;       // on the concept body the guns sit in the front corners
+    MeshData m; for (int s = -1; s <= 1; s += 2) { m.cylinder(Vec3(s * gx, 0.42f, 1.9f + gz), Vec3(s * gx, 0.42f, 2.16f + gz), 0.024f, 0.02f, 10, C(0.04f, 0.04f, 0.045f)); m.cylinder(Vec3(s * gx, 0.42f, 2.16f + gz), Vec3(s * gx, 0.42f, 2.2f + gz), 0.034f, 0.034f, 10, C(0.12f, 0.12f, 0.13f)); }
     guns = uploadMesh(g, m);
   }
   { // The armour plate that rises behind the cabin.
@@ -100,6 +106,14 @@ Mat4 BondModel::bodyMatrix(const Vehicle& v, double alpha) const {
 }
 void BondModel::draw(Renderer& r, const Vehicle& v, double alpha, const BondState& st) {
   Mat4 M = bodyMatrix(v, alpha);
+  if (asset.loaded) {
+    const float silver[3] = { 0.62f, 0.64f, 0.68f };
+    asset.draw(r, M, &v, silver, st.braking, cockpit);
+    Material gunM; gunM.type = 0; gunM.rough = 0.3f; gunM.metal = 0.8f;
+    r.drawMeshMat(guns, st.gunOut > 0.01 ? mul(M, translation(0, 0, (float)(0.3 * st.gunOut))) : M, gunM);
+    r.drawMeshMat(shield, mul(M, translation(0, (float)(1.15 - 0.5 * (1.0 - st.shield)), -1.62f)), gunM);
+    return;
+  }
   Material paint; paint.type = 1; paint.tint[0] = 0.50f; paint.tint[1] = 0.52f; paint.tint[2] = 0.55f;                          // silver birch
   Material glassM; glassM.type = 3; Material trimM; trimM.type = 0; trimM.rough = 0.5f; trimM.twoSided = true;
   Material chromeM; chromeM.type = 0; chromeM.rough = 0.1f; chromeM.metal = 1.0f; chromeM.twoSided = true;

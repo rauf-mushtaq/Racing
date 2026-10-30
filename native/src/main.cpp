@@ -50,6 +50,12 @@ static std::string findShaders() {
   return dir + "/shaders";
 }
 
+static std::string findAssets() {
+  char exe[MAX_PATH]; GetModuleFileNameA(nullptr, exe, MAX_PATH); std::string dir = exe; dir = dir.substr(0, dir.find_last_of("\\/"));
+  for (const char* rel : { "/assets", "/../assets", "/../../assets", "/../../native/assets", "/native/assets" }) { std::string d = dir + rel; if (GetFileAttributesA(d.c_str()) != INVALID_FILE_ATTRIBUTES) return d; }
+  return dir + "/assets";
+}
+
 int main(int argc, char** argv) {
   std::string shotPath, spawn = "coast", camName, shaderFilter; UINT W = 1600, H = 900; int msaa = 4, frames = 4;
   int modelKind = 0, raceIdx = -1, menuPage = -1; bool gunsOut = false, startEscape = false, startFull = false, vsyncOn = false; double simSeconds = 0, autoExit = 0; bool offscreen = false, aoOff = false, shadowOff = false, checkShaders = false, freeCam = false; double ax = 0, az = 0, driveS = 0, steerV = 0, carX = 0, carZ = 0, carH = 0; bool hasCar = false;
@@ -71,7 +77,7 @@ int main(int argc, char** argv) {
   SetProcessDPIAware();   // render at the real pixel size on scaled displays
   SetUnhandledExceptionFilter(crashFilter);
   logf("Sunset City (native) starting"); worldInit();
-  Renderer R; R.gfx.shaderDir = findShaders(); logf("shaders: %s", R.gfx.shaderDir.c_str());
+  Renderer R; R.gfx.shaderDir = findShaders(); logf("shaders: %s", R.gfx.shaderDir.c_str()); R.gfx.assetDir = findAssets(); logf("assets: %s", R.gfx.assetDir.c_str());
   if (checkShaders) {
     struct E { const char* f; const char* e; const char* p; std::vector<std::string> d; };
     const E list[] = { {"sky.hlsl","VSMain","vs_5_0",{}}, {"sky.hlsl","PSMain","ps_5_0",{}}, {"terrain.hlsl","VSMain","vs_5_0",{}}, {"terrain.hlsl","PSMain","ps_5_0",{}}, {"water.hlsl","VSMain","vs_5_0",{}}, {"water.hlsl","PSMain","ps_5_0",{}},

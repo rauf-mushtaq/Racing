@@ -1,0 +1,12 @@
+{
+  "name": "sunset-city-model-baker",
+  "private": true,
+  "type": "module",
+  "description": "Turns glTF/GLB car models into the game's .scm files (see bake-model.mjs)",
+  "dependencies": {
+    "@gltf-transform/core": "^4.1.0",
+    "@gltf-transform/extensions": "^4.1.0",
+    "draco3dgltf": "^1.5.7",
+    "meshoptimizer": "^1.3.0"
+  }
+}

@@ -207,7 +207,7 @@ void Game::updateCamera(Renderer& r, double dt, const InputState& in) {
     camLookSmooth = camInit && length(camLookSmooth) > 0 ? camLookSmooth + (aim - camLookSmooth) * (float)(1 - std::exp(-18.0 * dt)) : aim;
     pos = camPos; look = camLookSmooth; fov = 54 + std::min(spd * 0.12, 12.0);
   } else {
-    Vec3 seat = camMode == 2 ? Vec3(0.36f, 1.0f, 0.15f) : Vec3(0.0f, 0.98f, 1.05f);
+    Vec3 seat = carKind == 1 ? BondModel::seat(camMode) : camMode == 2 ? Vec3(0.36f, 1.0f, 0.15f) : Vec3(0.0f, 0.98f, 1.05f);
     pos = transformPoint(M, seat); Vec3 ahead = transformPoint(M, seat + Vec3(0, -0.02f, 20.0f)); look = ahead + Vec3((float)(std::sin(h + orbit) - fwd.x) * 20, 0, (float)(std::cos(h + orbit) - fwd.z) * 20);
     fov = camMode == 2 ? 74 : 68; camPos = pos; camLookSmooth = look;
   }
@@ -241,6 +241,6 @@ void Game::draw(Renderer& r, bool shadow, const Frustum& f) {
   scenery.draw(r, shadow, f); city.draw(r, shadow, f, r.cam.pos); traffic.draw(r, shadow); peds.draw(r, shadow);
   if (inEscapeHud()) escape.draw(r, shadow, clock);
   if (r.inProbe) return;                                   // the reflection probe looks out from inside the car: it doesn't draw the car or the gates
-  if (carKind == 1) { bondState.braking = braking; bond.draw(r, car, alpha, bondState); } else model.draw(r, car, alpha, color, braking);
+  if (carKind == 1) { bondState.braking = braking; bond.cockpit = camMode >= 2; bond.draw(r, car, alpha, bondState); } else { model.cockpit = camMode >= 2; model.draw(r, car, alpha, color, braking); }
   drawGates(r, shadow);
 }

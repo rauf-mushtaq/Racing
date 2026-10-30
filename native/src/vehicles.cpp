@@ -1,5 +1,6 @@
 #include "vehicles.h"
 #include "shapes.h"
+#include "carasset.h"
 
 uint32_t vcol(float r, float g, float b) { return packColor(r, g, b); }
 
@@ -94,4 +95,18 @@ void VehicleModels::build(Gfx& g) {
   Spec cr = saloon; cr.top = C({ { -2.375f, 0.95f }, { -2.0f, 1.0f }, { -1.4f, 1.02f }, { -0.9f, 1.42f }, { 0.4f, 1.45f }, { 1.0f, 1.0f }, { 2.0f, 0.9f }, { 2.375f, 0.74f } });
   cruiser = buildCar(g, cr, true, 1.45f);
   swat = buildCar(g, suv, true, 1.76f);
+  // Real models, when their baked files are there: the saloon and the police cruiser become the concept car (lighter, merged, simplified versions).
+  auto useAsset = [&](CarMesh& m, const char* file) -> bool {
+    CarAsset a; if (!a.load(g, g.assetDir + "/cars/" + file)) return false;
+    releaseMesh(g, m.body); releaseMesh(g, m.head); releaseMesh(g, m.tail);
+    m.body = a.body[CR_PAINT]; m.head = a.body[CR_HEAD]; m.tail = a.body[CR_TAIL]; m.len = a.bmax[2] - a.bmin[2]; m.halfW = 1.0f; m.wheelR = a.wheelR[0]; return true;
+  };
+  useAsset(traffic[TK_SALOON], "carconcept_traffic.scm");
+  if (useAsset(cruiser, "carconcept_police.scm")) {                                             // the roof light bar for the new body (roof at 1.15 m)
+    releaseMesh(g, cruiser.bar); releaseMesh(g, cruiser.lampL); releaseMesh(g, cruiser.lampR);
+    const float y = 1.15f, zc = -0.32f; cruiser.barY = y;
+    { MeshData m; m.box(Vec3(-0.45f, y, zc - 0.17f), Vec3(0.45f, y + 0.05f, zc + 0.17f), vcol(0.03f, 0.03f, 0.035f)); cruiser.bar = uploadMesh(g, m); }
+    MeshData l, r; l.box(Vec3(-0.43f, y + 0.05f, zc - 0.15f), Vec3(-0.03f, y + 0.12f, zc + 0.15f), vcol(1, 1, 1)); r.box(Vec3(0.03f, y + 0.05f, zc - 0.15f), Vec3(0.43f, y + 0.12f, zc + 0.15f), vcol(1, 1, 1));
+    cruiser.lampL = uploadMesh(g, l); cruiser.lampR = uploadMesh(g, r);
+  }
 }

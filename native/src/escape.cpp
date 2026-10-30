@@ -1,4 +1,5 @@
 #include "escape.h"
+#include "bond.h"
 #include "shapes.h"
 using namespace grid;
 
@@ -16,7 +17,7 @@ void PoliceChase::init(Gfx& g, const VehicleModels* v) {
 }
 Vec3 PoliceChase::muzzlePos(const Vehicle& v, int side) {
   double fx = std::sin(v.h), fz = std::cos(v.h), lx = std::cos(v.h), lz = -std::sin(v.h);   // forward, and the car's left
-  return Vec3((float)(v.x + fx * 2.46 + lx * side * 0.42), (float)(v.bodyY() + 0.55), (float)(v.z + fz * 2.46 + lz * side * 0.42));
+  return Vec3((float)(v.x + fx * BondModel::gunMuzzle(1).z + lx * side * BondModel::gunMuzzle(1).x), (float)(v.bodyY() + 0.55), (float)(v.z + fz * BondModel::gunMuzzle(1).z + lz * side * BondModel::gunMuzzle(1).x));
 }
 int PoliceChase::desiredCops() const { static const int N[6] = { 0, 3, 4, 6, 8, 10 }; return N[stars()]; }
 

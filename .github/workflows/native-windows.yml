@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S native -B native/build -G "Visual Studio 17 2022" -A x64
+        run: cmake -S native -B native/build -A x64
       - name: Build
         run: cmake --build native/build --config Release
       - name: Check the shaders compile with the system HLSL compiler
@@ -21,5 +21,6 @@ jobs:
           New-Item -ItemType Directory -Path dist/SunsetCityNative | Out-Null
           Copy-Item native/build/Release/sunset.exe dist/SunsetCityNative/
           Copy-Item -Recurse native/shaders dist/SunsetCityNative/shaders
+          Copy-Item -Recurse native/assets dist/SunsetCityNative/assets
       - uses: actions/upload-artifact@v4
         with: { name: SunsetCityNative-win64, path: dist }

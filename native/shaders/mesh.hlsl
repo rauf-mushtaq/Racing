@@ -79,10 +79,10 @@ PSOut PSMain(V i) {
   if (type < 0.5) {                                            // plain
     col = Shade(i.col.rgb * gP1.rgb, gP0.z, gP0.y, n, v, sh);
   } else if (type < 1.5) {                                     // car paint: metal flake base under a clear coat
-    float flake = vnoise(i.wpos.xz * 60.0 + i.wpos.y * 50.0);
-    float3 base = i.col.rgb * gP1.rgb * (0.92 + 0.16 * flake);
+    float flake = lerp(vnoise(i.wpos.xz * 340.0 + i.wpos.y * 290.0), 0.5, saturate(dist / 25.0));    // a fine metallic flake that fades into an even colour with distance
+    float3 base = i.col.rgb * gP1.rgb * (0.95 + 0.10 * flake);
     float nv = saturate(dot(n, v)), F = 0.04 + 0.96 * pow(1.0 - nv, 5.0);
-    col = Shade(base, 0.45, 0.46 + 0.1 * flake, n, v, sh);                                // the metallic base coat
+    col = Shade(base, 0.16, 0.30 + 0.08 * flake, n, v, sh);                               // the base coat: mostly coloured diffuse with a tinted sheen
     float3 rc = reflect(-v, n);
     col += EnvReflect(rc, i.wpos) * (0.035 + 0.55 * F) * (0.7 + 0.3 * saturate(nv * 2.0));      // the clear coat mirrors the street around the car
     float3 hh = normalize(gSunDir.xyz + v); col += gSunColor.rgb * pow(saturate(dot(n, hh)), 900.0) * 9.0 * sh;   // a tight sun highlight

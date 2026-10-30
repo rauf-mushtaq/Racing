@@ -57,7 +57,7 @@ public:
   bool tearing = false, vsync = false;                  // tearing: the display can take an uncapped present (variable refresh); vsync: wait for the refresh instead
   UINT draws = 0, shadowDraws = 0;                        // draw calls recorded this frame (reset in beginFrame)
   ComPtr<ID3D12Resource> backBuf[FRAMES]; D3D12_CPU_DESCRIPTOR_HANDLE backRtv[FRAMES];
-  std::string shaderDir;
+  std::string shaderDir, assetDir;   // the folders next to the exe (shaders, car models)
 
   void init(HWND hwnd, UINT w, UINT h, bool offscreenOnly);
   void resizeSwap(UINT w, UINT h);

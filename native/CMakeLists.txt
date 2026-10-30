@@ -7,6 +7,8 @@ add_executable(sunset WIN32 ${SRC})
 target_link_libraries(sunset PRIVATE d3d12 dxgi d3dcompiler user32 gdi32 xinput winmm)
 # The shaders are plain .hlsl files compiled when the game starts; keep a copy next to the exe.
 add_custom_command(TARGET sunset POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:sunset>/shaders)
+# Car models (baked glTF files) sit next to the exe too.
+add_custom_command(TARGET sunset POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:sunset>/assets)
 if(MSVC)
   target_compile_options(sunset PRIVATE /utf-8 /W3 /O2)
   target_link_options(sunset PRIVATE /ENTRY:mainCRTStartup)   # keep `main` as the entry point of the windowed program

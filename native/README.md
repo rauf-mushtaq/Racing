@@ -13,7 +13,8 @@ The same world as the web game, as a native Windows program: C++17, Direct3D 12 
   (buildings, traffic, your car, the sky and the sun) in the road.
 - Traffic with signals (ported from the web game), motorway traffic, cars that get knocked about.
 - **Races**: fifteen routes with checkpoint gates, timer, medals and saved best times.
-- **Escape mode**: you drive a silver 1960s-style grand tourer with gadgets and the police chase you (see below).
+- **Escape mode**: you drive a silver gadget grand tourer and the police chase you (see below).
+- **Real car models**: the supercar is a Ferrari 458 Spider and the gadget car and the police cars are a modern concept coupe, both modelled by other people (credits in `assets/CREDITS.md`). The wheels spin and steer, the lights work, and the driver view has a real cockpit with a steering wheel that turns with yours. If the `assets` folder is missing the game falls back to its built-in procedural cars.
 - Time of day: it starts at midday (blue sky, white sun, grey asphalt); press T to ease into golden hour and back.
 - Live reflections: a cube of the surroundings (city, traffic, sky) is drawn from your car, one face every other frame, and the car's paint, its glass and the building windows reflect it. F7 turns reflections off (this and the wet-road mirror) if you need the frames.
 - Surfaces: brick courses with mortar, recessed windows with frames, curtains, blinds and lit rooms, weathering streaks, speckled and cracked asphalt with worn paint, palms with real leaflets, leafy trees with ragged edges, and reflections that see the street and its buildings instead of an empty sky.
@@ -24,7 +25,7 @@ Not ported from the web game: the bunkers and airfield buildings, grass tufts, t
 
 ## Play
 
-Run `sunset.exe` (keep the `shaders` folder next to it), or `play_fullscreen.bat`. If you have no compiler installed, use the
+Run `sunset.exe` (keep the `shaders` and `assets` folders next to it), or `play_fullscreen.bat`. If you have no compiler installed, use the
 zip in [`prebuilt/`](prebuilt/), or the `SunsetCityNative-win64` artifact of the *native-windows* GitHub Action.
 The menu opens when the game starts: pick **Escape the police**, **Races** or **Free roam**.
 
@@ -95,7 +96,8 @@ sunset.exe --check-shaders                                  compile every shader
 | `src/world.*` | the world: height, climate, motorway network, ground queries (a port of `src/world.js`, same numbers) |
 | `src/vehicle.*`, `collide.*` | car physics and collisions (a port of `vehicle.js`, same numbers) |
 | `src/city.*` | the buildings and boulevard palms, as instanced boxes whose facades are drawn in the shader |
-| `src/car.*`, `bond.*`, `shapes.*`, `vehicles.*` | the supercar, the gadget grand tourer, the modelling toolkit (design-curve body lofts, wire wheels), traffic and police vehicles |
+| `src/car.*`, `bond.*`, `shapes.*`, `vehicles.*` | the supercar, the gadget grand tourer, the modelling toolkit (design-curve body lofts, wire wheels), traffic and police vehicles (the procedural versions, used for the other traffic and as a fallback) |
+| `src/carasset.*`, `assets/`, `tools/` | the baked car models (`.scm` files), their loader and drawing code, and the script that converts glTF models into them |
 | `src/traffic.*`, `peds.*`, `fx.*` | traffic and parked cars, pedestrians, particles |
 | `src/events.*`, `escape.*` | the races, and the police chase with its weapons |
 | `src/game.*`, `hud.*`, `main.cpp` | the game state, menu and input, HUD, and the entry point |

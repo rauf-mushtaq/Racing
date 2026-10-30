@@ -13,6 +13,7 @@ static std::vector<Vec3> ring(float z, float hw, float yb, float yt, int N, floa
 static uint32_t C(float r, float g, float b) { return packColor(r, g, b); }
 
 void CarModel::build(Gfx& g) {
+  if (asset.load(g, g.assetDir + "/cars/ferrari.scm")) return;
   const float WR = 0.345f, ZF = 1.546f, ZR = -1.119f;
   { // Body: a loft from design curves, with wheel arches. The paint is white (it takes the material tint); the underbody and skirts are dark.
     BodySpec s; s.z0 = -2.30f; s.z1 = 2.30f; s.stations = 96; s.smooth = 2; s.noseR = 0.55f; s.tailR = 0.05f; s.deckStart = 0.78f; s.tumble = 0.05f; s.archY = WR; s.archMargin = 0.085f; s.arches = { { ZF, WR }, { ZR, WR } };
@@ -95,6 +96,7 @@ Mat4 CarModel::bodyMatrix(const Vehicle& v, double alpha) const {
 }
 void CarModel::draw(Renderer& r, const Vehicle& v, double alpha, const float color[3], bool braking) {
   Mat4 M = bodyMatrix(v, alpha);
+  if (asset.loaded) { asset.draw(r, M, &v, color, braking, cockpit); return; }
   Material paint; paint.type = 1; paint.tint[0] = color[0]; paint.tint[1] = color[1]; paint.tint[2] = color[2];
   Material glassM; glassM.type = 3; Material trimM; trimM.type = 0; trimM.rough = 0.55f; trimM.twoSided = true;
   Material carbon; carbon.type = 0; carbon.rough = 0.3f; carbon.metal = 0.25f; Material tireM; tireM.type = 0; tireM.rough = 0.85f; tireM.twoSided = true;
