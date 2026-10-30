@@ -27,6 +27,14 @@ export class GB {
     for (let k = 0; k < 4; k++) this.vtx(P[k][0], P[k][1], P[k][2], nx / l, ny / l, nz / l, UV[k][0], UV[k][1], col);
     this.i.push(b, b + 1, b + 2, b, b + 2, b + 3);
   }
+  // A quad from four explicit corners (in order round it), flat-shaded; faces along (b - a) x (c - a).
+  q4(a, b, c, d, uv, col) {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    const i0 = this.vtx(a[0], a[1], a[2], nx, ny, nz, uv[0][0], uv[0][1], col);
+    this.vtx(b[0], b[1], b[2], nx, ny, nz, uv[1][0], uv[1][1], col); this.vtx(c[0], c[1], c[2], nx, ny, nz, uv[2][0], uv[2][1], col); this.vtx(d[0], d[1], d[2], nx, ny, nz, uv[3][0], uv[3][1], col);
+    this.i.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3);
+  }
   // Flat rectangle facing up at height y, UVs in world units / s.
   flat(x0, z0, x1, z1, y, s, col) { this.quad([x0, y, z1], [x1 - x0, 0, 0], [0, 0, z0 - z1], x0 / s, -z1 / s, x1 / s, -z0 / s, col); }
   // Four walls of a box; UVs run along each face (texW, texH metres per repeat).
@@ -37,6 +45,8 @@ export class GB {
     this.quad([x0, y0, z1], [dx, 0, 0], [0, h, 0], uOff + 0.61, 0, uOff + 0.61 + dx / texW, v1, col);
     this.quad([x1, y0, z0], [-dx, 0, 0], [0, h, 0], uOff + 0.13, 0, uOff + 0.13 + dx / texW, v1, col);
   }
+  // A slab's underside, facing down (box() only makes the walls and the top).
+  ceil(x0, z0, x1, z1, y, s, col) { this.quad([x0, y, z0], [x1 - x0, 0, 0], [0, 0, z1 - z0], x0 / s, z0 / s, x1 / s, z1 / s, col); }
   box(x0, z0, x1, z1, y0, y1, s, col) { this.walls(x0, z0, x1, z1, y0, y1, s, s, col); this.flat(x0, z0, x1, z1, y1, s, col); }
 
   // Walls round a footprint. Corners that turn less than about 40 degrees get
@@ -105,6 +115,8 @@ export class GB {
 }
 
 // --- Footprints --------------------------------------------------------------
+// Reverse a footprint if it winds the wrong way for extrude().
+export function ccw(pts) { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; } return a > 0 ? pts.slice().reverse() : pts; }
 export const rectPoly = b => [[b.x0, b.z1], [b.x1, b.z1], [b.x1, b.z0], [b.x0, b.z0]];
 export function chamferRect(b, c) {
   return [[b.x0 + c, b.z1], [b.x1 - c, b.z1], [b.x1, b.z1 - c], [b.x1, b.z0 + c], [b.x1 - c, b.z0], [b.x0 + c, b.z0], [b.x0, b.z0 + c], [b.x0, b.z1 - c]];

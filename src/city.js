@@ -50,6 +50,9 @@ function addCollider(c, list) {
 function removeColliders(list) {
   for (const c of list) cellsOf(c, k => { const a = grid.get(k); if (!a) return; const i = a.indexOf(c); if (i >= 0) a.splice(i, 1); if (!a.length) grid.delete(k); });
 }
+export { addCollider, removeColliders };
+const STATIC = [];
+export const addStaticCollider = c => addCollider(c, STATIC);   // for things that never go away (bunker walls)
 let qid = 0;
 export function queryColliders(x, z, r, out) {
   out.length = 0; qid++;
@@ -174,6 +177,7 @@ export class City {
     const facS = await step('Fitting shop fronts…', T.facadeShop);
     const facH = await step('Building houses…', T.facadeHouse);
     const misc = await step('Hanging the signs…', () => ({ roof: T.roofTex(), tile: T.roofTileTex(), rail: T.railTex(), sign: T.signAtlas(), gantry: T.gantryAtlas() }));
+    this.tx = { asp, con, grass };
     this.props = makeProps();
     const std = o => new THREE.MeshStandardMaterial(o);
     const fac = (f, ei, env) => grime(std({
@@ -230,6 +234,15 @@ export class City {
       if (!this.regions.has(ri + ',' + rj)) { const gen = this.genRegion(ri, rj); let r; do { r = gen.next(); } while (!r.done); this.finish(ri, rj, r.value); }
       progress(`Building the city… ${Math.round((k + 1) / list.length * 100)}%`);
       await frame();
+    }
+  }
+
+  // The same, all at once (a short hitch): for jumping to somewhere far away.
+  loadNow(x, z, radius) {
+    const [pi, pj] = this.regionAt(x, z); this.deadline = Infinity;
+    for (let ri = Math.max(0, pi - radius); ri <= Math.min(NR - 1, pi + radius); ri++) for (let rj = Math.max(0, pj - radius); rj <= Math.min(NR - 1, pj + radius); rj++) {
+      if (this.regions.has(ri + ',' + rj)) continue;
+      const gen = this.genRegion(ri, rj); let r; do { r = gen.next(); } while (!r.done); this.finish(ri, rj, r.value);
     }
   }
 

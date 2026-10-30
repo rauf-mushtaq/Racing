@@ -55,7 +55,7 @@ export class Vehicle {
       // Body heave (m), pitch (nose down +) and roll (right side down +), with rates.
       hv: 0, hvV: 0, pitch: 0, pitchV: 0, roll: 0, rollV: 0, baseY: null, airborne: false,
     });
-    this.wheels = [0, 1, 2, 3].map(i => ({ w: 0, ang: 0, comp: this.cStatic[i], compV: 0, N: this.Fstatic[i], ground: 0, grass: false, slipK: 0, slipA: 0, contact: true, absT: 0 }));
+    this.wheels = [0, 1, 2, 3].map(i => ({ w: 0, ang: 0, comp: this.cStatic[i], compV: 0, N: this.Fstatic[i], ground: 0, grass: false, kind: 'asphalt', surfMu: 1, surfDrag: 0, slipK: 0, slipA: 0, contact: true, absT: 0 }));
   }
   get speed() { return Math.hypot(this.vx, this.vy); }
   get fwd() { return [Math.sin(this.h), Math.cos(this.h)]; }
@@ -118,7 +118,7 @@ export class Vehicle {
       const [lz, lx] = s.wheelPos[i];
       const wx = this.x + f[0] * lz + rt[0] * lx, wz = this.z + f[1] * lz + rt[1] * lx;
       const g = ground(wx, wz);
-      W[i].ground = g.y; W[i].grass = g.grass; gSum += g.y;
+      W[i].ground = g.y; W[i].grass = g.grass; W[i].kind = g.kind || (g.grass ? 'grass' : 'asphalt'); W[i].surfMu = g.mu ?? (g.grass ? 0.72 : 1); W[i].surfDrag = g.drag ?? (g.grass ? 95 : 0); gSum += g.y;
     }
     // The body's reference height follows the average ground slowly; the
     // springs take care of quick bumps such as kerbs.
@@ -189,7 +189,7 @@ export class Vehicle {
       const [lz, lx] = s.wheelPos[i], wi = W[i], front = i < 2;
       const N = F[i];
       wi.N = N;
-      const mu = s.mu * (wi.grass ? 0.72 : 1);
+      const mu = s.mu * wi.surfMu;
       // Ackermann: the inside front wheel turns more.
       const di = front ? Math.atan(L * td / (L - lx * td)) : 0;
       const cd = Math.cos(di), sd = Math.sin(di);
@@ -246,8 +246,14 @@ export class Vehicle {
     Fx += nitroF;
     Fx -= s.drag * vx * spd + s.roll * vx;
     Fy -= s.roll * vy * 0.5;
-    const grassDrag = W.filter(x => x.grass).length * 95;
-    Fx -= grassDrag * vx; Fy -= grassDrag * vy * 0.5;
+    const looseDrag = W[0].surfDrag + W[1].surfDrag + W[2].surfDrag + W[3].surfDrag;
+    Fx -= looseDrag * vx; Fy -= looseDrag * vy * 0.5;
+    // Gravity along a slope: uphill slows you, and a side slope pulls you downhill.
+    if (!this.airborne) {
+      const slopeF = clamp(((W[0].ground + W[1].ground) - (W[2].ground + W[3].ground)) / 2 / L, -1.2, 1.2);
+      const slopeR = clamp(((W[1].ground + W[3].ground) - (W[0].ground + W[2].ground)) / 2 / 1.7, -1.2, 1.2);
+      Fx -= m * G * slopeF * 0.9; Fy -= m * G * slopeR * 0.9;
+    }
 
     // Slides straighten themselves out a little (more with the steering assist
     // on keyboard and touch), so a drift can always be caught.
@@ -288,7 +294,7 @@ export class Vehicle {
     this.hvV += Fz / m * dt; this.hv += this.hvV * dt;
     this.pitchV += Tp / this.Ip * dt; this.pitch += this.pitchV * dt;
     this.rollV += Tr / this.Ir * dt; this.roll += this.rollV * dt;
-    this.hv = clamp(this.hv, -0.3, 1.2); this.pitch = clamp(this.pitch, -0.25, 0.25); this.roll = clamp(this.roll, -0.25, 0.25);
+    this.hv = clamp(this.hv, -0.3, 1.2); this.pitch = clamp(this.pitch, -0.62, 0.62); this.roll = clamp(this.roll, -0.5, 0.5);
     if (this.hv <= -0.3 + 1e-6 && this.hvV < 0) this.hvV = 0;
 
     this.ax = lerp(this.ax, ax, Math.min(1, dt * 10)); this.ay = lerp(this.ay, ay, Math.min(1, dt * 10));

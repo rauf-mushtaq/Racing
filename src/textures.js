@@ -133,6 +133,61 @@ export function ground() {
   return tex(c);
 }
 
+// Terrain detail textures for the biome shader (each tiles seamlessly).
+function detailTex(fn, size = 512) {
+  const S = sz(size), [c, g] = mk(S); const img = g.createImageData(S, S), rnd = mulberry32(77);
+  const lf = lowField(128, 6, 4, 81), lf2 = lowField(256, 28, 3, 82), lf3 = lowField(256, 90, 2, 83);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const u = x / S, v = y / S, a = bil(lf, 128, u, v), b = bil(lf2, 256, u, v), d = bil(lf3, 256, u, v);
+    const [r, gg, bb] = fn(u, v, a, b, d, rnd());
+    const o = (y * S + x) * 4; img.data[o] = clamp(r, 0, 1) * 255; img.data[o + 1] = clamp(gg, 0, 1) * 255; img.data[o + 2] = clamp(bb, 0, 1) * 255; img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0); return tex(c);
+}
+// A dry lakebed: pale baked mud split into cracked plates.
+export function lakeTex() {
+  const S = sz(512), cells = 9, pts = [], rnd = mulberry32(5);
+  for (let j = 0; j < cells; j++) for (let i = 0; i < cells; i++) pts.push([(i + 0.15 + rnd() * 0.7) / cells, (j + 0.15 + rnd() * 0.7) / cells]);
+  return detailTex((u, v, a, b, d, n) => {
+    let d1 = 9, d2 = 9;
+    const ci = Math.floor(u * cells), cj = Math.floor(v * cells);
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const ii = ci + di, jj = cj + dj, p = pts[((jj + cells) % cells) * cells + ((ii + cells) % cells)];
+      const dx = u - (p[0] + (ii - ((ii + cells) % cells)) / cells), dz = v - (p[1] + (jj - ((jj + cells) % cells)) / cells), dd = Math.hypot(dx, dz);
+      if (dd < d1) { d2 = d1; d1 = dd; } else if (dd < d2) d2 = dd;
+    }
+    const crack = smoothstepC(0.0, 0.012, d2 - d1);                       // 0 on a crack
+    const k = (0.84 + 0.1 * (a - 0.5) + 0.05 * (d - 0.5) + (n - 0.5) * 0.04) * (0.55 + 0.45 * crack);
+    return [0.9 * k, 0.84 * k, 0.72 * k];
+  });
+}
+const smoothstepC = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+// Wind-rippled sand.
+export function sandTex() {
+  return detailTex((u, v, a, b, d, n) => {
+    const rip = 0.5 + 0.5 * Math.sin((u * 0.8 + v * 0.6) * Math.PI * 2 * 14 + a * 9);
+    const k = 0.8 + 0.16 * (a - 0.5) + 0.07 * (rip - 0.5) + (d - 0.5) * 0.08 + (n - 0.5) * 0.05;
+    return [0.86 * k, 0.72 * k, 0.5 * k];
+  });
+}
+// Packed snow with soft blue shading.
+export function snowTex() {
+  return detailTex((u, v, a, b, d, n) => {
+    const k = 0.9 + 0.08 * (b - 0.5) + (d - 0.5) * 0.06 + (n > 0.985 ? 0.12 : 0);
+    return [0.9 * k, 0.94 * k, 1.0 * k];
+  });
+}
+// Layered rock: bands of brown and grey, with cracks.
+export function rockTex() {
+  return detailTex((u, v, a, b, d, n) => {
+    const band = 0.5 + 0.5 * Math.sin(v * Math.PI * 2 * 11 + a * 7 + b * 3);
+    const crack = Math.pow(Math.abs(b - 0.5) * 2, 0.35);
+    const k = (0.46 + 0.015 * band + 0.14 * (a - 0.5)) * (0.72 + 0.28 * crack) + (n - 0.5) * 0.06;
+    return [k * 0.97, k * 0.95, k * 0.93];
+  });
+}
+
 // Small ripples for the sea's normal map (scrolled over time).
 export function rippleNormal() {
   const S = sz(512), f1 = lowField(128, 8, 3, 61), f2 = lowField(128, 24, 2, 62), H = new Float32Array(S * S);

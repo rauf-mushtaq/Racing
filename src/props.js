@@ -107,6 +107,47 @@ function palm(detail) {
   return { trunk, fronds: fr };
 }
 
+// A conifer: a trunk and stacked skirts of needles; the snowy kind is white on top.
+function pineGeo(detail, snowy) {
+  const layers = detail ? 6 : 4, parts = [], rnd = mulberry32(snowy ? 21 : 22);
+  const trunk = new THREE.CylinderGeometry(0.18, 0.3, 3.2, 6).translate(0, 1.6, 0); paint(trunk, 0.22, 0.15, 0.1); withUV(trunk); parts.push(trunk);
+  for (let k = 0; k < layers; k++) {
+    const t = k / layers, r = (2.5 - 1.7 * t) * (0.9 + rnd() * 0.2), h = 2.6 - 0.5 * t, y = 2.2 + t * 6.4;
+    const cone = new THREE.ConeGeometry(r, h, detail ? 12 : 8, 1, true).translate(0, y + h / 2, 0), c = [], p = cone.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const up = (p.getY(i) - y) / h, white = snowy ? Math.min(1, 0.35 + up * 0.7 + t * 0.15) : 0;
+      c.push(0.05 + white * 0.85, 0.13 + white * 0.78, 0.07 + white * 0.85);
+    }
+    cone.setAttribute('color', new THREE.Float32BufferAttribute(c, 3)); withUV(cone); parts.push(cone);
+  }
+  const g = mergeGeomsUV(parts); return g;
+}
+// A saguaro cactus with two arms.
+function cactusGeo() {
+  const parts = [], col = (g, r, gg, b) => { paint(g, r, gg, b); withUV(g); return g; };
+  parts.push(col(new THREE.CylinderGeometry(0.3, 0.34, 5.6, 10).translate(0, 2.8, 0), 0.1, 0.27, 0.1));
+  parts.push(col(new THREE.SphereGeometry(0.3, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 5.6, 0), 0.1, 0.27, 0.1));
+  for (const [dir, y0, up] of [[1, 2.2, 1.8], [-1, 3.2, 1.3]]) {
+    parts.push(col(new THREE.CylinderGeometry(0.2, 0.2, 0.9, 8).rotateZ(Math.PI / 2).translate(dir * 0.6, y0, 0), 0.1, 0.27, 0.1));
+    parts.push(col(new THREE.CylinderGeometry(0.19, 0.2, up, 8).translate(dir * 1.05, y0 + up / 2, 0), 0.1, 0.27, 0.1));
+    parts.push(col(new THREE.SphereGeometry(0.19, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).translate(dir * 1.05, y0 + up, 0), 0.1, 0.27, 0.1));
+  }
+  return mergeGeomsUV(parts);
+}
+// A boulder: a lumpy, flattened rock, shaded darker low down.
+function rockGeo() {
+  const ico = new THREE.IcosahedronGeometry(1, 2); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
+  const g = mergeVertices(ico), p = g.attributes.position, c = [];
+  for (let i = 0; i < p.count; i++) {
+    v3.fromBufferAttribute(p, i);
+    const n = fbm(v3.x * 1.6 + 4, v3.y * 1.6 + v3.z * 1.2, 3, 33), k = 0.75 + n * 0.55;
+    p.setXYZ(i, v3.x * k, Math.max(v3.y * k * 0.62, -0.25), v3.z * k);
+    const sh = 0.55 + 0.45 * Math.max(0, v3.y) + (n - 0.5) * 0.3; c.push(0.5 * sh, 0.45 * sh, 0.4 * sh);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3)); g.computeVertexNormals(); withUV(g);
+  return g;
+}
+
 function hedge() {
   const g = new THREE.BoxGeometry(1, 1, 1, 6, 4, 6);
   const p = g.attributes.position, c = [];
@@ -129,7 +170,7 @@ export function makeProps() {
   const a2c = Q.msaa > 0;
   const tree = leafTree(Q.treeDetail), pl = palm(Q.treeDetail);
   const bush = leafBush(Q.treeDetail);
-  const geo = { bushCore: bush.core, bushCards: bush.cards, treeCore: tree.core, treeCards: tree.cards, palmTrunk: pl.trunk, palmFronds: pl.fronds, hedge: hedge() };
+  const geo = { pine: pineGeo(Q.treeDetail, false), snowPine: pineGeo(Q.treeDetail, true), cactus: cactusGeo(), rock: rockGeo(), bushCore: bush.core, bushCards: bush.cards, treeCore: tree.core, treeCards: tree.cards, palmTrunk: pl.trunk, palmFronds: pl.fronds, hedge: hedge() };
   geo.lamp = mergeGeoms([new THREE.CylinderGeometry(0.08, 0.14, 8.6, 10).translate(0, 4.3, 0), new THREE.CylinderGeometry(0.06, 0.06, 2.8, 8).rotateX(Math.PI / 2).translate(0, 8.4, 1.4), new THREE.BoxGeometry(0.42, 0.16, 0.95).translate(0, 8.4, 2.9)]);
   geo.bulb = new THREE.SphereGeometry(0.3, 8, 5).scale(0.9, 0.35, 1.4).translate(0, 8.3, 2.9);
   geo.pool = new THREE.PlaneGeometry(14, 14).rotateX(-Math.PI / 2).translate(0, 0, 3);
@@ -154,6 +195,9 @@ export function makeProps() {
     treeCards: new THREE.MeshStandardMaterial({ map: T.leafTex(), vertexColors: true, alphaTest: 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.85 }),
     palmTrunk: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
     palmFronds: new THREE.MeshStandardMaterial({ map: T.frondTex(), alphaTest: 0.45, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.8, color: 0xd8e8b0 }),
+    pine: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }),
+    rock: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }),
+    cactus: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
     hedge: new THREE.MeshStandardMaterial({ map: hedgeTex, vertexColors: true, roughness: 0.95 }),
     lamp: new THREE.MeshStandardMaterial({ color: 0x3a3c40, roughness: 0.5, metalness: 0.6 }),
     bulb: TOD.lampsOn ? new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 5.6, 2.8) }) : new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.3 }),

@@ -26,7 +26,10 @@ export function buildSky(scene, renderer, quality) {
   sky.renderOrder = -10;
   sky.frustumCulled = false;
   setSky(sky);
-  scene.add(sky);
+  // The sky, far ridges and clouds move with the camera, so they're always round you
+  // wherever in the world you are.
+  const dome = new THREE.Group(); scene.add(dome);
+  dome.add(sky);
 
   // Reflections and image-based light come from the same sky, over the ground.
   const pm = new THREE.PMREMGenerator(renderer);
@@ -71,9 +74,9 @@ export function buildSky(scene, renderer, quality) {
   sun.shadow.radius = 2;
   scene.add(sun); scene.add(sun.target);
 
-  buildMountains(scene);
-  buildClouds(scene);
-  return { sky, sun, hemi };
+  buildMountains(dome);
+  buildClouds(dome);
+  return { sky, sun, hemi, dome };
 }
 
 // Moves the sun's shadow box with the car, snapped to whole shadow texels so

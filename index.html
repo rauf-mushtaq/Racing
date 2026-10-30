@@ -108,7 +108,7 @@
     background: rgba(12,10,20,0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 8px 14px; font-weight: 700; font-size: 14px; letter-spacing: 1px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   body.touchmode #cam-btn, body.touchmode #map-btn { display: none; }
   #fps { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: 12px; font: 600 13px Barlow, monospace; opacity: 0.8; text-shadow: 0 1px 3px #000; }
-  #bigmap-c { width: min(78vh, 92vw); height: min(78vh, 92vw); border-radius: 10px; display: block; cursor: crosshair; touch-action: manipulation; }
+  #bigmap-c { height: min(80vh, 118vw); width: auto; aspect-ratio: 1100 / 1400; border-radius: 10px; display: block; cursor: crosshair; touch-action: manipulation; }
   #title-card { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-weight: 700; font-size: 14px; letter-spacing: 3px; opacity: 0.6; text-transform: uppercase; }
 
   /* ---------- Touch controls ---------- */
@@ -185,7 +185,7 @@
 
 <div id="bigmap" class="overlay hidden">
   <div class="box" style="padding:14px">
-    <canvas id="bigmap-c" width="1400" height="1400"></canvas>
+    <canvas id="bigmap-c" width="1100" height="1400"></canvas>
     <div class="hint" style="margin:8px 0 0">Click the map to set a waypoint · <button class="ghost" id="bm-clear" style="margin:0 0 0 8px;padding:5px 12px">Clear waypoint</button> <button class="ghost" id="bm-close" style="margin:0 0 0 4px;padding:5px 12px">Close (Tab)</button></div>
   </div>
 </div>

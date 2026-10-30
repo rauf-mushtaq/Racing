@@ -17,6 +17,7 @@ const defaults = {
   touchSteer: 'buttons', // buttons | tilt
   color: 'pearl',
   bests: {},
+  found: [],            // secret places you've discovered (shown on the map)
   wheel: null,          // learned steering wheel / pedal mapping
 };
 

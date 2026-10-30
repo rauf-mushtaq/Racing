@@ -3,7 +3,8 @@
 // and get knocked aside if you hit them. Traffic stays around the player:
 // cars that fall far behind are moved to roads further ahead.
 import * as THREE from 'three';
-import { N, SP, hw, isBlvd, laneCount, laneOffset } from './city.js';
+import { N, SP, hw, isBlvd, laneCount, laneOffset, EDGE } from './city.js';
+import { ROADS } from './world.js';
 import { trafficModels } from './carModel.js';
 import { mulberry32, clamp, wrapAngle } from './util.js';
 
@@ -107,7 +108,32 @@ export class Traffic {
     Object.assign(c, { axis: e1.dz !== 0 ? 'Z' : 'X', from, to, next, lane: lane2, pts, cum, total: cum[cum.length - 1], straightLen: cum[1], turning: !straight, s: 0, blvd: isBlvd(e1.k) });
   }
 
+  // Out on the motorways: cars follow a lane along the road, in both directions.
+  spawnHwy(c, player, minD, maxD, initial) {
+    const cands = [];
+    for (const R of ROADS) {
+      if (R.kind !== 'motorway') continue;
+      for (let i = 0; i < R.x.length - 130; i += 6) { const d = Math.hypot(R.x[i] - player.x, R.z[i] - player.z); if (d > minD && d < maxD) cands.push([R, i]); }
+      for (let i = 130; i < R.x.length; i += 6) { const d = Math.hypot(R.x[i] - player.x, R.z[i] - player.z); if (d > minD && d < maxD) cands.push([R, -i]); }
+    }
+    if (!cands.length) { c.mode = 'drive'; c.hwy = true; c.pts = [{ x: 1e5, z: 1e5, y: 0 }, { x: 1e5, z: 1e5 + 50, y: 0 }]; c.cum = [0, 50]; c.total = 50; c.straightLen = 50; c.s = 0; c.speed = 0; c.vmax = 0; this.place(c); return; }
+    const [R, k] = cands[(this.rnd() * cands.length) | 0], dir = k >= 0 ? 1 : -1, i0 = Math.abs(k), lane = this.rnd() < 0.5 ? 0 : 1, off = (lane ? 7.0 : 3.4) * dir;
+    const pts = [], n = 120;
+    for (let q = 0; q < n; q++) {
+      const i = clamp(i0 + q * dir, 1, R.x.length - 2);
+      let tx = R.x[i + 1] - R.x[i - 1], tz = R.z[i + 1] - R.z[i - 1]; const l = Math.hypot(tx, tz) || 1; tx /= l; tz /= l;
+      pts.push({ x: R.x[i] - tz * off, z: R.z[i] + tx * off, y: R.y[i] + R.lift });
+    }
+    const cum = [0]; for (let q = 1; q < n; q++) cum.push(cum[q - 1] + Math.hypot(pts[q].x - pts[q - 1].x, pts[q].z - pts[q - 1].z));
+    const r = this.rnd(), type = r < 0.18 ? 4 : r < 0.22 ? 5 : r < 0.4 ? 3 : r < 0.6 ? 1 : (this.rnd() * 3) | 0;
+    Object.assign(c, { type, len: this.models[type].len, mass: this.models[type].mass, rad: this.models[type].rad, hwy: true, axis: null, from: null, to: null, pts, cum, total: cum[n - 1], straightLen: cum[n - 1], turning: false, s: initial ? this.rnd() * 300 : 0, blvd: true, mode: 'drive', wait: 0, knockT: 0 });
+    c.speed = 24; c.vmax = (type >= 4 ? 21 : 29 + this.rnd() * 8) * (0.9 + this.rnd() * 0.2);
+    c.h = undefined; this.place(c);
+  }
+
   spawn(c, player, minD, maxD, initial = false) {
+    if (Math.abs(player.x) > EDGE + 150 || Math.abs(player.z) > EDGE + 150) return this.spawnHwy(c, player, minD, maxD, initial);
+    if (c.hwy) { c.hwy = false; const r = this.rnd(); c.type = r < 0.07 ? 4 : r < 0.1 ? 5 : r < 0.2 ? 3 : (this.rnd() * 3) | 0; c.len = this.models[c.type].len; c.mass = this.models[c.type].mass; c.rad = this.models[c.type].rad; c.h = undefined; }
     for (let tries = 0; tries < 40; tries++) {
       // Pick a junction near the player (the map is far bigger than the traffic's reach).
       const i = clamp(Math.round(player.x / SP) + Math.floor(this.rnd() * 9) - 4, -N, N), j = clamp(Math.round(player.z / SP) + Math.floor(this.rnd() * 9) - 4, -N, N);
@@ -131,6 +157,7 @@ export class Traffic {
     let k = 1; while (k < c.cum.length - 1 && c.cum[k] < c.s) k++;
     const a = c.pts[k - 1], b = c.pts[k], seg = c.cum[k] - c.cum[k - 1] || 1, t = clamp((c.s - c.cum[k - 1]) / seg, 0, 1);
     c.x = a.x + (b.x - a.x) * t; c.z = a.z + (b.z - a.z) * t;
+    if (c.hwy) c.y = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t; else c.y = 0;
     const h = Math.atan2(b.x - a.x, b.z - a.z);
     c.h = c.h == null ? h : c.h + wrapAngle(h - c.h) * 0.5;
   }
@@ -183,6 +210,7 @@ export class Traffic {
       c.speed = Math.max(0, c.speed);
       c.s += c.speed * dt;
       if (c.s >= c.total) {
+        if (c.hwy) { this.spawn(c, player, 150, 480); continue; }
         const over = c.s - c.total;
         this.buildPath(c, c.to, c.next, c.lane);
         c.s = over;

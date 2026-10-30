@@ -11,12 +11,16 @@ import { settings, save } from './store.js';
 import { setAnisotropy, setTexScale, glowTex } from './textures.js';
 import { Q } from './quality.js';
 import { buildSky, placeSun, SUN_DIR, LIGHT_DIR } from './sky.js';
-import { City, surfaceAt, SP, N, EDGE, laneOffset, queryColliders, signalState } from './city.js';
+import { City, SP, N, EDGE, laneOffset, queryColliders, signalState } from './city.js';
+import { groundAt, ROADS, BUNKERS, AIRFIELD } from './world.js';
 import { buildTerrain } from './terrain.js';
+import { initRoads } from './roads.js';
+import { initScatter } from './scatter.js';
+import { initStructures } from './structures.js';
 import { TOD, TOD_NAME } from './tod.js';
 import { makeHeroCar, setPaint, PAINTS, HERO_DIMS, drawCluster } from './carModel.js';
 import { Vehicle } from './vehicle.js';
-import { collideStatic, collideTraffic } from './collide.js';
+import { collideStatic, collideTraffic, collideTerrain } from './collide.js';
 import { Traffic } from './traffic.js';
 import { FX } from './fx.js';
 import { HUD } from './hud.js';
@@ -124,7 +128,8 @@ addEventListener('resize', resize);
 // ---------------------------------------------------------------------------
 // World
 // ---------------------------------------------------------------------------
-let sky, city, terrain, traffic, carMesh, fx, gates, hud, csm = null, probe = null;
+const extraMats = [];
+let structures, sky, city, terrain, traffic, carMesh, fx, gates, hud, csm = null, probe = null;
 const car = new Vehicle();
 const input = new Input();
 const audio = new AudioEngine();
@@ -139,6 +144,10 @@ async function build() {
   await city.init(loadMsg);
   loadMsg('Raising the hills…'); await nextFrame();
   terrain = buildTerrain(scene, !TOD.lampsOn);
+  extraMats.push(...terrain.materials, ...initRoads(terrain, city));
+  initScatter(terrain, city.props);
+  structures = initStructures(scene, city);
+  await terrain.loadAround(START.x, START.z, 1, loadMsg);
   await city.loadAround(START.x, START.z, Math.min(2, Q.loadR), loadMsg);
   loadMsg('Starting the traffic…'); await nextFrame();
   traffic = new Traffic(scene, city, Q.shadows);
@@ -208,6 +217,7 @@ function setupCSM() {
     if (own) { const c = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { c(sh, r); own(sh, r); }; }
   };
   for (const m of city.allMaterials()) setup(m);
+  for (const m of extraMats) setup(m);
   scene.traverse(o => { for (const m of [].concat(o.material || [])) setup(m); });
 }
 
@@ -252,7 +262,7 @@ function setState(s) {
 }
 
 function resetCar(x, z, h) {
-  car.reset(x, z, h); carY = surfaceAt(x, z).y; car.baseY = carY; camYaw = h; fx.reset();
+  car.reset(x, z, h); carY = groundAt(x, z).y; car.baseY = carY; camYaw = h; fx.reset();
 }
 
 function startFree() {
@@ -266,6 +276,7 @@ function startEvent(ev) {
   game.route = route; game.next = 0; game.t = 0; game.cdT = 3.4; game.lastBeep = 4; game.splits = [];
   gates.build(route);
   resetCar(route.start.x, route.start.z, route.start.h);
+  city.loadNow(route.start.x, route.start.z, 1); terrain.loadNow(route.start.x, route.start.z, 1);
   traffic.setDensity(settings.traffic, car);
   for (const c of traffic.cars) traffic.spawn(c, car, 40, 500, true);
   setState('countdown');
@@ -301,6 +312,15 @@ function respawnOnRoad() {
     const prev = game.next > 0 ? game.route.cps[game.next - 1] : null, nxt = game.route.cps[game.next];
     if (prev && nxt) { x = prev.x; z = prev.z; h = Math.atan2(nxt.x - prev.x, nxt.z - prev.z); }
   }
+  if (Math.abs(x) > EDGE + 20 || Math.abs(z) > EDGE + 20) {
+    // Out in the countryside: back to the nearest road, facing the way you were going, in the right lane.
+    let br = null, bi = 0, bd = 1e18;
+    for (const R of ROADS) { if (R.kind === 'runway') continue; for (let i = 0; i < R.x.length - 1; i++) { const d = (R.x[i] - x) ** 2 + (R.z[i] - z) ** 2; if (d < bd) { bd = d; br = R; bi = i; } } }
+    const tx = br.x[bi + 1] - br.x[bi], tz = br.z[bi + 1] - br.z[bi], sgn = (tx * Math.sin(h) + tz * Math.cos(h)) >= 0 ? 1 : -1;
+    const hh = Math.atan2(tx * sgn, tz * sgn), off = br.kind === 'motorway' ? 5.6 : br.kind === 'runway' ? 0 : 1.6;
+    resetCar(br.x[bi] - Math.cos(hh) * off, br.z[bi] + Math.sin(hh) * off, hh);
+    return;
+  }
   x = clamp(x, -EDGE, EDGE); z = clamp(z, -EDGE, EDGE);
   const kx = clamp(Math.round(x / SP), -N, N), kz = clamp(Math.round(z / SP), -N, N);
   if (Math.abs(x - kx * SP) <= Math.abs(z - kz * SP)) {
@@ -319,7 +339,7 @@ function toggleMap() {
   if (!['free', 'race', 'countdown'].includes(game.state)) return;
   game.prev = game.state; setState('map'); drawBigMap();
 }
-function drawBigMap() { hud.drawBigMap($('bigmap-c'), car, game.route, game.waypoint); }
+function drawBigMap() { hud.drawBigMap($('bigmap-c'), car, game.route, game.waypoint, settings.found); }
 input.on('map', toggleMap);
 $('map-btn').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
 $('bm-close').addEventListener('click', toggleMap);
@@ -377,9 +397,11 @@ for (const b of document.querySelectorAll('[data-m]')) b.addEventListener('click
 });
 
 function eventsPanel() {
+  let group = '';
   const html = EVENTS.map((ev, i) => {
     const r = buildRoute(ev), best = settings.bests[ev.id];
-    return `<button class="card" data-ev="${i}"><div><div class="t">${ev.name}</div><div class="d">${ev.desc}</div></div>
+    const head = ev.group !== group ? `<h3 style="margin:16px 0 2px;font:800 15px 'Barlow Condensed',sans-serif;letter-spacing:3px;color:var(--accent)">${(group = ev.group).toUpperCase()}</h3>` : '';
+    return `${head}<button class="card" data-ev="${i}"><div><div class="t">${ev.name}</div><div class="d">${ev.desc}</div></div>
       <div class="r">${(r.length / 1000).toFixed(1)} km<br>${best != null ? fmtTime(best) : '—'}<span class="medal m-${medalFor(ev.id, r)}"></span></div></button>`;
   }).join('');
   showPanel(`<h2>EVENTS</h2><p class="hint">Drive through every checkpoint gate. Follow the yellow arrow and the blue line on the map. Traffic is on the roads, so watch out.</p>${html}`);
@@ -503,10 +525,10 @@ function onHit(j, px, pz) {
 }
 
 function physics(dt, inp) {
-  const surf = surfaceAt(car.x, car.z);
-  car.onGrass = surf.grass;
-  car.step(dt, inp, surfaceAt);
+  car.step(dt, inp, groundAt);
+  car.onGrass = car.wheels[0].kind !== 'asphalt' && car.wheels[0].kind !== 'concrete';
   collideStatic(car, onHit);
+  collideTerrain(car, onHit);
   collideTraffic(car, traffic, onHit);
 }
 
@@ -525,7 +547,7 @@ function updateCarMesh(dt, alpha) {
   let x = lerp(car.px, car.x, alpha), z = lerp(car.pz, car.z, alpha);
   const h = car.ph + wrapAngle(car.h - car.ph) * alpha;
   x += Math.sin(h) * CG_OFF; z += Math.cos(h) * CG_OFF;
-  carY = car.baseY ?? surfaceAt(car.x, car.z).y;
+  carY = car.baseY ?? groundAt(car.x, car.z).y;
   carMesh.position.set(x, carY, z);
   carMesh.rotation.y = h;
   // The body rides on the simulated suspension.
@@ -647,6 +669,15 @@ function wheelFx(pose) {
   }
 }
 
+// Secret places are found by driving up to them; they then show on the map.
+function checkDiscoveries() {
+  const found = settings.found;
+  const spots = [...BUNKERS.map(b => ({ id: b.id, name: b.name, x: b.cx - 30, z: b.cz, r: 80 })), { id: 'airfield', name: AIRFIELD.name, x: AIRFIELD.x, z: 3350, r: 520 }];
+  for (const p of spots) if (!found.includes(p.id) && (car.x - p.x) ** 2 + (car.z - p.z) ** 2 < p.r * p.r) {
+    found.push(p.id); save(); hud.toast(`DISCOVERED: ${p.name.toUpperCase()}`, 3.2); audio.beep(660, 0.12); setTimeout(() => audio.beep(990, 0.2), 140);
+  }
+}
+
 // The arrow to the waypoint in free roam; it clears when you get there.
 function waypointUpdate() {
   const w = game.waypoint;
@@ -712,7 +743,7 @@ function tick(dt) {
     while (acc >= STEP && n < 16) {
       if (st === 'countdown' || st === 'menu' || st === 'finish') {
         // Hold the car still but let the engine rev.
-        car.step(STEP, st === 'finish' ? { ...NO_INPUT, brake: 1 } : inp, surfaceAt);
+        car.step(STEP, st === 'finish' ? { ...NO_INPUT, brake: 1 } : inp, groundAt);
         if (st !== 'finish') { car.x = car.px; car.z = car.pz; car.h = car.ph; car.vx = car.vy = car.w = 0; }
         else { collideStatic(car, null); }
       } else physics(STEP, inp);
@@ -725,15 +756,18 @@ function tick(dt) {
     traffic.update(dt, car, sig);
     if (st === 'race' || st === 'countdown') raceUpdate(dt);
     else if (st === 'free') waypointUpdate();
+    if (st === 'free' || st === 'race') checkDiscoveries();
   }
   city.update(car.x, car.z, st === 'paused' || st === 'map' ? 2 : 3.5);
-  terrain.update(dt);
+  terrain.update(dt, car.x, car.z, st === 'paused' || st === 'map' ? 1.5 : 3);
+  structures.update(car.x, car.z);
   const alpha = st === 'paused' || st === 'map' ? 1 : acc / STEP;
   const pose = updateCarMesh(dt, alpha);
   if (st !== 'paused' && st !== 'map') { wheelFx(pose); fx.update(dt); }
   camera.updateMatrixWorld(); camFrustum.setFromProjectionMatrix(projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   traffic.render(car, camFrustum);
   updateCamera(dt, pose);
+  sky.dome.position.set(camera.position.x, 0, camera.position.z);
   placeSun(sky.sun, tmpV.set(pose.x, 0, pose.z));
   if (csm) csm.update();
   if (game.flare) game.flare.position.copy(SUN_DIR).multiplyScalar(3800).add(camera.position);
@@ -788,4 +822,4 @@ function simulate(secs, inp) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-window.__game = { simulate, tick, game, car, Q, get city() { return city; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+window.__game = { simulate, tick, game, car, Q, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

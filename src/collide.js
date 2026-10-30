@@ -2,7 +2,8 @@
 // the world and traffic. The car is three overlapping circles along its length;
 // each contact gets a proper impulse, so a glancing hit slides and spins you
 // while a head-on one stops you.
-import { queryColliders, LIMIT } from './city.js';
+import { queryColliders, EDGE } from './city.js';
+import { groundAt, WORLD_LIM, isWater } from './world.js';
 
 const CIRCLES = [-1.45, 0, 1.45], RAD = 1.0;
 const found = [];
@@ -57,14 +58,40 @@ export function collideStatic(car, onHit) {
     }
   }
   // The edge of the world: a soft invisible wall.
-  for (const [ax, sign] of [['x', 1], ['x', -1], ['z', 1], ['z', -1]]) {
-    const v = car[ax] * sign;
-    if (v > LIMIT) {
-      car[ax] = sign * LIMIT;
+  for (const [ax, sign, lim] of [['x', 1, WORLD_LIM.x1], ['x', -1, -WORLD_LIM.x0], ['z', 1, WORLD_LIM.z1], ['z', -1, -WORLD_LIM.z0]]) {
+    if (car[ax] * sign > lim) {
+      car[ax] = sign * lim;
       const nx = ax === 'x' ? -sign : 0, nz = ax === 'z' ? -sign : 0;
       applyImpulse(car, car.x - nx, car.z - nz, nx, nz, 0.3, 0.3, onHit);
     }
   }
+}
+
+// Out in the countryside: the sea is a wall (you can paddle in the shallows but
+// not drive out to sea) and so are slopes steeper than about 45 degrees.
+const _gp = [0, 0];
+function slopeAt(x, z) {
+  const d = 2.5;
+  return [(groundAt(x + d, z).y - groundAt(x - d, z).y) / (2 * d), (groundAt(x, z + d).y - groundAt(x, z - d).y) / (2 * d)];
+}
+export function collideTerrain(car, onHit) {
+  if (Math.abs(car.x) < EDGE - 40 && Math.abs(car.z) < EDGE - 40) return;
+  if (isWater(car.x, car.z)) {
+    const nx = 1, nz = 0;                                  // inland is east
+    car.x += 0.25;
+    applyImpulse(car, car.x - nx, car.z, nx, nz, 0.2, 0.4, onHit);
+    return;
+  }
+  const f = car.fwd, v = car.worldVel(), moving = Math.hypot(v[0], v[1]) > 0.5;
+  if (!moving) return;
+  const dir = car.vx >= 0 ? 1 : -1;
+  const px = car.x + f[0] * 2.4 * dir, pz = car.z + f[1] * 2.4 * dir;
+  const [gx, gz] = slopeAt(px, pz), gm = Math.hypot(gx, gz);
+  if (gm < 0.95) return;
+  const nx = -gx / gm, nz = -gz / gm;                       // down the slope, away from the wall
+  if (v[0] * nx + v[1] * nz > 0) return;                    // already moving off it
+  car.x += nx * 0.12; car.z += nz * 0.12;
+  applyImpulse(car, px, pz, nx, nz, 0.15, 0.5, onHit);
 }
 
 // Traffic cars are pairs of circles; they get knocked aside when hit.

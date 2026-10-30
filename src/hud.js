@@ -2,6 +2,7 @@
 // middle, driver aids, nitro gauge), the minimap, and race information.
 import { $, clamp, fmtTime } from './util.js';
 import { N, SP, hw, isBlvd, EDGE, LIMIT, blockRect, isPark } from './city.js';
+import { WORLD, ROADS, coastX, climate, baseHeight, BUNKERS, AIRFIELD } from './world.js';
 
 const A0 = 125 * Math.PI / 180, SPAN = 290 * Math.PI / 180;
 
@@ -105,6 +106,15 @@ export class HUD {
       c.beginPath(); c.moveTo(k * SP, -EDGE); c.lineTo(k * SP, EDGE); c.stroke();
       c.beginPath(); c.moveTo(-EDGE, k * SP); c.lineTo(EDGE, k * SP); c.stroke();
     }
+    if (Math.abs(car.x) > EDGE - 800 || Math.abs(car.z) > EDGE - 800) {            // the motorways
+      c.strokeStyle = 'rgba(235,235,245,0.55)'; c.lineWidth = 22; c.lineJoin = 'round';
+      for (const R of ROADS) {
+        if (R.kind !== 'motorway') continue;
+        c.beginPath(); let pen = false;
+        for (let i = 0; i < R.x.length; i += 2) { if (Math.abs(R.x[i] - car.x) > 330 || Math.abs(R.z[i] - car.z) > 330) { pen = false; continue; } if (pen) c.lineTo(R.x[i], R.z[i]); else { c.moveTo(R.x[i], R.z[i]); pen = true; } }
+        c.stroke();
+      }
+    }
     if (route) {
       c.strokeStyle = 'rgba(60,220,255,0.9)'; c.lineWidth = 9; c.lineJoin = 'round';
       c.beginPath(); route.path.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.stroke();
@@ -155,27 +165,62 @@ export class HUD {
     $('nav-dist').textContent = m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
   }
 
-  // The whole city, north up: districts, roads, parks, the route and the waypoint.
-  drawBigMap(cv, car, route, waypoint) {
-    const c = cv.getContext('2d'), W = cv.width, H = cv.height, ext = LIMIT + 500, s = Math.min(W, H) / (2 * ext);
-    c.setTransform(1, 0, 0, 1, 0, 0);
-    c.fillStyle = '#b6c49c'; c.fillRect(0, 0, W, H);
-    c.translate(W / 2, H / 2); c.scale(s, s);
-    c.fillStyle = '#5f9cbc'; c.fillRect(-ext - 400, -ext - 400, ext + 400 - LIMIT + 120, 2 * ext + 800);      // the ocean
-    c.fillStyle = '#e1d5ab'; c.fillRect(-LIMIT + 120, -ext, 260, 2 * ext);                                          // the beach
+  // The whole world, north up, painted once: sea, beach, desert, snow, grass, shaded by the lie of the land.
+  makeWorldLayer(W, H, s, cx, cz) {
+    const L = document.createElement('canvas'); L.width = W; L.height = H; const c = L.getContext('2d');
+    c.fillStyle = '#3f7fa6'; c.fillRect(0, 0, W, H);
+    c.translate(W / 2, H / 2); c.scale(s, s); c.translate(-cx, -cz);
+    const cell = 80, nx = Math.ceil((WORLD.x1 - WORLD.x0) / cell), nz = Math.ceil((WORLD.z1 - WORLD.z0) / cell);
+    const tc = document.createElement('canvas'); tc.width = nx; tc.height = nz;
+    const tcx = tc.getContext('2d'), im = tcx.createImageData(nx, nz), d = im.data;
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+      const px = WORLD.x0 + (i + 0.5) * cell, pz = WORLD.z0 + (j + 0.5) * cell, sh = px - coastX(pz), o = (j * nx + i) * 4;
+      if (sh < 0) continue;
+      const cl = climate(px, pz), h = baseHeight(px, pz), shade = clamp((baseHeight(px - 120, pz - 120) - baseHeight(px + 120, pz + 120)) / 260, -0.5, 0.5);
+      let r, g, b;
+      if (sh < 360 && h < 6) [r, g, b] = [232, 220, 170];
+      else if (cl.snow > 0.5 || h > 520) { const k = clamp(h / 900, 0, 1); [r, g, b] = [236 - 40 * k, 242 - 36 * k, 250 - 24 * k]; }
+      else if (cl.desert > 0.45) [r, g, b] = [218, 182, 124];
+      else [r, g, b] = [150, 176, 104];
+      const k = 1 + shade * 0.5;
+      d[o] = clamp(r * k, 0, 255); d[o + 1] = clamp(g * k, 0, 255); d[o + 2] = clamp(b * k, 0, 255); d[o + 3] = 255;
+    }
+    tcx.putImageData(im, 0, 0);
+    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+    c.drawImage(tc, WORLD.x0, WORLD.z0, nx * cell, nz * cell);
     c.fillStyle = '#d6d3cc'; c.fillRect(-EDGE - 8, -EDGE - 8, 2 * EDGE + 16, 2 * EDGE + 16);
-    c.fillStyle = '#c3bfce'; c.fillRect(-520, -520, 1040, 1040);                                                    // downtown
-    c.fillStyle = '#c9cfa8'; for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) if (isPark(i, j)) { const b = blockRect(i, j); c.fillRect(b.x0, b.z0, b.x1 - b.x0, b.z1 - b.z0); }
+    c.fillStyle = '#c3bfce'; c.fillRect(-520, -520, 1040, 1040);
+    c.fillStyle = '#c9cfa8'; for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) if (isPark(i, j)) { const bk = blockRect(i, j); c.fillRect(bk.x0, bk.z0, bk.x1 - bk.x0, bk.z1 - bk.z0); }
     c.lineCap = 'butt';
     for (let k = -N; k <= N; k++) {
-      c.strokeStyle = isBlvd(k) ? '#ffffff' : '#f6f3ec'; c.lineWidth = Math.max(hw(k) * 2, 1.6 / s);
+      c.strokeStyle = isBlvd(k) ? '#ffffff' : '#f6f3ec'; c.lineWidth = Math.max(hw(k) * 2, 1.4 / s);
       c.beginPath(); c.moveTo(k * SP, -EDGE); c.lineTo(k * SP, EDGE); c.stroke();
       c.beginPath(); c.moveTo(-EDGE, k * SP); c.lineTo(EDGE, k * SP); c.stroke();
     }
+    c.strokeStyle = '#ffffff'; c.lineWidth = Math.max(26, 3.2 / s); c.lineJoin = 'round';
+    for (const R of ROADS) { if (R.kind !== 'motorway') continue; c.beginPath(); R.x.forEach((x, i) => (i ? c.lineTo(x, R.z[i]) : c.moveTo(x, R.z[i]))); c.stroke(); }
+    c.font = `700 ${15 / s}px Barlow, sans-serif`; c.textAlign = 'center'; c.fillStyle = 'rgba(30,40,60,0.75)';
+    for (const [t, x, z] of [['DOWNTOWN', 0, 0], ['THE OCEAN', -3900, 600], ['SNOWY MOUNTAINS', 1500, -5600], ['THE DESERT', 5200, -300], ['GRASSLAND', 300, 4800], ['COAST', -2900, -2800]]) c.fillText(t, x, z);
+    return L;
+  }
+  drawBigMap(cv, car, route, waypoint, found = []) {
+    const c = cv.getContext('2d'), W = cv.width, H = cv.height;
+    const wx = WORLD.x1 - WORLD.x0, wz = WORLD.z1 - WORLD.z0, s = Math.min(W / wx, H / wz) * 0.98, cx = (WORLD.x0 + WORLD.x1) / 2, cz = (WORLD.z0 + WORLD.z1) / 2;
+    this.bigScale = s; this.bigW = W; this.bigH = H; this.bigC = [cx, cz];
+    if (!this.worldLayer || this.worldLayer.width !== W) this.worldLayer = this.makeWorldLayer(W, H, s, cx, cz);
+    c.setTransform(1, 0, 0, 1, 0, 0); c.drawImage(this.worldLayer, 0, 0);
+    c.translate(W / 2, H / 2); c.scale(s, s); c.translate(-cx, -cz);
+    const icon = (x, z, fill, label) => {
+      c.save(); c.translate(x, z); c.scale(1 / s, 1 / s); c.fillStyle = fill; c.strokeStyle = '#fff'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(0, -11); c.lineTo(10, 0); c.lineTo(0, 11); c.lineTo(-10, 0); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#fff'; c.font = '700 12px Barlow, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, 0, 1); c.restore();
+    };
+    if (found.includes('airfield')) icon(AIRFIELD.x, 3350, '#2b5db3', '✈');
+    for (const b of BUNKERS) if (found.includes(b.id)) icon(b.cx - 30, b.cz, '#c4202a', '!');
     if (route) {
       c.strokeStyle = '#18b5e0'; c.lineWidth = 6 / s; c.lineJoin = 'round';
       c.beginPath(); route.path.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.stroke();
-      c.fillStyle = '#f0b400'; for (const p of route.cps) { c.beginPath(); c.arc(p.x, p.z, 7 / s, 0, Math.PI * 2); c.fill(); }
+      c.fillStyle = '#f0b400'; for (const p of route.cps) { c.beginPath(); c.arc(p.x, p.z, 6 / s, 0, Math.PI * 2); c.fill(); }
     }
     if (waypoint) {
       c.fillStyle = '#ff3d9a'; c.strokeStyle = '#fff'; c.lineWidth = 2 / s;
@@ -184,10 +229,7 @@ export class HUD {
     c.save(); c.translate(car.x, car.z); c.rotate(Math.PI - car.h); c.scale(1 / s, 1 / s);
     c.fillStyle = '#ff7a2a'; c.strokeStyle = '#fff'; c.lineWidth = 2;
     c.beginPath(); c.moveTo(0, -13); c.lineTo(9, 10); c.lineTo(0, 5); c.lineTo(-9, 10); c.closePath(); c.fill(); c.stroke(); c.restore();
-    c.fillStyle = 'rgba(40,40,60,0.8)'; c.textAlign = 'center'; c.font = `${700} ${15 / s}px Barlow, sans-serif`;
-    for (const [t, x, z] of [['DOWNTOWN', 0, 0], ['THE BEACH', -LIMIT + 250, 0], ['THE HILLS', 700, -LIMIT - 250], ['SUBURBS', 1800, 1800], ['SUBURBS', -1500, 1900]]) c.fillText(t, x, z);
-    this.bigScale = s; this.bigW = W; this.bigH = H;
   }
   // Canvas pixel position on the big map -> world position.
-  bigToWorld(px, py) { const s = this.bigScale; return { x: (px - this.bigW / 2) / s, z: (py - this.bigH / 2) / s }; }
+  bigToWorld(px, py) { const s = this.bigScale; return { x: (px - this.bigW / 2) / s + this.bigC[0], z: (py - this.bigH / 2) / s + this.bigC[1] }; }
 }
