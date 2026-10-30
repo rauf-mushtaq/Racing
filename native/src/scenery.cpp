@@ -90,7 +90,7 @@ static void scatter(Scenery::TileCPU& T, double x0, double z0, double size) {
   const double sp = 18.0; int n = (int)std::ceil(size / sp);
   static const Keep keep[3] = { { BUNKERS[0].cx + 40, BUNKERS[0].cz, 140 }, { BUNKERS[1].cx + 40, BUNKERS[1].cz, 140 }, { 5400, 3300, 900 } };
   auto add = [&](int kind, double x, double h, double z, double sc, double r2, uint32_t tint, double rockCol) {
-    InstanceData d = { (float)x, (float)(h - 0.15), (float)z, (float)sc, (float)(r2 * 6.28), tint, 0.0f, (float)(0.9 + r2 * 0.3) }; (void)rockCol;
+    InstanceData d = { (float)x, (float)(h - 0.15), (float)z, (float)sc, (float)(r2 * 6.28), tint, 0.0f, 0.0f }; (void)rockCol;
     T.inst[kind].push_back(d); T.maxY = std::max(T.maxY, (float)(h + 12 * sc)); T.minY = std::min(T.minY, (float)h);
     double r = kind == P_PINE || kind == P_SNOWPINE ? 0.45 * sc : kind == P_CACTUS ? 0.5 * sc : kind == P_ROCK ? 0.8 * sc : kind == P_TREE ? 0.5 * sc : kind == P_PALM ? 0.4 * sc : 0;
     if (r > 0) T.colliders.push_back({ (float)x, (float)z, (float)r });

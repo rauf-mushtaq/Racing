@@ -5,6 +5,7 @@
 #include "vehicle.h"
 #include "car.h"
 #include "scenery.h"
+#include "city.h"
 #include "collide.h"
 
 struct InputState {
@@ -22,7 +23,7 @@ private:
 
 class Game {
 public:
-  Vehicle car; CarModel model; Scenery scenery; float color[3] = { 0.85f, 0.20f, 0.03f };
+  Vehicle car; CarModel model; Scenery scenery; City city; float color[3] = { 0.85f, 0.20f, 0.03f };
   int camMode = 0; bool freeCam = false; double camYaw = 0, orbit = 0, orbitPitch = 0; Vec3 camPos, camLookSmooth; bool camInit = false; double speedKmh = 0; bool braking = false;
   void init(Renderer& r);
   void spawn(const std::string& where, double x = 0, double z = 0, double h = 0);

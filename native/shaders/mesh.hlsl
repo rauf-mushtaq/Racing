@@ -16,7 +16,15 @@ V VSMain(VIn i) {
 #else
   float3 wp = mul(gWorld, float4(i.pos, 1.0)).xyz; o.nrm = mul((float3x3)gWorld, i.nrm); o.col = i.col;
 #endif
-  o.wpos = wp; o.pos = mul(gViewProj, float4(wp, 1.0)); o.uv = i.uv; o.dist = length(wp - gCamPos.xyz); return o;
+  o.wpos = wp; o.pos = mul(gViewProj, float4(wp, 1.0)); o.uv = i.uv; o.dist = length(wp - gCamPos.xyz);
+#ifdef INSTANCED
+  if (gP0.x > 5.5) {                                           // buildings: wall coordinates in metres (across, up) for the facade
+    float3 dims = float3(i.ia.w, i.ia.w * (i.id.x > 0.0 ? i.id.x : 1.0), i.ia.w * (i.id.y > 0.0 ? i.id.y : 1.0));
+    float2 wuv = abs(i.nrm.x) > 0.5 ? float2(i.pos.z * dims.z, i.pos.y * dims.y) : float2(i.pos.x * dims.x, i.pos.y * dims.y);
+    o.uv = wuv + float2(i.ia.x * 0.37 + i.ia.z * 0.91, 0.0); o.col = float4(i.col.rgb * i.ic.rgb * 2.0, i.ic.a);
+  }
+#endif
+  return o;
 }
 float3 Shade(float3 albedo, float metal, float rough, float3 n, float3 v, float sh) {
   float3 f0 = lerp(float3(0.04, 0.04, 0.04), albedo, metal), diff = albedo * (1.0 - metal);
@@ -49,10 +57,11 @@ float3 RoadSurface(float2 uv, float4 col, float fp, out float rough) {
   return c;
 }
 PSOut PSMain(V i) {
+  float dist = length(i.wpos - gCamPos.xyz);                      // exact per pixel (an interpolated vertex distance is wrong across big faces)
   float3 n = normalize(i.nrm), v = normalize(gCamPos.xyz - i.wpos);
   if (dot(n, v) < 0.0 && gP3.x > 0.5) n = -n;                  // double-sided materials (foliage) light the side facing the camera
   float fpUV = max(length(ddx(i.uv)), length(ddy(i.uv)));            // derivatives are taken outside any branch
-  float type = gP0.x, sh = ShadowFactor(i.wpos, n, i.dist);
+  float type = gP0.x, sh = ShadowFactor(i.wpos, n, dist);
   float3 col;
   if (type < 0.5) {                                            // plain
     col = Shade(i.col.rgb * gP1.rgb, gP0.z, gP0.y, n, v, sh);
@@ -74,11 +83,29 @@ PSOut PSMain(V i) {
     float3 hh = normalize(gSunDir.xyz + v); col += gSunColor.rgb * pow(saturate(dot(n, hh)), 400.0) * 10.0 * sh;
   } else if (type < 4.5) {                                     // emissive
     col = i.col.rgb * gP1.rgb * gP0.w;
+  } else if (type > 5.5) {                                     // building facade: glass curtain walls, punched windows or small house windows
+    float style = i.col.a, wall = step(abs(n.y), 0.5);
+    float2 cell = style < 0.34 ? float2(1.7, 3.6) : style < 0.67 ? float2(3.0, 3.7) : float2(3.4, 3.2);
+    float2 mar = style < 0.34 ? float2(0.05, 0.05) : style < 0.67 ? float2(0.2, 0.22) : float2(0.27, 0.24);
+    float2 g = i.uv / cell, f = frac(g), cid = floor(g);
+    float fade = saturate(fpUV / (cell.x * 0.4));                 // windows smaller than a couple of pixels blur into their average
+    float cov = (1.0 - 2.0 * mar.x) * (1.0 - 2.0 * mar.y) * wall * step(3.4, i.uv.y);
+    float win = step(mar.x, f.x) * step(f.x, 1.0 - mar.x) * step(mar.y, f.y) * step(f.y, 1.0 - mar.y) * wall * step(3.4, i.uv.y);
+    win = lerp(win, cov, fade);
+    float rnd = lerp(hash12(cid * 1.7 + 3.0), 0.5, fade), grit = fbmAA(i.uv * 0.25, fpUV, 1.0);
+    float3 wallCol = i.col.rgb * (0.86 + 0.28 * grit) * lerp(0.75, 1.0, saturate(i.uv.y * 0.04 + 0.4));
+    if (n.y > 0.5) wallCol = float3(0.16, 0.16, 0.17) * (0.9 + 0.2 * grit);
+    float3 wallLit = Shade(wallCol, 0.0, 0.85, n, v, sh);
+    float nv = saturate(dot(n, v)), F = 0.05 + 0.95 * pow(1.0 - nv, 3.0), glassK = style < 0.34 ? 0.55 : 0.30;
+    float3 gtint = lerp(float3(0.55, 0.78, 0.9), float3(0.85, 0.9, 0.8), rnd) * (0.7 + 0.5 * rnd);
+    float3 glass = gtint * 0.05 + SkyColor(reflect(-v, n)) * (glassK + (1.0 - glassK) * F) * (0.65 + 0.5 * rnd);
+    float3 hh = normalize(gSunDir.xyz + v); glass += gSunColor.rgb * pow(saturate(dot(n, hh)), 250.0) * 6.0 * sh;
+    col = lerp(wallLit, glass, win);
   } else {                                                     // foliage: lit from behind as well
     float ndl = dot(n, gSunDir.xyz), back = saturate(-ndl) * 0.55;
     float3 alb = i.col.rgb * gP1.rgb;
     col = alb * (gSunColor.rgb * (saturate(ndl) + back) * sh + AmbientSky(n) * 1.1);
   }
   col = ApplyFog(col, i.wpos);
-  return Out(col, i.dist);
+  return Out(col, dist);
 }

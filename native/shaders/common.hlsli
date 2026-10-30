@@ -123,10 +123,10 @@ float3 SpecularLight(float3 n, float3 v, float3 f0, float rough, float shadow) {
   return sunSpec + skyRefl;
 }
 
-// World position of a model vertex for an instance: xyz + scale, yaw, and an optional height scale (extra.x, 0 = none).
+// World position of a model vertex for an instance: xyz + scale (width), yaw, and optional height and depth ratios (id.x, id.y; 0 = same as the width).
 float3 InstanceWorld(float3 p, float4 ia, float yaw, float2 id) {
-  float sy = ia.w * (id.x > 0.0 ? id.x : 1.0); float c = cos(yaw), s = sin(yaw);
-  float3 q = float3(p.x * ia.w, p.y * sy, p.z * ia.w);
+  float sy = ia.w * (id.x > 0.0 ? id.x : 1.0), sz = ia.w * (id.y > 0.0 ? id.y : 1.0); float c = cos(yaw), s = sin(yaw);
+  float3 q = float3(p.x * ia.w, p.y * sy, p.z * sz);
   return ia.xyz + float3(c * q.x + s * q.z, q.y, -s * q.x + c * q.z);
 }
 float3 InstanceNormal(float3 n, float yaw) { float c = cos(yaw), s = sin(yaw); return float3(c * n.x + s * n.z, n.y, -s * n.x + c * n.z); }

@@ -2,6 +2,10 @@
 
 An open-world street racer made with Three.js. Drive a V12 supercar through a California-style city of boulevards, palms, shops, apartments and glass towers, then out along motorways into a 12 × 16 km world: a coastline, snow-capped mountains, desert and canyons, grassland, a dry-lake airfield and two secret military bunkers you can drive into. It's lit at golden hour by default, with the sun low and backlit through the haze. It's a browser game with generated models and textures, so it aims for the *mood* of a modern open-world racer rather than matching a big studio's assets. It's a sister game to [MushtaqTrack](https://github.com/rauf-mushtaq/mushtaqtrack) and reuses what that game learned about car handling, iPad performance, and touch, gamepad and steering-wheel controls.
 
+## Native version (C++ and HLSL)
+
+A native Windows version of this game, written in C++ with Direct3D 12 and HLSL shaders, is in [`native/`](native/) (a vertical slice: the world, roads, car, physics, shadows, city and HUD; see its README). The web version below stays as it is until the native one has caught up and been tested on real hardware.
+
 ## Play
 
 The game loads its modules from files, so it has to be served over HTTP, not opened as a file:

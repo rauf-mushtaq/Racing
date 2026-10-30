@@ -30,7 +30,7 @@ static int nearestIndex(const Road& R, double x, double z) { int bi = 0; double 
 static const Road* roadById(const char* id) { for (auto& R : ROADS) if (R.id == id) return &R; return nullptr; }
 
 void Game::init(Renderer& r) {
-  scenery.init(r.gfx); model.build(r.gfx);
+  scenery.init(r.gfx); model.build(r.gfx); city.init(r.gfx);
   r.drawWorld = [this](Renderer& rr, bool shadow, const Frustum& f) { draw(rr, shadow, f); };
 }
 // Put the car on a road, in the right-hand lane, facing along it (sign = which way along the road's drawn direction).
@@ -90,5 +90,5 @@ void Game::updateCamera(Renderer& r, double dt, const InputState& in) {
   r.cam.pos = pos; r.cam.yaw = (float)(std::atan2(f.x, -f.z) / k2r); r.cam.pitch = (float)(std::asin(f.y) / k2r); r.cam.fov = (float)fov;
 }
 void Game::draw(Renderer& r, bool shadow, const Frustum& f) {
-  scenery.draw(r, shadow, f); model.draw(r, car, alpha, color, braking);
+  scenery.draw(r, shadow, f); city.draw(r, shadow, f, r.cam.pos); model.draw(r, car, alpha, color, braking);
 }

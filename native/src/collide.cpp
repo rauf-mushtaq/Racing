@@ -30,6 +30,10 @@ void queryColliders(float x, float z, float r, std::vector<Circle>& out) {
     for (int cz = (int)std::floor((z - r) / CELL); cz <= (int)std::floor((z + r) / CELL); cz++) { auto it = grid.find(ck(cx, cz)); if (it != grid.end()) out.insert(out.end(), it->second.begin(), it->second.end()); }
 }
 
+static std::unordered_map<int64_t, std::vector<Box>> boxGrid;
+void addBoxes(const std::vector<Box>& list) {
+  for (const Box& b : list) for (int cx = (int)std::floor(b.x0 / CELL); cx <= (int)std::floor(b.x1 / CELL); cx++) for (int cz = (int)std::floor(b.z0 / CELL); cz <= (int)std::floor(b.z1 / CELL); cz++) boxGrid[ck(cx, cz)].push_back(b);
+}
 static const double CIRCLES[3] = { -1.45, 0, 1.45 }, RAD = 1.0;
 static double applyImpulse(Vehicle& car, double px, double pz, double nx, double nz, double e, double mu, const HitFn* hit) {
   double m = car.s.mass, I = car.I, Vx, Vz; car.worldVel(Vx, Vz);
@@ -51,6 +55,16 @@ void collideStatic(Vehicle& car, const HitFn& onHit) {
       if (dist >= r || dist < 1e-5) continue;
       double nx = dx / dist, nz = dz / dist, pen = r - dist, px = c.x + nx * c.r, pz = c.z + nz * c.r;
       car.x += nx * pen; car.z += nz * pen; applyImpulse(car, px, pz, nx, nz, 0.25, 0.25, pass == 0 ? &onHit : nullptr);
+    }
+  }
+  for (int pass = 0; pass < 2; pass++) for (double off : CIRCLES) {   // buildings: boxes
+    double cx = car.x + fx * off, cz = car.z + fz * off; auto it = boxGrid.find(ck((int)std::floor(cx / CELL), (int)std::floor(cz / CELL))); if (it == boxGrid.end()) continue;
+    for (const Box& b : it->second) {
+      double qx = std::max((double)b.x0, std::min(cx, (double)b.x1)), qz = std::max((double)b.z0, std::min(cz, (double)b.z1)), dx = cx - qx, dz = cz - qz, dist = std::hypot(dx, dz), nx, nz, pen;
+      if (dist >= RAD) continue;
+      if (dist > 1e-4) { nx = dx / dist; nz = dz / dist; pen = RAD - dist; }
+      else { double o[4][3] = { { cx - b.x0, -1, 0 }, { b.x1 - cx, 1, 0 }, { cz - b.z0, 0, -1 }, { b.z1 - cz, 0, 1 } }; int bi = 0; for (int k = 1; k < 4; k++) if (o[k][0] < o[bi][0]) bi = k; nx = o[bi][1]; nz = o[bi][2]; pen = o[bi][0] + RAD; }
+      car.x += nx * pen; car.z += nz * pen; applyImpulse(car, cx - nx * RAD, cz - nz * RAD, nx, nz, 0.25, 0.25, pass == 0 ? &onHit : nullptr);
     }
   }
   // The edge of the world: a soft invisible wall.

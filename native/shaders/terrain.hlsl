@@ -30,7 +30,7 @@ float3 CityGround(float2 p, float fp, out float rough) {
   return float3(0.36, 0.34, 0.31) * (0.8 + 0.4 * g) * (0.9 + 0.2 * g2);   // pavement and the ground the blocks stand on
 }
 PSOut PSMain(V i) {
-  float3 wp = i.wpos;
+  float3 wp = i.wpos; float dist = length(wp - gCamPos.xyz);
   if (wp.x > gP0.x && wp.x < gP0.z && wp.z > gP0.y && wp.z < gP0.w) discard;
   float2 p = wp.xz;
   float fp = max(length(ddx(p)), length(ddy(p)));               // metres per pixel
@@ -63,7 +63,7 @@ PSOut PSMain(V i) {
   float hgt = (fine * 0.5 + grit * 0.35 + rip * bw.y * 0.6 + rk * rockW * 2.0) * 0.05;
   if (max(abs(p.x), abs(p.y)) < CITY_EDGE) { float cr; alb = CityGround(p, fp, cr); rough = cr; sheen = 0.5; hgt = grit * 0.01; }
   // Fine relief near the camera, caught by the low sun (bump from screen-space derivatives, bounded and guarded).
-  float nearF = 1.0 - smoothstep(35.0, 120.0, i.dist);
+  float nearF = 1.0 - smoothstep(35.0, 120.0, dist);
   float3 dpx = ddx(wp), dpy = ddy(wp);
   float dhx = ddx(hgt), dhy = ddy(hgt);
   float3 r1 = cross(dpy, n), r2 = cross(n, dpx);
@@ -73,11 +73,11 @@ PSOut PSMain(V i) {
   float3 nb = abs(det) * n - sign(det) * (dh.x * r1 + dh.y * r2);
   float nl = length(nb);
   if (abs(det) > 1e-12 && nl > 1e-12) n = nb / nl;
-  float sh = ShadowFactor(wp, n, i.dist);
+  float sh = ShadowFactor(wp, n, dist);
   float3 v = normalize(gCamPos.xyz - wp);
   float ndl = saturate(dot(n, gSunDir.xyz));
   float3 col = alb * (gSunColor.rgb * ndl * sh + AmbientSky(n));
   col += SpecularLight(n, v, float3(0.04, 0.04, 0.04), rough, sh) * sheen;
   col = ApplyFog(col, wp);
-  return Out(col, i.dist);
+  return Out(col, dist);
 }

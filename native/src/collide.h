@@ -7,6 +7,8 @@
 #include <functional>
 
 struct Circle { float x, z, r; };
+struct Box { float x0, z0, x1, z1; };
+void addBoxes(const std::vector<Box>& list);       // permanent (buildings)
 void addColliders(int64_t owner, const std::vector<Circle>& list);
 void removeColliders(int64_t owner);
 void queryColliders(float x, float z, float r, std::vector<Circle>& out);
