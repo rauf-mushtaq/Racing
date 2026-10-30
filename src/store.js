@@ -2,7 +2,7 @@
 
 const KEY = 'sunsetcity.v1';
 const defaults = {
-  tod: 'day',           // 'day' | 'sunset'
+  tod: 'golden',        // 'golden' | 'day' | 'sunset'
   quality: null,        // 'ultra' | 'high' | 'medium' | 'low'; null picks one for the device
   renderScale: 1,       // 0.75 | 1 | 1.25 | 1.5 times the screen's pixel density
   fps: false,
@@ -24,6 +24,8 @@ let data;
 try { data = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
 catch (e) { data = { ...defaults }; }
 
+// The Golden Hour look is new: everyone starts there once, then their choice sticks.
+if (data.todV !== 2) { data.tod = 'golden'; data.todV = 2; }
 export const settings = data;
 export function save() {
   try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch (e) { /* storage blocked */ }

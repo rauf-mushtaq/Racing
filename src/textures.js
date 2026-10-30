@@ -64,7 +64,7 @@ export function asphalt() {
     H[i] = grain * 0.4 + stone + m * 0.5 + f * 0.3;
     const o = i * 4;
     img.data[o] = clamp(val, 0, 1) * 255; img.data[o + 1] = clamp(val, 0, 1) * 255; img.data[o + 2] = clamp(val * 1.04, 0, 1) * 255; img.data[o + 3] = 255;
-    const r = clamp(0.78 - (b - 0.5) * 0.5 + (grain - 0.5) * 0.1 - stone * 0.15, 0.35, 1) * 255;
+    const r = clamp(0.9 - (b - 0.5) * 0.5 + (grain - 0.5) * 0.1 - stone * 0.15, 0.4, 1) * 255;
     rim.data[o] = rim.data[o + 1] = rim.data[o + 2] = r; rim.data[o + 3] = 255;
   }
   g.putImageData(img, 0, 0); gr.putImageData(rim, 0, 0);
@@ -79,7 +79,7 @@ export function asphalt() {
     g.stroke();
   }
   g.restore();
-  return { map: tex(c), roughnessMap: tex(cr, false), normalMap: normalFromHeight(H, S, S, 3) };
+  return { map: tex(c), roughnessMap: tex(cr, false), normalMap: normalFromHeight(H, S, S, 2.2) };
 }
 
 // Pavement concrete with expansion joints, tinted by the material colour.

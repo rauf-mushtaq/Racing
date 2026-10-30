@@ -64,7 +64,7 @@ function loft(P, stations) {
     const c = base + M;
     for (let j = 0; j < M; j++) {
       const j1 = (j + 1) % M;
-      if (front) capBody.push(c, base + j1, base + j); else capBody.push(c, base + j, base + j1);
+      if (front) capBody.push(c, base + j, base + j1); else capBody.push(c, base + j1, base + j);
     }
   }
   const g = new THREE.BufferGeometry();
@@ -418,7 +418,7 @@ function trafficType(o) {
     lp.push(colorize(new THREE.BoxGeometry(0.34, 0.1, 0.04).translate(s * (o.w - 0.25), o.tlY, P.zr - 0.01), tl));
     lp.push(colorize(new THREE.BoxGeometry(0.3, 0.09, 0.04).translate(s * (o.w - 0.28), o.hlY, P.zf + 0.0), hl));
   }
-  return { geo, lights: mergeGeoms(lp), len: o.len, width: o.w * 2 };
+  return { geo, lights: mergeGeoms(lp), len: o.len, width: o.w * 2, mass: o.mass || 1400, rad: o.rad || 0.95 };
 }
 function colorize(g, c) { g = g.toNonIndexed(); g.deleteAttribute('uv'); const a = []; for (let i = 0; i < g.attributes.position.count; i++) a.push(c.r, c.g, c.b); g.setAttribute('color', new THREE.Float32BufferAttribute(a, 3)); return g; }
 
@@ -451,6 +451,20 @@ export function trafficModels() {
       topHalf: [[-2.6, 0.9], [1.2, 0.86], [1.6, 0.9], [2.6, 0.9]],
       shoulder: [[-2.6, 1.2], [1.3, 1.2], [2.6, 0.95]],
       gz: [-0.2, 1.4], ws: [1.2, 1.62], rw: [-9, -9],
+    }),
+    trafficType({ // box truck
+      len: 8.2, w: 1.28, wr: 0.5, fo: 1.15, ro: 1.5, clear: 0.5, noseR: 0.3, tailR: 0.05, tlY: 1.0, hlY: 1.0, mass: 7000, rad: 1.35,
+      top: [[-4.1, 3.5], [-3.9, 3.72], [1.05, 3.74], [1.3, 2.95], [3.3, 2.9], [3.9, 2.2], [4.1, 1.8]],
+      topHalf: [[-4.1, 1.24], [1.05, 1.24], [1.3, 1.1], [4.1, 0.98]],
+      shoulder: [[-4.1, 3.4], [1.0, 3.4], [1.4, 1.55], [3.4, 1.55], [4.1, 1.15]],
+      gz: [1.6, 3.5], ws: [3.2, 3.95], rw: [-9, -9],
+    }),
+    trafficType({ // bus
+      len: 11.6, w: 1.3, wr: 0.5, fo: 1.6, ro: 2.6, clear: 0.45, noseR: 0.35, tailR: 0.15, tlY: 1.0, hlY: 0.9, mass: 11000, rad: 1.35,
+      top: [[-5.8, 3.2], [-5.5, 3.35], [5.3, 3.35], [5.8, 3.0]],
+      topHalf: [[-5.8, 1.2], [5.8, 1.2]],
+      shoulder: [[-5.8, 1.2], [5.8, 1.2]],
+      gz: [-5.3, 5.3], ws: [5.2, 5.8], rw: [-5.8, -5.3],
     }),
   ];
 }

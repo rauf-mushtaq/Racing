@@ -53,6 +53,28 @@ function leafTree(detail) {
   return { core: mergeGeomsUV([trunk, ...core]), cards: mergeGeomsUV(cards) };
 }
 
+// A low tropical bush: a few small dark blobs thick with leaf cards.
+function leafBush(detail) {
+  const rnd = mulberry32(44), core = [], cards = [];
+  for (const [x, y, z, r] of [[0, 0.55, 0, 0.7], [0.6, 0.45, 0.3, 0.5], [-0.5, 0.5, -0.3, 0.55]]) {
+    const ico = new THREE.IcosahedronGeometry(r * 0.6, 1); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
+    const g = mergeVertices(ico), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) { v3.fromBufferAttribute(p, i); p.setXYZ(i, v3.x + x, v3.y * 0.8 + y, v3.z + z); }
+    g.computeVertexNormals(); paint(g, 0.03, 0.05, 0.02); withUV(g); core.push(g);
+    for (let k = 0; k < [8, 12, 16][detail]; k++) {
+      const u = rnd() * 1.4 - 0.2, a = rnd() * Math.PI * 2, s = Math.sqrt(Math.max(0, 1 - u * u));
+      const n = new THREE.Vector3(s * Math.cos(a), u, s * Math.sin(a)).normalize(), rr = r * (0.6 + rnd() * 0.6), size = 0.5 + rnd() * 0.7;
+      const card = new THREE.PlaneGeometry(size, size).rotateZ(rnd() * 6.28);
+      const face = n.clone().add(new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.8)).normalize();
+      card.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), face)).translate(x + n.x * rr, y + n.y * rr * 0.8, z + n.z * rr);
+      const np = card.attributes.position, nn = card.attributes.normal, cc = [];
+      for (let i = 0; i < np.count; i++) { const d = new THREE.Vector3(np.getX(i) - x, np.getY(i) - y + 0.2, np.getZ(i) - z).normalize(); nn.setXYZ(i, d.x, d.y, d.z); const sh = 0.75 + rnd() * 0.35; cc.push(sh, sh, sh); }
+      card.setAttribute('color', new THREE.Float32BufferAttribute(cc, 3)); cards.push(card);
+    }
+  }
+  return { core: mergeGeomsUV(core), cards: mergeGeomsUV(cards) };
+}
+
 function palm(detail) {
   const seg = [6, 8, 10][detail], rings = [8, 10, 12][detail];
   const trunk = new THREE.CylinderGeometry(0.17, 0.3, 11, seg, rings, true).translate(0, 5.5, 0);
@@ -106,7 +128,8 @@ function hedge() {
 export function makeProps() {
   const a2c = Q.msaa > 0;
   const tree = leafTree(Q.treeDetail), pl = palm(Q.treeDetail);
-  const geo = { treeCore: tree.core, treeCards: tree.cards, palmTrunk: pl.trunk, palmFronds: pl.fronds, hedge: hedge() };
+  const bush = leafBush(Q.treeDetail);
+  const geo = { bushCore: bush.core, bushCards: bush.cards, treeCore: tree.core, treeCards: tree.cards, palmTrunk: pl.trunk, palmFronds: pl.fronds, hedge: hedge() };
   geo.lamp = mergeGeoms([new THREE.CylinderGeometry(0.08, 0.14, 8.6, 10).translate(0, 4.3, 0), new THREE.CylinderGeometry(0.06, 0.06, 2.8, 8).rotateX(Math.PI / 2).translate(0, 8.4, 1.4), new THREE.BoxGeometry(0.42, 0.16, 0.95).translate(0, 8.4, 2.9)]);
   geo.bulb = new THREE.SphereGeometry(0.3, 8, 5).scale(0.9, 0.35, 1.4).translate(0, 8.3, 2.9);
   geo.pool = new THREE.PlaneGeometry(14, 14).rotateX(-Math.PI / 2).translate(0, 0, 3);

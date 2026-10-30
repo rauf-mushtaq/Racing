@@ -73,23 +73,24 @@ export function collideTraffic(car, traffic, onHit) {
   for (const t of traffic.cars) {
     if (!t.active) continue;
     const dx0 = t.x - car.x, dz0 = t.z - car.z;
-    if (dx0 * dx0 + dz0 * dz0 > 64) continue;
+    if (dx0 * dx0 + dz0 * dz0 > 100) continue;
     const tf = [Math.sin(t.h), Math.cos(t.h)];
     for (const off of CIRCLES) {
       const cx = car.x + f[0] * off, cz = car.z + f[1] * off;
-      for (const toff of [-t.len * 0.28, t.len * 0.28]) {
+      // Long vehicles are three circles; heavy ones barely move when you hit them.
+      const mt = t.mass || 1400, tr = t.rad || 0.95, offs = t.len > 6.5 ? [-t.len * 0.34, 0, t.len * 0.34] : [-t.len * 0.28, t.len * 0.28];
+      for (const toff of offs) {
         const ox = t.x + tf[0] * toff, oz = t.z + tf[1] * toff;
-        const dx = cx - ox, dz = cz - oz, dist = Math.hypot(dx, dz), r = RAD + 0.95;
+        const dx = cx - ox, dz = cz - oz, dist = Math.hypot(dx, dz), r = RAD + tr;
         if (dist >= r || dist < 1e-5) continue;
         const nx = dx / dist, nz = dz / dist, pen = r - dist;
-        const mt = 1400;
         // Split the push between both cars by mass.
         const share = mt / (mt + car.s.mass);
         car.x += nx * pen * share; car.z += nz * pen * share;
         t.x -= nx * pen * (1 - share); t.z -= nz * pen * (1 - share);
         const tv = traffic.velocityOf(t);
-        const j = applyImpulse(car, ox + nx * 0.95, oz + nz * 0.95, nx, nz, 0.2, 0.2, onHit, 1 / mt, tv);
-        if (j > 0) traffic.knock(t, tv[0] - nx * j / mt, tv[1] - nz * j / mt, (Math.random() - 0.5) * j / 3000);
+        const j = applyImpulse(car, ox + nx * tr, oz + nz * tr, nx, nz, 0.2, 0.2, onHit, 1 / mt, tv);
+        if (j > 0) traffic.knock(t, tv[0] - nx * j / mt, tv[1] - nz * j / mt, (Math.random() - 0.5) * j / (mt * 2));
       }
     }
   }

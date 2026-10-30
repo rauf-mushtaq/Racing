@@ -51,17 +51,20 @@ const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 12000);
 // Post-processing: bloom, a speed blur, vignette and a colour grade, then ACES.
 const GradeShader = {
   uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) }, uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) }, uSharpen: { value: Q.sharpen },
-    uSat: { value: TOD.grade.sat }, uContrast: { value: TOD.grade.contrast }, uWarm: { value: TOD.grade.warm }, uSunset: { value: TOD_NAME === 'sunset' ? 1 : 0 } },
+    uSat: { value: TOD.grade.sat }, uContrast: { value: TOD.grade.contrast }, uWarm: { value: TOD.grade.warm }, uSunset: { value: TOD.split },
+    uSun: { value: new THREE.Vector2(0.5, 0.6) }, uRays: { value: TOD.rays }, uSunVis: { value: 0 }, uGrain: { value: TOD.grain }, uTime: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uBlur, uSharpen; uniform vec2 uCenter, uTexel; uniform float uSat, uContrast, uWarm, uSunset; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float uBlur, uSharpen; uniform vec2 uCenter, uTexel; uniform float uSat, uContrast, uWarm, uSunset, uRays, uSunVis, uGrain, uTime; uniform vec2 uSun; varying vec2 vUv;
     void main(){
       vec2 dir = vUv - uCenter; float d = length(dir);
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       if (uBlur > 0.002) {
-        vec3 acc = col; float s = uBlur * smoothstep(0.12, 0.7, d) * 0.06;
-        for (int i = 1; i < 8; i++) acc += texture2D(tDiffuse, vUv - dir * s * float(i)).rgb;
-        col = acc / 8.0;
+        // Jittered taps, with highlights held back, so bright lights smear softly instead of in steps.
+        float jit = fract(sin(dot(vUv * 1000.0 + uTime, vec2(12.9898, 78.233))) * 43758.5453);
+        vec3 acc = min(col, vec3(6.0)); float s = uBlur * smoothstep(0.12, 0.7, d) * 0.06;
+        for (int i = 1; i < 11; i++) acc += min(texture2D(tDiffuse, vUv - dir * s * (float(i) - 0.5 + jit)).rgb, vec3(6.0));
+        col = acc / 11.0;
       }
       // Sharpen: add back the difference from the neighbours, held within a band
       // round the original so bright highlights don't ring.
@@ -71,6 +74,16 @@ const GradeShader = {
                 + texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y)).rgb + texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y)).rgb;
         col = clamp(col + (col - nb * 0.25) * sh, col * 0.75, col * 1.3 + 0.01);
       }
+      // Sun shafts: smear the brightest parts of the picture towards the sun, so
+      // light pours through gaps in the trees and buildings.
+      if (uRays * uSunVis > 0.002) {
+        vec2 dv = (uSun - vUv) * (0.9 / 24.0), uv = vUv; float w = 1.0; vec3 acc = vec3(0.0);
+        for (int i = 0; i < 24; i++) {
+          uv += dv; vec3 s = texture2D(tDiffuse, uv).rgb;
+          acc += s * smoothstep(2.4, 8.0, max(max(s.r, s.g), s.b)) * w; w *= 0.94;
+        }
+        col += acc / 24.0 * uRays * uSunVis * vec3(1.0, 0.82, 0.58);
+      }
       float vig = smoothstep(1.1, 0.3, d);
       col *= mix(mix(0.78, 0.62, uSunset), 1.0, vig);
       float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -79,6 +92,8 @@ const GradeShader = {
       col = max(vec3(0.0), mix(vec3(l), col, uSat));
       col = 0.18 * pow(col / 0.18, vec3(uContrast));
       col *= vec3(1.0 + uWarm, 1.0, 1.0 - uWarm);
+      // A little film grain.
+      col *= 1.0 + (fract(sin(dot(vUv * 1000.0 + uTime, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * uGrain;
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
@@ -201,7 +216,7 @@ function addFlare() {
   const glow = glowTex();
   const g = new THREE.Group();
   for (const [size, op] of [[2600, 0.55], [900, 0.9]]) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: new THREE.Color(2.2, 2.0, 1.7), transparent: true, opacity: op, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: new THREE.Color(...TOD.flare), transparent: true, opacity: op, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
     sp.scale.set(size, size, 1); g.add(sp);
   }
   scene.add(g);
@@ -384,7 +399,7 @@ function garagePanel() {
 }
 
 const SETTINGS = [
-  { key: 'tod', label: 'Time of day', opts: [['day', 'Day'], ['sunset', 'Sunset']], reload: true },
+  { key: 'tod', label: 'Time of day', opts: [['golden', 'Golden hour'], ['day', 'Midday'], ['sunset', 'Sunset']], reload: true },
   { key: 'quality', label: 'Graphics', opts: [['ultra', 'Ultra'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']], reload: true },
   { key: 'renderScale', label: 'Render scale', opts: [[0.75, '75%'], [1, '100%'], [1.25, '125%'], [1.5, '150%']], reload: true },
   { key: 'fps', label: 'FPS counter', opts: [[true, 'On'], [false, 'Off']] },
@@ -498,7 +513,7 @@ function physics(dt, inp) {
 // ---------------------------------------------------------------------------
 // Rendering the car and the camera
 // ---------------------------------------------------------------------------
-const tmpV = new THREE.Vector3(), lookV = new THREE.Vector3(), camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
+const tmpFwd = new THREE.Vector3(), tmpV = new THREE.Vector3(), lookV = new THREE.Vector3(), camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
 let camInit = false;
 const camQuery = [];
 const camFrustum = new THREE.Frustum(), projScreen = new THREE.Matrix4();
@@ -722,6 +737,13 @@ function tick(dt) {
   placeSun(sky.sun, tmpV.set(pose.x, 0, pose.z));
   if (csm) csm.update();
   if (game.flare) game.flare.position.copy(SUN_DIR).multiplyScalar(3800).add(camera.position);
+  if (grade) {
+    camera.getWorldDirection(tmpFwd);
+    tmpV.copy(SUN_DIR).multiplyScalar(5000).add(camera.position).project(camera);
+    grade.uniforms.uSun.value.set(tmpV.x * 0.5 + 0.5, tmpV.y * 0.5 + 0.5);
+    grade.uniforms.uSunVis.value = clamp((tmpFwd.dot(SUN_DIR) - 0.15) / 0.5, 0, 1);
+    grade.uniforms.uTime.value = (performance.now() / 1000) % 100;
+  }
   updateProbe(pose);
   audio.update(car, st === 'free' || st === 'race' || st === 'countdown' || st === 'finish');
   if (st === 'free' || st === 'race' || st === 'countdown') hud.drawDial(car, settings.units, { abs: car.abs, esp: car.esp, tcs: car.tcs });

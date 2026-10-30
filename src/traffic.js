@@ -42,8 +42,9 @@ export class Traffic {
     while (this.cars.length > n) this.cars.pop();
     while (this.cars.length < n) {
       const c = { active: true, type: (this.rnd() * 4) | 0, color: COLORS[(this.rnd() * COLORS.length) | 0], len: 4.7 };
-      c.type = this.rnd() < 0.12 ? 3 : (this.rnd() * 3) | 0;
-      c.len = this.models[c.type].len;
+      const r = this.rnd();
+      c.type = r < 0.07 ? 4 : r < 0.1 ? 5 : r < 0.2 ? 3 : (this.rnd() * 3) | 0;
+      c.len = this.models[c.type].len; c.mass = this.models[c.type].mass; c.rad = this.models[c.type].rad;
       this.cars.push(c);
       this.spawn(c, player, 30, 520, true);
     }

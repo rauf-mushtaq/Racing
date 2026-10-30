@@ -120,7 +120,7 @@ class Ctx {
   constructor() {
     this.gb = {}; for (const k of KEYS) this.gb[k] = new GB(COLORED.has(k));
     this.colliders = [];
-    this.L = { trees: [], palms: [], lamps: [], poles: [], hedges: [], hydrants: [], bins: [], benches: [], sigZ: [], sigX: [], bills: [], parked: [] };
+    this.L = { bushes: [], trees: [], palms: [], lamps: [], poles: [], hedges: [], hydrants: [], bins: [], benches: [], sigZ: [], sigX: [], bills: [], parked: [] };
     this.signN = 0;
   }
 }
@@ -314,6 +314,8 @@ export class City {
     const leaf = (c, rnd) => { const r = rnd(); c.setRGB(0.8 + r * 0.35, 0.88 + r * 0.2, 0.75 + r * 0.2); };
     inst(P.geo.treeCore, P.mat.treeCore, L.trees, placeTree, true, region.trees);
     inst(P.geo.treeCards, P.mat.treeCards, L.trees, placeTree, true, region.trees, leaf);
+    inst(P.geo.bushCore, P.mat.treeCore, L.bushes, placeTree, false, region.trees);
+    inst(P.geo.bushCards, P.mat.treeCards, L.bushes, placeTree, false, region.trees, leaf);
     inst(P.geo.palmTrunk, P.mat.palmTrunk, L.palms, placeTree, true, region.trees);
     inst(P.geo.palmFronds, P.mat.palmFronds, L.palms, placeTree, true, region.trees, leaf);
     const placeYaw = it => at(it[0], it[3], it[1], it[2], 1);
@@ -406,7 +408,7 @@ export class City {
         if (n < nLamps - 1) {
           const tm = t + (len - 16) / (nLamps - 1) / 2, pt = s.c - s.out * 2.6;
           const [tx, tz] = s.axis === 'x' ? [pt, tm] : [tm, pt];
-          if (blvd) { if ((n + i + j) % 3 === 2) this.tree(ctx, tx, tz, 1.1 + rnd() * 0.5, CURB, false); else this.tree(ctx, tx, tz, 0.9 + rnd() * 0.35, CURB, true); }
+          if (blvd) { if ((n + i + j) % 3 === 2) this.tree(ctx, tx, tz, 1.1 + rnd() * 0.5, CURB, false); else this.tree(ctx, tx, tz, 0.9 + rnd() * 0.35, CURB, true); L.bushes.push([tx + (rnd() - 0.5) * 3, tz + (rnd() - 0.5) * 3, 0.8 + rnd() * 0.6, CURB]); }
           else if (rnd() < 0.8) this.tree(ctx, tx, tz, 0.85 + rnd() * 0.5, CURB, false);
         }
       }
@@ -428,6 +430,10 @@ export class City {
       gb.curb.extrude(lawn, CURB, CURB + 0.03, 4.5, 4.5, WHITE, 0, true);
       const mx = (ix0 + ix1) / 2, mz = (iz0 + iz1) / 2;
       gb.walk.flat(ix0, mz - 1.6, ix1, mz + 1.6, CURB + 0.05, 6, WHITE); gb.walk.flat(mx - 1.6, iz0, mx + 1.6, iz1, CURB + 0.05, 6, WHITE);
+      for (let k = 0; k < 40; k++) {
+        const bx = ix0 + 4 + rnd() * (ix1 - ix0 - 8), bz = iz0 + 4 + rnd() * (iz1 - iz0 - 8);
+        if (Math.abs(bx - mx) > 3 && Math.abs(bz - mz) > 3) L.bushes.push([bx, bz, 0.9 + rnd() * 0.9, CURB + 0.03]);
+      }
       for (let k = 0; k < 44; k++) {
         const x = ix0 + 6 + rnd() * (ix1 - ix0 - 12), z = iz0 + 6 + rnd() * (iz1 - iz0 - 12);
         if (Math.abs(x - mx) < 4 || Math.abs(z - mz) < 4) continue;
@@ -502,6 +508,10 @@ export class City {
       if (axis === 'x') { gb.park.flat(C - m, a0, C + m, a1, MEDIAN_H, 18, WHITE); gb.curb.walls(C - m, a0, C + m, a1, 0, MEDIAN_H, 4.5, 4.5, WHITE); }
       else { gb.park.flat(a0, C - m, a1, C + m, MEDIAN_H, 18, WHITE); gb.curb.walls(a0, C - m, a1, C + m, 0, MEDIAN_H, 4.5, 4.5, WHITE); }
       for (let a = a0 + 6; a < a1 - 3; a += 21) ctx.L.palms.push(axis === 'x' ? [C, a, 0.95 + rnd() * 0.35, MEDIAN_H] : [a, C, 0.95 + rnd() * 0.35, MEDIAN_H]);
+      for (let a = a0 + 3; a < a1 - 1; a += 5.5) {                                // a lush strip of bushes down the median
+        const o = (rnd() - 0.5) * 2.2, sc = 0.9 + rnd() * 0.7;
+        ctx.L.bushes.push(axis === 'x' ? [C + o, a, sc, MEDIAN_H] : [a, C + o, sc, MEDIAN_H]);
+      }
       if (hash3(k, seg, axis === 'x' ? 1 : 2) < 0.2) this.gantry(ctx, axis, k, (aA + aB) / 2, m, lw, nl, H);
     }
   }

@@ -156,21 +156,23 @@ function buildClouds(scene) {
     }
   } else {
     // Fair-weather cumulus: clumps of puffs, white on top and grey underneath.
-    // Colours above 1 so they read as sunlit white against the bright sky.
-    for (let k = 0; k < 30; k++) {
-      const a = rnd() * Math.PI * 2, d = 2600 + rnd() * 1900;
+    // Colours above 1 so they read as sunlit against the bright sky; warm-lit
+    // at golden hour, with a bank of cloud towards the sun.
+    const tint = TOD.cloudTint, sunAz = Math.atan2(SUN_DIR.x, SUN_DIR.z);
+    for (let k = 0; k < 34; k++) {
+      const a = TOD.split > 0 && k % 2 ? sunAz + (rnd() - 0.5) * 2.0 : rnd() * Math.PI * 2, d = 2600 + rnd() * 1900;
       const cx = Math.sin(a) * d, cz = Math.cos(a) * d, cy = 420 + rnd() * 500;
       const n = 5 + (rnd() * 6) | 0, w = 130 + rnd() * 200;
       for (let i = 0; i < n; i++) {
         const p = new THREE.Vector3(cx + (rnd() - 0.5) * w * 2.4, cy + (rnd() - 0.2) * w * 0.45, cz + (rnd() - 0.5) * w);
-        const sz = w * (0.7 + rnd() * 0.6), v = 2.4 + rnd() * 0.5;
-        mk(p, sz * 1.5, sz, new THREE.Color(v, v, v * 1.03), 0.6 + rnd() * 0.3);
+        const sz = w * (0.7 + rnd() * 0.6), v = 0.85 + rnd() * 0.25;
+        mk(p, sz * 1.5, sz, new THREE.Color(tint[0] * v, tint[1] * v, tint[2] * v), 0.6 + rnd() * 0.3);
       }
     }
     // Thin haze along the horizon.
     for (let i = 0; i < 30; i++) {
       const a = rnd() * Math.PI * 2, d = 4500 + rnd() * 500;
-      mk(new THREE.Vector3(Math.sin(a) * d, 300 + rnd() * 200, Math.cos(a) * d), 2000 + rnd() * 2000, 160 + rnd() * 140, new THREE.Color(2.0, 2.1, 2.3), 0.2 + rnd() * 0.12);
+      mk(new THREE.Vector3(Math.sin(a) * d, 300 + rnd() * 200, Math.cos(a) * d), 2000 + rnd() * 2000, 160 + rnd() * 140, new THREE.Color(TOD.cloudTint[0] * 0.8, TOD.cloudTint[1] * 0.85, TOD.cloudTint[2] * 0.92), 0.2 + rnd() * 0.12);
     }
   }
   quads.sort((a, b) => Math.hypot(b.p.x, b.p.z) - Math.hypot(a.p.x, a.p.z));
