@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
   if (selfTestWheel) return wheelSelfTest() == 0 ? 0 : 1;
   HWND hwnd = CreateWindowA("SunsetCityWnd", "Sunset City", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, wc.hInstance, nullptr);
   Quality q; q.msaa = msaa; q.ao = !aoOff; q.shadows = !shadowOff;
-  R.init(hwnd, W, H, offscreen, q); R.time = tod; R.day = R.dayTarget = dayArg; R.q.reflections = saved.reflections;
+  R.init(hwnd, W, H, offscreen, q); R.time = tod; R.day = R.dayTarget = dayArg; R.q.reflections = saved.reflections; R.q.softShadows = saved.softShadows; R.q.autoExposure = saved.autoExposure; R.q.bounce = saved.bounce;
   Game G; G.useSaved = !testRun; G.musicOn = !testRun; G.wheel.hwnd = hwnd; G.wheel.report = !testRun; G.init(R); G.music.setFolder(findMusic()); std::memcpy(G.color, color, sizeof color);
   if (fakeWheel) { Settings& st = G.settings; st.steer = { 15, 0, 0.5f, 1.0f, 0.0f }; st.throttle = { 15, 2, 1.0f, 0.0f, 0 }; st.brake = { 15, 3, 1.0f, 0.0f, 0 }; st.btn[ACT_HANDBRAKE] = 15 * 32 + 4; st.btn[ACT_SHIFTUP] = 15 * 32 + 1;
     float ax[6] = { 0.74f, 0.5f, 0.45f, 0.93f, 0.5f, 0.5f }; G.wheel.fake(ax, 0x5); G.wheel.poll(0.0); }   // for screenshots of the settings page

@@ -29,16 +29,35 @@ V VSMain(VIn i) {
 float3 Shade(float3 albedo, float metal, float rough, float3 n, float3 v, float sh) {
   float3 f0 = lerp(float3(0.04, 0.04, 0.04), albedo, metal), diff = albedo * (1.0 - metal);
   float ndl = saturate(dot(n, gSunDir.xyz));
-  return diff * (gSunColor.rgb * ndl * sh + AmbientSky(n)) + SpecularLight(n, v, f0, rough, sh);
+  return diff * (gSunColor.rgb * ndl * sh + AmbientLight(n, gSpecP)) + SpecularLight(n, v, f0, rough, sh);
 }
 // Asphalt with lane markings drawn analytically (so they stay sharp): uv = (metres across from the centre line, metres along the road);
 // colour.r = half width / 32, colour.g = style (0 motorway, 0.5 service road, 1 runway).
-float3 RoadSurface(float2 uv, float4 col, float fp, out float rough) {
+float3 RoadSurface(float2 uv, float4 col, float fp, out float rough, out float relief) {
   float hw = col.r * 32.0; float style = col.g;
   float g = fbmAA(uv * float2(1, 1), fp, 3.0), g2 = fbmAA(uv + 11.0, fp, 12.0), g3 = fbmAA(uv * 0.3 + 5.0, fp, 0.6);
-  float3 asph = float3(0.14, 0.14, 0.145) * (0.75 + 0.5 * g) * (0.88 + 0.24 * g2) * (0.85 + 0.3 * g3);
-  rough = 0.58 + 0.2 * g2;
-  float lw = max(0.075, fp * 0.9), x = uv.x, s = uv.y;
+  float3 asph = float3(0.150, 0.148, 0.146) * (0.78 + 0.44 * g) * (0.88 + 0.24 * g2) * (0.85 + 0.3 * g3);
+  rough = 0.76 + 0.14 * g2;
+  float x = uv.x, s = uv.y, ax = abs(x);
+  // Stones and grain; the wheel paths (a lane is about 3.6 m, tracks a little either side of its middle) polished and darker, with crazed cracking and oil.
+  float2 stn = AsphaltStones(uv, fp); asph *= stn.x; relief = stn.y;
+  float lane = style < 0.25 ? 3.6 : style < 0.75 ? 3.4 : 6.0, t = frac(ax / lane), trk = exp(-pow((abs(t - 0.5) - 0.2) / 0.075, 2.0)), oil = exp(-pow((t - 0.5) / 0.1, 2.0)) * smoothstep(0.58, 0.8, fbmAA(uv, fp, 0.3));
+  asph *= 1.0 - 0.15 * trk * smoothstep(0.1, 0.0, fp) - 0.2 * oil; rough -= 0.12 * trk;
+  float crack = 0.0, seal = 0.0;
+  float zone = saturate(trk * 1.5) * smoothstep(0.52, 0.76, fbmAA(uv + 3.0, fp, 0.18));
+  if (zone > 0.01 && fp < 0.05) crack = max(crack, Thin(CellEdge(uv, 0.28 + 0.14 * g2), 0.0035 + 0.003 * g, fp) * zone);
+  { float tp = 11.0, ta = s + 3.0 * hash12(float2(floor(ax / lane), 9.0)), tid = floor(ta / tp), tc = (tid + 0.15 + 0.7 * hash12(float2(tid, 2.0))) * tp;    // thermal cracks across the road, some sealed with tar
+    float wob = (vnoise(float2(x * 1.7, tid * 5.1)) - 0.5) * 0.45, dT = abs(ta - tc - wob), tm = smoothstep(0.3, 0.55, vnoise(float2(x * 0.22 + tid * 7.3, 2.0)));
+    crack = max(crack, Thin(dT, 0.0055, fp) * tm); seal = Thin(dT, 0.032, fp) * tm * step(0.5, hash12(float2(tid + 3.0, 4.0)));
+    float seam = abs(frac(ax / lane + 0.5) - 0.5) * lane; crack = max(crack, Thin(seam, 0.006, fp) * smoothstep(0.35, 0.65, vnoise(float2(s * 0.3, floor(ax / lane)))) * 0.7); }
+  float2 wv = float2(vnoise(uv * 0.8 + 3.0), vnoise(uv * 0.8 + 11.0)) - 0.5; float cn = abs(vnoise((uv + wv * 3.0) * 1.9 + 13.0) - 0.5) / 2.3;
+  crack = max(crack, Thin(cn, 0.0045 + 0.003 * g, fp) * smoothstep(0.58, 0.78, fbmAA(uv, fp, 0.27)) * 0.9);
+  float2 pc = floor(uv / float2(15.0, 29.0)); float h0 = hash12(pc + 31.0), h1 = hash12(pc + 3.3), h2 = hash12(pc + 8.8), patchIn = 0.0, patchEdge = 0.0;   // a repair strip of newer, smoother asphalt
+  if (h0 > 0.5) { float2 org = pc * float2(15.0, 29.0) + float2(3.0, 4.0) + float2(h1, h2) * float2(9.0, 18.0), hs = float2(0.5 + 0.4 * h1, 3.0 + 6.0 * h2), dq = abs(uv - org) - hs; float sd = max(dq.x, dq.y);
+    patchIn = 1.0 - smoothstep(-fp, fp + 0.004, sd); patchEdge = Thin(abs(sd), 0.011, fp); }
+  asph = lerp(asph, asph * lerp(0.66, 0.8, g2), patchIn); relief += patchIn * 0.002 - crack * 0.0025;
+  crack = max(crack, patchEdge * 0.9); asph *= 1.0 - 0.62 * crack; asph = lerp(asph, float3(0.035, 0.035, 0.037), seal * 0.85); rough -= 0.28 * seal;
+  float lw = max(0.075, fp * 0.9);
   float white = 0.0, yellow = 0.0;
   if (style < 0.25) {                                          // motorway: edge lines, dashed lane lines, yellow lines beside the median barrier
     white += 1.0 - smoothstep(lw, lw * 2.0, abs(abs(x) - (hw - 0.55)));
@@ -51,6 +70,8 @@ float3 RoadSurface(float2 uv, float4 col, float fp, out float rough) {
     white += 1.0 - smoothstep(lw * 2.0, lw * 4.0, abs(abs(x) - (hw - 1.1)));
     float dash = step(0.62, frac(s / 50.0)); white += (1.0 - smoothstep(0.45, 0.6, abs(x))) * (1.0 - dash) * step(60.0, s);
   }
+  float wearP = smoothstep(0.52, 0.86, fbmAA(uv + 21.0, fp, 3.5) * 0.7 + vnoise(uv * 23.0) * 0.3);   // worn paint: blotchy loss, a thin raised edge
+  white *= 1.0 - 0.72 * wearP; yellow *= 1.0 - 0.55 * wearP; relief += saturate(white + yellow) * 0.0013; rough -= 0.3 * saturate(white + yellow);
   float wear = 0.75 + 0.25 * g2;
   float3 c = lerp(asph, float3(0.72, 0.72, 0.68) * wear, saturate(white));
   c = lerp(c, float3(0.78, 0.55, 0.10) * wear, saturate(yellow));
@@ -73,7 +94,7 @@ PSOut PSMain(V i) {
   float3 n = normalize(i.nrm), v = normalize(gCamPos.xyz - i.wpos);
   if (dot(n, v) < 0.0 && gP3.x > 0.5) n = -n;                  // double-sided materials (foliage) light the side facing the camera
   float fpUV = max(length(ddx(i.uv)), length(ddy(i.uv)));            // derivatives are taken outside any branch
-  gSpecP = i.wpos;
+  gSpecP = i.wpos; gPix = i.pos.xy;
   float type = gP0.x, sh = ShadowFactor(i.wpos, n, dist);
   float3 col;
   if (type < 0.5) {                                            // plain
@@ -87,8 +108,9 @@ PSOut PSMain(V i) {
     col += EnvReflect(rc, i.wpos) * (0.035 + 0.55 * F) * (0.7 + 0.3 * saturate(nv * 2.0));      // the clear coat mirrors the street around the car
     float3 hh = normalize(gSunDir.xyz + v); col += gSunColor.rgb * pow(saturate(dot(n, hh)), 900.0) * 9.0 * sh;   // a tight sun highlight
   } else if (type < 2.5) {                                     // road
-    float fp = fpUV; float rough;
-    float3 alb = RoadSurface(i.uv, i.col, fp, rough);
+    float fp = fpUV; float rough, relief;
+    float3 alb = RoadSurface(i.uv, i.col, fp, rough, relief);
+    n = BumpNormal(n, i.wpos, relief, 1.3 * (1.0 - smoothstep(35.0, 120.0, dist)));
     col = Shade(alb, 0.0, rough, n, v, sh);
     col += SpecularLight(n, v, float3(0.04, 0.04, 0.04), rough * 0.55, sh) * 0.6;     // glossy enough to streak in the low sun
   } else if (type < 3.5) {                                     // glass: dark, mirror-like at glancing angles
@@ -205,7 +227,7 @@ PSOut PSMain(V i) {
       float edgeK = 1.0 - abs(dot(n, v)); if (lf2 < 0.20 * edgeK * edgeK + 0.04 * edgeK) discard;     // ragged leaf-clump edges
       alb *= (0.72 + 0.55 * lf) * (0.85 + 0.3 * lf2);
     }
-    col = alb * (gSunColor.rgb * (saturate(ndl) + back * tr) * sh + AmbientSky(n) * 1.05);
+    col = alb * (gSunColor.rgb * (saturate(ndl) + back * tr) * sh + AmbientLight(n, i.wpos) * 1.05);
     col += SpecularLight(n, v, float3(0.03, 0.03, 0.03), rgh, sh) * spec;
   }
   col = ApplyFog(col, i.wpos);

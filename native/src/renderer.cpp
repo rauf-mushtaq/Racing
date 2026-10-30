@@ -46,6 +46,11 @@ void Renderer::init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& qu
   psoBloomUp = post("PSBloomUp", DXGI_FORMAT_R16G16B16A16_FLOAT, true);
   psoAO = post("PSAO", DXGI_FORMAT_R8_UNORM, false); psoAOBlur = post("PSAOBlur", DXGI_FORMAT_R8_UNORM, false);
   psoComposite = post("PSComposite", ldrFormat, false); psoDof = post("PSDof", DXGI_FORMAT_R16G16B16A16_FLOAT, false);
+  psoLumA = post("PSLumA", DXGI_FORMAT_R32G32_FLOAT, false); psoLumB = post("PSLumB", DXGI_FORMAT_R32G32_FLOAT, false);
+  for (int i = 0; i < FRAMES; i++) {   // where the brightness measurement is copied for the CPU to read three frames later
+    D3D12_HEAP_PROPERTIES hp = { D3D12_HEAP_TYPE_READBACK }; D3D12_RESOURCE_DESC rd = {}; rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; rd.Width = 256; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1; rd.SampleDesc.Count = 1; rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    HR(gfx.dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&lumRead[i]))); void* mp = nullptr; HR(lumRead[i]->Map(0, nullptr, &mp)); lumPtr[i] = (float*)mp;
+  }
   for (int inst = 0; inst < 2; inst++) for (int two = 0; two < 2; two++) {
     PsoDesc d; d.file = "mesh.hlsl"; d.numRT = 2; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = S; d.layout = inst ? instancedLayout() : meshLayout(); if (inst) d.defines = { "INSTANCED" };
     d.cull = two ? D3D12_CULL_MODE_NONE : D3D12_CULL_MODE_BACK; psoMesh[inst][two] = gfx.makePso(d);
@@ -76,7 +81,7 @@ void Renderer::init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& qu
 
 void Renderer::createTargets() {
   UINT w = W, h = H, S = (UINT)q.msaa;
-  for (Texture* t : { &dofTex, &reflColor, &reflVD, &reflDepth, &msColor, &msViewDepth, &msDepth, &color, &viewDepth, &aoRaw, &aoBlur, &ldr }) gfx.releaseTexture(*t);
+  for (Texture* t : { &lumA, &lumB, &dofTex, &reflColor, &reflVD, &reflDepth, &msColor, &msViewDepth, &msDepth, &color, &viewDepth, &aoRaw, &aoBlur, &ldr }) gfx.releaseTexture(*t);
   for (auto& b : bloom) gfx.releaseTexture(b);
   gfx.srvRewind(staticSrv); gfx.rtvRewind(staticRtv); gfx.dsvRewind(staticDsv);   // targets rebuilt on a resize take over their old descriptor slots
   float c0[4] = { 0, 0, 0, 0 }, cFar[4] = { 1e6f, 0, 0, 0 }, zero = 0.0f;
@@ -98,6 +103,8 @@ void Renderer::createTargets() {
   blkAO = blkDepth;
   blkAOBlur = block(); gfx.srv2D(blkAOBlur, sceneDepth->res.Get(), DXGI_FORMAT_R32_FLOAT); gfx.srv2D(blkAOBlur + 1, aoRaw.res.Get(), DXGI_FORMAT_R8_UNORM);
   for (int i = 0; i < nBloom; i++) { blkBloom[i] = block(); gfx.srv2D(blkBloom[i], bloom[i].res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); }
+  lumA = gfx.makeTexture(32, 18, DXGI_FORMAT_R32G32_FLOAT, 1, true, false, 1, 1, c0); lumB = gfx.makeTexture(1, 1, DXGI_FORMAT_R32G32_FLOAT, 1, true, false, 1, 1, c0);
+  blkLumB = block(); gfx.srv2D(blkLumB, lumA.res.Get(), DXGI_FORMAT_R32G32_FLOAT);
   dofTex = gfx.makeTexture(w, h, DXGI_FORMAT_R16G16B16A16_FLOAT, 1, true, false, 1, 1, c0);
   blkDof = block(); gfx.srv2D(blkDof, sceneColor->res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); gfx.srv2D(blkDof + 1, sceneDepth->res.Get(), DXGI_FORMAT_R32_FLOAT);
   blkCompositeDof = block(); gfx.srv2D(blkCompositeDof, dofTex.res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); gfx.srv2D(blkCompositeDof + 1, bloom[0].res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); gfx.srv2D(blkCompositeDof + 2, aoBlur.res.Get(), DXGI_FORMAT_R8_UNORM);
@@ -122,6 +129,17 @@ void Renderer::fullscreen(Texture& target, ID3D12PipelineState* pso, UINT srvBlo
 
 void Renderer::frame(float dt) {
   gfx.beginFrame(); gfx.gpuStamp(false);
+  { // Automatic exposure: the brightness measured three frames ago, turned into a correction (in stops) that the eye-like adaptation follows.
+    const UINT fi = gfx.frameIdx; const float REF_NIGHT = 0.0f; (void)REF_NIGHT;
+    if (q.autoExposure && lumWritten[fi]) {
+      const float sum = lumPtr[fi][0], wgt = lumPtr[fi][1];
+      if (wgt > 40.0f) {                                                     // enough of the picture is not sky
+        meterLog = sum / wgt; const float ref = meterRefGold + (meterRefNoon - meterRefGold) * day;
+        const float target = clampf((ref - meterLog) * 0.55f, -0.9f, 1.1f);
+        if (!haveEv) { evNow = target; haveEv = true; } else { const float tau = target > evNow ? 1.5f : 0.55f; evNow += (target - evNow) * (1.0f - std::exp(-dt / tau)); }
+      }
+    } else if (!q.autoExposure) { evNow += (0.0f - evNow) * std::min(1.0f, dt * 3.0f); haveEv = false; }
+  }
   day += (dayTarget - day) * std::min(1.0f, dt * 1.2f); if (std::fabs(dayTarget - day) < 0.002f) day = dayTarget;
   { float elev = (17.0f + 41.0f * day) * (float)PI / 180.0f, hx = -0.26f, hz = -0.92f, hl = std::sqrt(hx * hx + hz * hz);   // the sun climbs from 17 to 58 degrees
     SUN = Vec3(std::cos(elev) * hx / hl, std::sin(elev), std::cos(elev) * hz / hl); }
@@ -144,7 +162,7 @@ void Renderer::frame(float dt) {
   }
   f.weather[0] = q.reflections ? wet : 0.0f; f.weather[1] = 1.0f; f.weather[2] = (probeReady && q.reflections) ? 1.0f : 0.0f; f.weather[3] = day; f.prevViewProj = prevViewProj;
   f.camPos[0] = cam.pos.x; f.camPos[1] = cam.pos.y; f.camPos[2] = cam.pos.z; f.camPos[3] = (float)time;
-  f.sunDir[0] = SUN.x; f.sunDir[1] = SUN.y; f.sunDir[2] = SUN.z; f.sunDir[3] = exposure * (1.0f - 0.30f * day);
+  f.sunDir[0] = SUN.x; f.sunDir[1] = SUN.y; f.sunDir[2] = SUN.z; f.sunDir[3] = exposure * (1.0f - 0.30f * day) * std::exp2(evNow);
   { const float kg = 4.8f / 3.14159f, kd = 4.1f / 3.14159f, d = day;   // golden sunlight is orange and strong; the midday sun is white-ish
     f.sunColor[0] = (1.0f * kg) * (1 - d) + (1.0f * kd) * d; f.sunColor[1] = (0.552f * kg) * (1 - d) + (0.95f * kd) * d; f.sunColor[2] = (0.262f * kg) * (1 - d) + (0.84f * kd) * d; }
   { float d = day; auto L = [&](float a, float b) { return a * (1 - d) + b * d; };
@@ -152,6 +170,7 @@ void Renderer::frame(float dt) {
     f.fogParams[0] = 0.0026f; f.fogParams[1] = L(0.00028f, 0.00018f); f.fogParams[2] = L(1.4f, 0.5f); f.fogParams[3] = L(0.32f, 0.08f); }
   f.screen[0] = (float)W; f.screen[1] = (float)H; f.screen[2] = 1.0f / W; f.screen[3] = 1.0f / H;
   f.cascade[0] = 14; f.cascade[1] = 45; f.cascade[2] = 140; f.cascade[3] = 420;
+  f.look[0] = q.softShadows ? 1.0f : 0.0f; f.look[1] = q.bounce ? 1.0f : 0.0f; f.look[2] = 1.0f; f.look[3] = 0.0f;
   computeCascades(f);
   f.params[0] = q.bloom; f.params[1] = q.ao ? 0.9f : 0.0f; f.params[2] = 0.014f; f.params[3] = 0.0012f;
   f.params2[0] = q.sharpen; f.params2[1] = q.clarity; f.params2[2] = 0.22f; f.params2[3] = 0.08f;
@@ -212,6 +231,15 @@ void Renderer::frame(float dt) {
     }
     gfx.barrier(bloom[0], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
   }
+  // --- Brightness metering for the exposure ---------------------------------------------------------------------------------------
+  if (q.autoExposure) {
+    float pa[4] = { 1.0f / 32.0f, 1.0f / 18.0f, 0, 0 }; fullscreen(lumA, psoLumA.Get(), blkDof, pa, 32, 18); gfx.barrier(lumA, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    float pb[4] = { 0, 0, 0, 0 }; fullscreen(lumB, psoLumB.Get(), blkLumB, pb, 1, 1);
+    gfx.barrier(lumB, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION dst = {}, src = {}; dst.pResource = lumRead[gfx.frameIdx].Get(); dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32G32_FLOAT; dst.PlacedFootprint.Footprint.Width = 1; dst.PlacedFootprint.Footprint.Height = 1; dst.PlacedFootprint.Footprint.Depth = 1; dst.PlacedFootprint.Footprint.RowPitch = 256;
+    src.pResource = lumB.res.Get(); src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; src.SubresourceIndex = 0; gfx.cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr); lumWritten[gfx.frameIdx] = true;
+  }
   // --- Composite -----------------------------------------------------------------------------------------------------------------
   if (q.dof) {   // depth of field and camera motion blur, then the composite reads the blurred picture
     float shutter = clampf(0.3f * (1.0f / 60.0f) / std::max(dt, 1.0f / 400.0f), 0.08f, 0.8f), maxR = 4.0f * (float)H / 1080.0f, strength = 24.0f * (float)H / 1080.0f;
@@ -222,6 +250,7 @@ void Renderer::frame(float dt) {
   // --- To the screen (and perhaps a file) ---------------------------------------------------------------------------------------
   bool shot = !shotPath.empty();
   if (shot) {
+    logf("exposure meter: average brightness %.3f (log2), correction %+.2f stops, day %.2f", meterLog, evNow, day);
     gfx.barrier(ldr, D3D12_RESOURCE_STATE_COPY_SOURCE);
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp = {}; fp.Footprint.Format = ldrFormat; fp.Footprint.Width = W; fp.Footprint.Height = H; fp.Footprint.Depth = 1; readPitch = (W * 4 + 255) & ~255u; fp.Footprint.RowPitch = readPitch;
     if (!readback) {
@@ -274,7 +303,7 @@ void Renderer::computeCascades(FrameCB& f) {
     float dist = R + ext[c]; Mat4 lv = lookAt(centre + SUN * dist, centre, Vec3(0, 1, 0));
     Vec3 lc = transformPoint(lv, centre); float texel = 2.0f * R / 2048.0f; lc.x = std::floor(lc.x / texel + 0.5f) * texel; lc.y = std::floor(lc.y / texel + 0.5f) * texel;
     float range = dist + R + 60.0f; cascadeVP[c] = mul(orthoRH(lc.x - R, lc.x + R, lc.y - R, lc.y + R, 0.0f, range), lv); f.shadowVP[c] = cascadeVP[c];
-    f.shadowBias[c] = worldBias[c] / range; f.shadowTexel[c] = texel;
+    f.shadowBias[c] = worldBias[c] / range; f.shadowTexel[c] = texel; f.shadowRange[c] = range;
   }
 }
 void Renderer::reflectionPass(const FrameCB& f) {

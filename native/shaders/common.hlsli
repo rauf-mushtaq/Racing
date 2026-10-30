@@ -18,6 +18,8 @@ cbuffer Frame : register(b0) {
   float4 gShadowTexel; // size of a shadow texel in metres, per cascade
   float4 gWeather;     // x = wetness of the streets (0 dry, 1 soaked), y = reflection strength
   float4x4 gPrevVP;    // last frame's view-projection, for motion blur
+  float4 gLook;        // x = soft (contact-hardening) shadows, y = bounced light and street-canyon shading, z = surface detail (road wear)
+  float4 gShadowRange; // metres of depth across each shadow cascade (turns a depth difference into a distance)
 };
 cbuffer Draw : register(b1) { float4x4 gWorld; float4 gP0; float4 gP1; float4 gP2; float4 gP3; };
 
@@ -82,6 +84,25 @@ float3 AmbientSky(float3 n) {
 // horizon it is the dark street. Out in the country the walls fade away and the sky comes down to the horizon. gSpecP is the point
 // being shaded (set by the shader before it shades).
 static float3 gSpecP = float3(0, 0, 0);
+static float2 gPix = float2(0, 0);       // the pixel being shaded (SV_Position.xy), for noise that dithers per pixel
+float IGN(float2 p) { return frac(52.9829189 * frac(dot(p, float2(0.06711056, 0.00583715)))); }   // interleaved gradient noise
+// Light from everything round a surface that is not the sun. Out in the country this is just the sky (and the ground's bounce). In the
+// city the street is a canyon: the walls on both sides hide part of the sky, so surfaces near the ground see less of it, and a wall in
+// shade looks across at a wall in sun, which bounces warm light into it. p is the point being shaded (y = height above the street).
+float3 AmbientLight(float3 n, float3 p) {
+  float3 amb = AmbientSky(n);
+  if (gLook.y > 0.5) {
+    float cityK = 1.0 - smoothstep(2000.0, 2700.0, max(abs(p.x), abs(p.z)));
+    float low = 1.0 - smoothstep(4.0, 60.0, p.y);                                     // 1 at street level, gone above the rooftops
+    float skyVis = lerp(1.0, 0.64, cityK * low * (0.55 + 0.45 * saturate(1.0 - n.y)));   // walls and the ground see less sky than a rooftop does
+    amb *= skyVis;
+    float2 sh = gSunDir.xz; float sl = max(length(sh), 1e-3); float3 wallAlb = lerp(float3(0.40, 0.36, 0.31), float3(0.46, 0.42, 0.37), gWeather.w);
+    float across = saturate(-dot(n.xz, sh / sl)) * sl;                                  // a face turned away from the sun looks at one turned towards it
+    amb += wallAlb * gSunColor.rgb * across * 0.30 * cityK * low * saturate(1.0 - abs(n.y));   // warm light off the sunlit wall opposite
+    amb += float3(0.30, 0.27, 0.22) * gSunColor.rgb * gSunDir.y * 0.05 * cityK * low * saturate(n.y);   // and some off the street's own sunlit patches, up into a shaded road
+  }
+  return amb;
+}
 #ifndef NO_SHADOW_MAP
 // The reflection probe: six 94-degree faces (+x, -x, +y, -y, +z, -z) drawn from the car (renderer.cpp, probePass). The basis here is the
 // one lookAt builds: right = forward x up, up = right x forward.
@@ -154,6 +175,8 @@ float3 ApplyFog(float3 col, float3 wpos) {
 // --- Shadows: four cascades in one array texture (t0) -----------------------------------------------
 #ifndef NO_SHADOW_MAP
 Texture2DArray<float> gShadowMap : register(t0);
+static const float2 kDisk16[16] = { float2(0.1768, 0.0000), float2(-0.2258, 0.2068), float2(0.0346, -0.3938), float2(0.2846, 0.3712), float2(-0.5222, -0.0924), float2(0.4947, -0.3147), float2(-0.1655, 0.6155), float2(-0.3156, -0.6076), float2(0.6846, 0.2500), float2(-0.7123, 0.2940), float2(0.3434, -0.7337), float2(0.2537, 0.8089), float2(-0.7647, -0.4432), float2(0.8971, -0.1972), float2(-0.5475, 0.7788), float2(-0.1265, -0.9761) };
+static const float2 kDisk12[12] = { float2(0.2041, 0.0000), float2(-0.2607, 0.2388), float2(0.0399, -0.4547), float2(0.3286, 0.4286), float2(-0.6030, -0.1067), float2(0.5712, -0.3634), float2(-0.1911, 0.7107), float2(-0.3644, -0.7016), float2(0.7906, 0.2887), float2(-0.8224, 0.3395), float2(0.3965, -0.8472), float2(0.2930, 0.9341) };
 float ShadowFactor(float3 wpos, float3 n, float viewDist) {
   int c = viewDist < gCascade.x ? 0 : viewDist < gCascade.y ? 1 : viewDist < gCascade.z ? 2 : 3;
   if (viewDist > gCascade.w) return 1.0;
@@ -164,13 +187,73 @@ float ShadowFactor(float3 wpos, float3 n, float viewDist) {
   float2 uv = sp.xy * float2(0.5, -0.5) + 0.5;
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || sp.z > 1.0) return 1.0;
   float texel = 1.0 / 2048.0, s = 0.0;
-  [unroll] for (int j = -1; j <= 1; j++) [unroll] for (int i = -1; i <= 1; i++)
-    s += gShadowMap.SampleCmpLevelZero(sShadow, float3(uv + float2(i, j) * texel * 1.3, c), sp.z - bias);
-  float sh = s / 9.0;
   float fade = smoothstep(gCascade.w * 0.85, gCascade.w, viewDist);
-  return lerp(sh, 1.0, fade);
+  if (gLook.x < 0.5 || c > 1) {                           // beyond 45 m the blur is not visible, or soft shadows are off: a small fixed filter
+    [unroll] for (int j = -1; j <= 1; j++) [unroll] for (int i = -1; i <= 1; i++)
+      s += gShadowMap.SampleCmpLevelZero(sShadow, float3(uv + float2(i, j) * texel * 1.3, c), sp.z - bias);
+    return lerp(s / 9.0, 1.0, fade);
+  }
+  // Soft shadows. The sun is a disc half a degree wide, so a shadow edge blurs in proportion to how far the surface is behind
+  // whatever blocks the light: razor sharp where they touch, a hand's width after a few metres. First find the blockers, which gives that
+  // distance, then filter with a disc of the matching size. The depth of the receiving surface is followed across the filter, so a
+  // sloping surface does not shadow itself.
+  float3 t1 = normalize(cross(n, abs(n.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0))), t2 = cross(n, t1);
+  float3 s1 = mul(gShadowVP[c], float4(t1, 0.0)).xyz, s2 = mul(gShadowVP[c], float4(t2, 0.0)).xyz;
+  float2 a1 = float2(0.5 * s1.x, -0.5 * s1.y), a2 = float2(0.5 * s2.x, -0.5 * s2.y);
+  float det = a1.x * a2.y - a1.y * a2.x; float2 g = 0;
+  if (abs(det) > 1e-10) g = clamp(float2(s1.z * a2.y - a1.y * s2.z, a1.x * s2.z - s1.z * a2.x) / det, -2.0, 2.0);
+  float ang = IGN(gPix) * 6.2831853, cs = cos(ang), sn = sin(ang); float2x2 rot = float2x2(cs, -sn, sn, cs);
+  float searchR = clamp(0.19 / texW, 2.0, 14.0);          // texels: enough to see blockers up to about forty metres away
+  float bsum = 0.0, bcnt = 0.0;
+  [unroll] for (int k = 0; k < 12; k++) {
+    float2 off = mul(rot, kDisk12[k]) * searchR * texel;
+    float d = gShadowMap.Load(int4(clamp(int2((uv + off) * 2048.0), 0, 2047), c, 0));
+    if (d < sp.z + dot(g, off) - bias) { bsum += d; bcnt += 1.0; }
+  }
+  if (bcnt < 0.5) return 1.0;                             // nothing between this point and the sun
+  float gapM = max(0.0, sp.z - bsum / bcnt) * gShadowRange[c];     // metres from the blocker to this surface
+  float rT = clamp(0.5 * gapM * 0.0093 / texW, 1.25, 16.0);        // penumbra radius in texels
+  [unroll] for (int m = 0; m < 16; m++) {
+    float2 off = mul(rot, kDisk16[m]) * rT * texel;
+    s += gShadowMap.SampleCmpLevelZero(sShadow, float3(uv + off, c), sp.z + dot(g, off) - bias);
+  }
+  return lerp(s / 16.0, 1.0, fade);
 }
 #endif
+
+// --- Road wear ---------------------------------------------------------------------------------------------------------------
+// A thin dark line (a crack, a seam) at distance d from its centre: never thinner than a pixel, fainter instead, so it does not shimmer.
+float Thin(float d, float w, float fp) { float L = max(w, fp * 1.2); return (1.0 - smoothstep(0.0, L, d)) * (w / L); }
+// Distance to the nearest border of a Voronoi cell about s metres across: the crazed pattern of tired asphalt.
+float CellEdge(float2 p, float s) {
+  float2 q = p / s, id = floor(q), f = frac(q); float d1 = 8.0, d2 = 8.0;
+  [unroll] for (int j = -1; j <= 1; j++) [unroll] for (int i = -1; i <= 1; i++) {
+    float2 g = float2(i, j), o = float2(hash12(id + g), hash12(id + g + 41.7)); float2 r = g + o * 0.85 + 0.075 - f; float d = dot(r, r);
+    if (d < d1) { d2 = d1; d1 = d; } else if (d < d2) d2 = d;
+  }
+  return (sqrt(d2) - sqrt(d1)) * 0.5 * s;
+}
+// The stones in asphalt: cells about a centimetre and a half across, each holding a pale chip, a dark bitumen-coated one, or nothing.
+// x = brightness multiplier, y = relief in metres. Fades to nothing once the stones are smaller than a pixel.
+float2 AsphaltStones(float2 p, float fp) {
+  float2 acc = float2(1.0, 0.0); float f1 = 68.0, w1 = saturate(1.0 - fp * f1 * 1.6);
+  if (w1 > 0.0) {
+    float2 q = p * f1, id = floor(q), f = frac(q) - 0.5; float2 j = float2(hash12(id), hash12(id + 17.3)) - 0.5;
+    float r = 0.20 + 0.28 * hash12(id + 5.1), st = smoothstep(r, r * 0.5, length(f - j * 0.5)), tone = hash12(id + 9.7);
+    acc.x += w1 * st * (tone > 0.5 ? 0.30 + 0.9 * tone : -0.34); acc.y += w1 * st * 0.0011 * (0.4 + tone);
+  }
+  float f2 = 175.0, w2 = saturate(1.0 - fp * f2 * 1.6);
+  if (w2 > 0.0) {
+    float2 q = p * f2 + 7.3, id = floor(q), f = frac(q) - 0.5; float r = 0.22 + 0.25 * hash12(id + 2.7), st = smoothstep(r, r * 0.5, length(f)), tone = hash12(id + 31.1);
+    acc.x += w2 * st * (tone > 0.5 ? 0.25 + 0.7 * tone : -0.25); acc.y += w2 * st * 0.0005;
+  }
+  return acc;
+}
+// A cast-iron manhole cover at q (metres from its centre). Returns the lid (1 on it); ring is the dark gap round it, studs the raised pattern.
+float Manhole(float2 q, float fp, out float ring, out float studs) {
+  float r = length(q); ring = Thin(abs(r - 0.335), 0.014, fp); studs = step(0.5, frac((q.x + q.y) * 15.0)) * step(0.5, frac((q.x - q.y) * 15.0));
+  return 1.0 - smoothstep(0.325 - fp, 0.325 + fp, r);
+}
 
 // --- Lighting helpers --------------------------------------------------------------------------------
 float3 FresnelSchlick(float3 f0, float c) { return f0 + (1.0 - f0) * pow(1.0 - saturate(c), 5.0); }

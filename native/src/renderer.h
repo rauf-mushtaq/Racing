@@ -11,10 +11,11 @@ struct FrameCB {
   Mat4 viewProj, view, invViewProj, shadowVP[4];
   float camPos[4], sunDir[4], sunColor[4], fogColor[4], fogParams[4], screen[4], cascade[4], params[4], params2[4], sunScreen[4], shadowBias[4], shadowTexel[4], weather[4];
   Mat4 prevViewProj;
+  float look[4], shadowRange[4];
 };
 struct CamState { Vec3 pos; float yaw = 0, pitch = 0, fov = 60.0f; };  // yaw: 0 = north (-z), 90 = east; degrees
 
-struct Quality { int msaa = 4; bool ao = true, shadows = true, reflections = true, dof = true; float bloom = 0.22f; float sharpen = 0.22f, clarity = 0.16f; };
+struct Quality { int msaa = 4; bool ao = true, shadows = true, reflections = true, dof = true, softShadows = true, bounce = true, autoExposure = true; float bloom = 0.22f; float sharpen = 0.22f, clarity = 0.16f; };
 // How a mesh is shaded: type 0 plain, 1 car paint, 2 road, 3 glass, 4 emissive, 5 foliage (see mesh.hlsl).
 struct Material { float type = 0, rough = 0.8f, metal = 0, emissive = 0; float tint[3] = { 1, 1, 1 }; bool twoSided = false; };
 
@@ -25,6 +26,8 @@ public:
   float wet = 0.14f, focusDist = 7.0f;   // wet: how soaked the streets are
   Mat4 prevViewProj = Mat4::identity(); bool havePrev = false;
   Mat4 view, proj, viewProj; Vec3 forward; Frustum frustum;
+  float meterRefGold = -2.6f, meterRefNoon = -2.0f;               // the average brightness (log2) that needs no correction, at golden hour and at midday (set from measurements)
+  float evNow = 0.0f, meterLog = 0.0f;                           // automatic exposure: the correction in stops being applied, and the last measured average brightness (log2)
   UINT W = 0, H = 0; UINT statDraws = 0, statShadowDraws = 0;   // draw calls in the last frame (all, and the part spent on shadow cascades)
   std::function<void(Renderer&, bool, const Frustum&)> drawWorld;   // everything that isn't terrain, sea or sky; called for each shadow cascade and for the scene
   std::function<void(Gfx&, Vec3)> onBeginFrame;                       // called each frame after the command list is open (streaming uploads)
@@ -46,7 +49,8 @@ public:
   DXGI_FORMAT ldrFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 private:
   ComPtr<ID3D12PipelineState> psoMesh[2][2], psoShMesh, psoShInst, psoShTerrain, psoShFoliage;   // mesh[instanced][twoSided]
-  ComPtr<ID3D12PipelineState> psoMeshR[2][2], psoMeshC[2][2], psoSkyR, psoFx, psoSky, psoWater, psoBloomFirst, psoBloomDown, psoBloomUp, psoAO, psoAOBlur, psoComposite, psoDof;
+  ComPtr<ID3D12PipelineState> psoMeshR[2][2], psoMeshC[2][2], psoSkyR, psoFx, psoSky, psoWater, psoBloomFirst, psoBloomDown, psoBloomUp, psoAO, psoAOBlur, psoComposite, psoDof, psoLumA, psoLumB;
+  Texture lumA, lumB; ComPtr<ID3D12Resource> lumRead[FRAMES]; float* lumPtr[FRAMES] = {}; bool lumWritten[FRAMES] = {}; UINT blkLumB = 0; bool haveEv = false;
   Texture probeW, probeR, probeVD, probeDepth;   // the reflection probe: six faces drawn into probeW one per frame and copied into probeR, which the shaders read
   UINT probeFace = 0, probeTick = 0, staticRtv = 0, staticDsv = 0; bool probeReady = false;
   void probePass(const FrameCB& f);

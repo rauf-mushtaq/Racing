@@ -79,7 +79,7 @@ enum { W_ON = 1, W_SCAN, W_STEER, W_THROTTLE, W_BRAKE, W_SENS, W_LIN, W_DEAD, W_
 static int parentPage(int page) { return page >= 3 ? 2 : 0; }   // 3 graphics, 4 wheel, 5 sound all hang off the settings page (2)
 static std::string onoff(bool b) { return b ? "On" : "Off"; }
 static std::string num(float v, int dec = 1) { char b[32]; snprintf(b, sizeof b, "%.*f", dec, v); return b; }
-void Game::applyGraphics() { if (!rend) return; rend->gfx.vsync = settings.vsync; rend->q.ao = settings.ao; rend->q.shadows = settings.shadows; rend->q.reflections = settings.reflections; rend->dayTarget = settings.day ? 1.0f : 0.0f; }
+void Game::applyGraphics() { if (!rend) return; rend->gfx.vsync = settings.vsync; rend->q.ao = settings.ao; rend->q.shadows = settings.shadows; rend->q.reflections = settings.reflections; rend->q.softShadows = settings.softShadows; rend->q.autoExposure = settings.autoExposure; rend->q.bounce = settings.bounce; rend->dayTarget = settings.day ? 1.0f : 0.0f; }
 void Game::buildMenu(int page) {
   menuPage = page; menuItems.clear(); menuSel = 0;
   if (page == 0) {
@@ -110,6 +110,9 @@ void Game::buildMenu(int page) {
     menuItems.push_back({ "Shadows: " + onoff(settings.shadows), "The sun's shadows. Turn off for a big speed-up on a slow graphics card. (F6)", A_GFX, 2, true });
     menuItems.push_back({ "Reflections: " + onoff(settings.reflections), "Live reflections in paint, glass, windows and wet roads. (F7)", A_GFX, 3, true });
     menuItems.push_back({ std::string("Time of day: ") + (settings.day ? "Midday" : "Golden hour"), "Bright midday sun, or the low orange light of the evening. (T)", A_GFX, 4, true });
+    menuItems.push_back({ "Soft shadows: " + onoff(settings.softShadows), "Shadow edges blur with distance from whatever casts them, like the real sun: sharp at the contact, soft further away. Costs some speed.", A_GFX, 6, true });
+    menuItems.push_back({ "Auto exposure: " + onoff(settings.autoExposure), "The picture brightens in deep shade and dims in glare, adjusting smoothly like an eye or a camera.", A_GFX, 7, true });
+    menuItems.push_back({ "Bounced light: " + onoff(settings.bounce), "Street canyons hide part of the sky, and sunlit walls bounce warm light into the shade.", A_GFX, 8, true });
     menuItems.push_back({ "Anti-aliasing: " + (settings.msaa == 1 ? std::string("Off") : std::to_string(settings.msaa) + "x"), "Smooths jagged edges. The change applies the next time you start the game.", A_GFX, 5, true });
     menuItems.push_back({ "Back", "", A_BACK, 0 });
   } else if (page == 5) {
@@ -160,6 +163,7 @@ void Game::runMenuAction(const MenuItem& it, int dir) {
       switch (it.arg) {
         case 0: settings.vsync = !settings.vsync; break; case 1: settings.ao = !settings.ao; break; case 2: settings.shadows = !settings.shadows; break;
         case 3: settings.reflections = !settings.reflections; break; case 4: settings.day = settings.day ? 0 : 1; break;
+        case 6: settings.softShadows = !settings.softShadows; break; case 7: settings.autoExposure = !settings.autoExposure; break; case 8: settings.bounce = !settings.bounce; break;
         case 5: settings.msaa = dir < 0 ? (settings.msaa == 4 ? 2 : settings.msaa == 2 ? 1 : 4) : (settings.msaa == 1 ? 2 : settings.msaa == 2 ? 4 : 1); break;
       }
       applyGraphics(); settings.save(); rebuildKeep(); break;

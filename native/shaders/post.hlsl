@@ -60,6 +60,24 @@ float4 PSDof(V i) : SV_Target {
   }
   return float4(acc / wsum, 1.0);
 }
+// Metering for automatic exposure: the average log brightness of the picture, weighted towards the middle and mostly leaving out the sky.
+// PSLumA: t0 = scene colour, t1 = view distance; writes a 32 x 18 grid of (sum of weight * log2 brightness, sum of weight). PSLumB adds the grid up.
+float4 PSLumA(V i) : SV_Target {
+  float2 cell = gP0.xy, base = i.uv - 0.5 * cell; float sum = 0.0, wsum = 0.0;
+  [loop] for (int y = 0; y < 8; y++) [loop] for (int x = 0; x < 8; x++) {
+    float2 uv = base + (float2(x, y) + 0.5) / 8.0 * cell; float2 c = (uv - 0.5) * float2(1.0, 0.7);
+    float z = gTex1.Load(int3(clamp(int2(uv * gScreen.xy), 0, int2(gScreen.xy) - 1), 0)).r;
+    float w = exp(-dot(c, c) * 5.0) * (z > 6000.0 ? 0.04 : 1.0);
+    float l = clamp(dot(gTex0.SampleLevel(sLinearClamp, uv, 0).rgb, float3(0.2126, 0.7152, 0.0722)), 0.01, 6.0);
+    sum += w * log2(l); wsum += w;
+  }
+  return float4(sum, wsum, 0.0, 0.0);
+}
+float4 PSLumB(V i) : SV_Target {
+  float s = 0.0, w = 0.0;
+  [loop] for (int y = 0; y < 18; y++) [loop] for (int x = 0; x < 32; x++) { float2 v = gTex0.Load(int3(x, y, 0)).xy; s += v.x; w += v.y; }
+  return float4(s, w, 0.0, 0.0);
+}
 float4 PSComposite(V i) : SV_Target {
   float2 uv = i.uv, tx = gScreen.zw;
   float2 dir = uv - 0.5; float d = length(dir);

@@ -17,7 +17,7 @@ bool Settings::load(const char* path) {
     char key[64]; char* val = line; if (sscanf(line, "%63s", key) != 1) continue; val += strlen(key); while (*val == ' ') val++;
     int i = 0; float x = 0;
     if (!strcmp(key, "vsync")) vsync = atoi(val) != 0; else if (!strcmp(key, "ao")) ao = atoi(val) != 0; else if (!strcmp(key, "shadows")) shadows = atoi(val) != 0;
-    else if (!strcmp(key, "reflections")) reflections = atoi(val) != 0; else if (!strcmp(key, "msaa")) { msaa = atoi(val); if (msaa != 1 && msaa != 2 && msaa != 4) msaa = 4; }
+    else if (!strcmp(key, "reflections")) reflections = atoi(val) != 0; else if (!strcmp(key, "softShadows")) softShadows = atoi(val) != 0; else if (!strcmp(key, "autoExposure")) autoExposure = atoi(val) != 0; else if (!strcmp(key, "bounce")) bounce = atoi(val) != 0; else if (!strcmp(key, "msaa")) { msaa = atoi(val); if (msaa != 1 && msaa != 2 && msaa != 4) msaa = 4; }
     else if (!strcmp(key, "day")) day = atoi(val) != 0 ? 1 : 0; else if (!strcmp(key, "traffic")) { traffic = atoi(val); if (traffic < 0 || traffic > 3) traffic = 2; }
     else if (!strcmp(key, "wheelOn")) wheelOn = atoi(val) != 0; else if (!strcmp(key, "wheelVer")) wheelVer = atoi(val);
     else if (!strcmp(key, "music")) { music = atoi(val); if (music < 0 || music > 2) music = 1; } else if (!strcmp(key, "volume")) { volume = atoi(val); if (volume < 0 || volume > 100) volume = 70; }
@@ -36,7 +36,7 @@ bool Settings::load(const char* path) {
 void Settings::save(const char* path) const {
   FILE* f = fopen(path, "w"); if (!f) return;
   fprintf(f, "music %d\nvolume %d\ntrack %s\n", music, volume, musicTrack.c_str());
-  fprintf(f, "vsync %d\nao %d\nshadows %d\nreflections %d\nmsaa %d\nday %d\ntraffic %d\nwheelOn %d\nwheelVer %d\n", vsync, ao, shadows, reflections, msaa, day, traffic, wheelOn, wheelVer);
+  fprintf(f, "vsync %d\nao %d\nshadows %d\nreflections %d\nsoftShadows %d\nautoExposure %d\nbounce %d\nmsaa %d\nday %d\ntraffic %d\nwheelOn %d\nwheelVer %d\n", vsync, ao, shadows, reflections, softShadows, autoExposure, bounce, msaa, day, traffic, wheelOn, wheelVer);
   auto ax = [&](const char* k, const AxisBind& a) { fprintf(f, "%s %d %d %.5f %.5f %.5f\n", k, a.dev, a.axis, a.rest, a.full, a.other); };
   ax("steer", steer); ax("throttle", throttle); ax("brake", brake);
   fprintf(f, "steerSens %.3f\nsteerLin %.3f\nsteerDead %.3f\npedalDead %.3f\npedalCurve %.3f\n", steerSens, steerLin, steerDead, pedalDead, pedalCurve);
