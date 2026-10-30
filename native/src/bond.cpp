@@ -45,7 +45,7 @@ void BondModel::build(Gfx& g) {
   { // Dark trim: grille interior, sills, lamp wells, door shuts, the exhausts and the gadget nozzles.
     MeshData m; ellipseZ(m, 0, 0.43f, 2.255f, 0.40f, 0.125f, 0.12f, C(0.01f, 0.01f, 0.012f));                                    // the grille's dark interior
     for (int s = -1; s <= 1; s += 2) {
-      m.box(Vec3(s * 0.845f - 0.012f, 0.16f, -1.7f), Vec3(s * 0.845f + 0.012f, 0.26f, 1.7f), C(0.025f, 0.025f, 0.028f));       // sills
+      m.box(Vec3(s * 0.80f - 0.01f, 0.17f, -0.95f), Vec3(s * 0.80f + 0.01f, 0.25f, 0.55f), C(0.025f, 0.025f, 0.028f));      // sills (between the wheels)
       m.box(Vec3(s * 0.856f - 0.004f, 0.3f, -0.92f), Vec3(s * 0.856f + 0.008f, 0.88f, -0.9f), C(0.03f, 0.03f, 0.035f));      // door shut lines
       m.box(Vec3(s * 0.856f - 0.004f, 0.3f, 0.66f), Vec3(s * 0.856f + 0.008f, 0.88f, 0.68f), C(0.03f, 0.03f, 0.035f));
       m.box(Vec3(s * 0.856f - 0.004f, 0.3f, -0.92f), Vec3(s * 0.856f + 0.008f, 0.32f, 0.68f), C(0.03f, 0.03f, 0.035f));
@@ -100,7 +100,7 @@ Mat4 BondModel::bodyMatrix(const Vehicle& v, double alpha) const {
 }
 void BondModel::draw(Renderer& r, const Vehicle& v, double alpha, const BondState& st) {
   Mat4 M = bodyMatrix(v, alpha);
-  Material paint; paint.type = 1; paint.tint[0] = 0.80f; paint.tint[1] = 0.82f; paint.tint[2] = 0.85f;                          // silver birch
+  Material paint; paint.type = 1; paint.tint[0] = 0.50f; paint.tint[1] = 0.52f; paint.tint[2] = 0.55f;                          // silver birch
   Material glassM; glassM.type = 3; Material trimM; trimM.type = 0; trimM.rough = 0.5f; trimM.twoSided = true;
   Material chromeM; chromeM.type = 0; chromeM.rough = 0.1f; chromeM.metal = 1.0f; chromeM.twoSided = true;
   Material headM; headM.type = 4; headM.emissive = st.headlights ? 3.5f : 0.6f; Material tailM; tailM.type = 4; tailM.emissive = st.braking ? 8.0f : 1.6f;

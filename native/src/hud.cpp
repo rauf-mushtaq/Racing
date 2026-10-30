@@ -112,7 +112,7 @@ void Hud::raceHud(const Renderer& r, const Game& g) {
 }
 void Hud::escapeHud(const Renderer& r, const Game& g) {
   (void)r; const PoliceChase& e = g.escape; bool flashRed = std::fmod(g.clock * 3.6, 1.0) < 0.5;
-  if (e.damageFlash > 0.02f) { float c[4] = { 0.9f, 0.05f, 0.03f, (float)e.damageFlash * 0.28f }; solid(0, 0, W, H, c); }
+  if (e.damageFlash > 0.02f) { float c[4] = { 0.9f, 0.05f, 0.03f, (float)e.damageFlash * 0.16f }; solid(0, 0, W, H, c); }
   // Wanted stars and the "lose them" bar.
   float sx = 34.0f * S, sy = 92.0f * S; int stars = e.stars(); float frac = (float)(e.heat - std::floor(e.heat));
   for (int i = 0; i < 5; i++) { const float off[4] = { 1, 1, 1, 0.16f }; float c[4]; bool on = i < stars; if (on) { const float* base = e.spotted ? (flashRed ? RED : BLUE) : WHITE; std::memcpy(c, base, sizeof c); } else std::memcpy(c, off, sizeof c); star(sx + i * 34.0f * S, sy, 14.0f * S, c); }
