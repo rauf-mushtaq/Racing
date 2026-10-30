@@ -11,7 +11,7 @@ InputState Input::read() {
   s.cam = edge('C'); s.reset = edge('R'); s.shiftUp = edge('E'); s.shiftDown = edge('Q');
   s.fire = keys['F'] || leftDown; s.missile = edge('G'); s.bomb = edge('B'); s.oil = edge('O'); s.smoke = edge('X'); s.shield = edge('V');
   s.menu = edge(VK_ESCAPE) || edge(VK_TAB); s.up = edge(VK_UP) || edge('W'); s.down = edge(VK_DOWN) || edge('S'); s.left = edge(VK_LEFT) || edge('A'); s.right = edge(VK_RIGHT) || edge('D'); s.enter = edge(VK_RETURN) || edge(VK_SPACE); s.back = edge(VK_BACK);
-  s.stats = edge(VK_F3); s.vsync = edge(VK_F4); s.ao = edge(VK_F5); s.shadows = edge(VK_F6);
+  s.stats = edge(VK_F3); s.vsync = edge(VK_F4); s.ao = edge(VK_F5); s.shadows = edge(VK_F6); s.refl = edge(VK_F7);
   if (rightDown) { s.lookDX = mouseDX; s.lookDY = mouseDY; } s.zoom = wheel; mouseDX = mouseDY = wheel = 0;
   std::memcpy(prev, keys, sizeof keys);
   if (!xinput) { HMODULE m = LoadLibraryA("xinput1_4.dll"); if (!m) m = LoadLibraryA("xinput1_3.dll"); if (!m) m = LoadLibraryA("xinput9_1_0.dll"); xinput = m ? (void*)GetProcAddress(m, "XInputGetState") : (void*)1; }
@@ -215,6 +215,7 @@ void Game::updateCamera(Renderer& r, double dt, const InputState& in) {
   double gy = heightAt(pos.x, pos.z) + 0.7; if (camMode <= 1 && pos.y < gy) pos.y = (float)gy;
   r.focusDist = std::max(2.0f, length(pos - carPos) + 1.0f);
   Vec3 f = normalize(look - pos);
+  r.probeCenter = carPos + Vec3(0, 1.1f, 0);
   r.cam.pos = pos; r.cam.yaw = (float)(std::atan2(f.x, -f.z) / k2r); r.cam.pitch = (float)(std::asin(f.y) / k2r); r.cam.fov = (float)fov;
 }
 
@@ -239,6 +240,7 @@ void Game::prepare(Gfx& g, const Frustum& f) { traffic.prepare(g, pose(), f, clo
 void Game::draw(Renderer& r, bool shadow, const Frustum& f) {
   scenery.draw(r, shadow, f); city.draw(r, shadow, f, r.cam.pos); traffic.draw(r, shadow); peds.draw(r, shadow);
   if (inEscapeHud()) escape.draw(r, shadow, clock);
+  if (r.inProbe) return;                                   // the reflection probe looks out from inside the car: it doesn't draw the car or the gates
   if (carKind == 1) { bondState.braking = braking; bond.draw(r, car, alpha, bondState); } else model.draw(r, car, alpha, color, braking);
   drawGates(r, shadow);
 }

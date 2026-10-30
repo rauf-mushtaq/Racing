@@ -34,7 +34,7 @@ struct Texture {
   ComPtr<ID3D12Resource> res; D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
   UINT w = 0, h = 0, slices = 1; DXGI_FORMAT fmt = DXGI_FORMAT_UNKNOWN; UINT samples = 1;
   D3D12_CPU_DESCRIPTOR_HANDLE rtv{}, dsv{};
-  std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> sliceDsv;
+  std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> sliceDsv, sliceRtv;   // one view per array slice (shadow cascades, the reflection probe's faces)
 };
 
 struct PsoDesc {
@@ -91,6 +91,8 @@ public:
   D3D12_GPU_DESCRIPTOR_HANDLE srvGpu(UINT slot) const { D3D12_GPU_DESCRIPTOR_HANDLE h = srvHeap->GetGPUDescriptorHandleForHeapStart(); h.ptr += (UINT64)slot * srvInc; return h; }
   D3D12_CPU_DESCRIPTOR_HANDLE srvCpu(UINT slot) const { D3D12_CPU_DESCRIPTOR_HANDLE h = srvHeap->GetCPUDescriptorHandleForHeapStart(); h.ptr += (SIZE_T)slot * srvInc; return h; }
   void makeRtv(Texture& t, UINT mip = 0);
+  UINT rtvMark() const { return rtvUsed; } UINT dsvMark() const { return dsvUsed; }       // descriptors allocated so far, so targets rebuilt on a resize reuse their slots
+  void rtvRewind(UINT to) { rtvUsed = to; } void dsvRewind(UINT to) { dsvUsed = to; }
   void makeDsv(Texture& t);
 
   ComPtr<ID3D12PipelineState> makePso(const PsoDesc& d);

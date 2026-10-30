@@ -177,6 +177,12 @@ Texture Gfx::makeTexture(UINT w, UINT h, DXGI_FORMAT fmt, UINT samples, bool rt,
   t.state = ds ? D3D12_RESOURCE_STATE_DEPTH_WRITE : rt ? D3D12_RESOURCE_STATE_RENDER_TARGET : D3D12_RESOURCE_STATE_COMMON;
   HR(dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, t.state, pcv, IID_PPV_ARGS(&t.res)));
   if (rt) makeRtv(t);
+  if (rt && slices > 1 && samples == 1) for (UINT i = 0; i < slices; i++) {
+    D3D12_CPU_DESCRIPTOR_HANDLE h = rtvHeap->GetCPUDescriptorHandleForHeapStart(); h.ptr += (SIZE_T)(rtvUsed++) * rtvInc;
+    if (rtvUsed >= 120) { logf("out of RTV descriptors"); gfxFatal("rtv heap", E_FAIL); }
+    D3D12_RENDER_TARGET_VIEW_DESC d = {}; d.Format = fmt; d.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY; d.Texture2DArray.MipSlice = 0; d.Texture2DArray.FirstArraySlice = i; d.Texture2DArray.ArraySize = 1;
+    dev->CreateRenderTargetView(t.res.Get(), &d, h); t.sliceRtv.push_back(h);
+  }
   if (ds) makeDsv(t);
   return t;
 }

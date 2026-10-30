@@ -23,6 +23,16 @@ void Renderer::init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& qu
   for (UINT i = 0; i < 4; i++) gfx.cmd->ClearDepthStencilView(shadow.sliceDsv[i], D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
   gfx.barrier(shadow, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
   for (auto& b : userBlock) b = block();
+  { // The reflection probe (t2 of the scene shaders): what is around the car, so paint, glass and windows reflect the real street.
+    const UINT PS = 192; float zc[4] = { 0, 0, 0, 0 }, farc[4] = { 1e6f, 0, 0, 0 }, z0 = 0.0f;
+    probeW = gfx.makeTexture(PS, PS, DXGI_FORMAT_R16G16B16A16_FLOAT, 1, true, false, 6, 1, zc);
+    probeR = gfx.makeTexture(PS, PS, DXGI_FORMAT_R16G16B16A16_FLOAT, 1, false, false, 6, 1, nullptr);
+    probeVD = gfx.makeTexture(PS, PS, DXGI_FORMAT_R32_FLOAT, 1, true, false, 1, 1, farc);
+    probeDepth = gfx.makeTexture(PS, PS, DXGI_FORMAT_D32_FLOAT, 1, false, true, 1, 1, &z0, false);
+    gfx.srv2DArray(mainBlock + 2, probeR.res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT, 6);
+    gfx.barrier(probeR, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+  }
+  staticRtv = gfx.rtvMark(); staticDsv = gfx.dsvMark();
   staticSrv = gfx.allocSrv(0);   // everything allocated after this point belongs to the resizable targets
   createTargets();
   // Pipelines.
@@ -44,6 +54,10 @@ void Renderer::init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& qu
     PsoDesc d; d.file = "mesh.hlsl"; d.numRT = 2; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = 1; d.layout = inst ? instancedLayout() : meshLayout(); if (inst) d.defines = { "INSTANCED" };
     d.cull = two ? D3D12_CULL_MODE_NONE : D3D12_CULL_MODE_FRONT; psoMeshR[inst][two] = gfx.makePso(d);
   }
+  for (int inst = 0; inst < 2; inst++) for (int two = 0; two < 2; two++) {   // the reflection probe: one sample, ordinary winding
+    PsoDesc d; d.file = "mesh.hlsl"; d.numRT = 2; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = 1; d.layout = inst ? instancedLayout() : meshLayout(); if (inst) d.defines = { "INSTANCED" };
+    d.cull = two ? D3D12_CULL_MODE_NONE : D3D12_CULL_MODE_BACK; psoMeshC[inst][two] = gfx.makePso(d);
+  }
   { PsoDesc d; d.file = "sky.hlsl"; d.numRT = 2; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = 1; d.depthWrite = false; d.cull = D3D12_CULL_MODE_NONE; psoSkyR = gfx.makePso(d); }
   auto shadowPso = [&](const char* entry, std::vector<D3D12_INPUT_ELEMENT_DESC> layout) {
     PsoDesc d; d.file = "shadow.hlsl"; d.vsEntry = entry; d.psEntry = nullptr; d.numRT = 0; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = 1; d.layout = layout; d.depthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
@@ -62,7 +76,7 @@ void Renderer::createTargets() {
   UINT w = W, h = H, S = (UINT)q.msaa;
   for (Texture* t : { &dofTex, &reflColor, &reflVD, &reflDepth, &msColor, &msViewDepth, &msDepth, &color, &viewDepth, &aoRaw, &aoBlur, &ldr }) gfx.releaseTexture(*t);
   for (auto& b : bloom) gfx.releaseTexture(b);
-  gfx.srvRewind(staticSrv);
+  gfx.srvRewind(staticSrv); gfx.rtvRewind(staticRtv); gfx.dsvRewind(staticDsv);   // targets rebuilt on a resize take over their old descriptor slots
   float c0[4] = { 0, 0, 0, 0 }, cFar[4] = { 1e6f, 0, 0, 0 }, zero = 0.0f;
   { UINT rw = std::max(2u, w / 2), rh = std::max(2u, h / 2);                                  // the planar reflection of the city, at half resolution
     reflColor = gfx.makeTexture(rw, rh, DXGI_FORMAT_R16G16B16A16_FLOAT, 1, true, false, 1, 1, c0); reflVD = gfx.makeTexture(rw, rh, DXGI_FORMAT_R32_FLOAT, 1, true, false, 1, 1, cFar);
@@ -123,7 +137,7 @@ void Renderer::frame(float dt) {
     ip.m[0][0] = aspect * t; ip.m[1][1] = t; ip.m[2][3] = -1; ip.m[3][2] = (zf - zn) / (zf * zn); ip.m[3][3] = 1.0f / zf;
     f.invViewProj = mul(iv, ip);
   }
-  f.weather[0] = q.reflections ? wet : 0.0f; f.weather[1] = 1.0f; f.prevViewProj = prevViewProj;
+  f.weather[0] = q.reflections ? wet : 0.0f; f.weather[1] = 1.0f; f.weather[2] = (probeReady && q.reflections) ? 1.0f : 0.0f; f.prevViewProj = prevViewProj;
   f.camPos[0] = cam.pos.x; f.camPos[1] = cam.pos.y; f.camPos[2] = cam.pos.z; f.camPos[3] = (float)time;
   f.sunDir[0] = SUN.x; f.sunDir[1] = SUN.y; f.sunDir[2] = SUN.z; f.sunDir[3] = exposure;
   const float k = 4.8f / 3.14159f; f.sunColor[0] = 1.0f * k; f.sunColor[1] = 0.552f * k; f.sunColor[2] = 0.262f * k;
@@ -141,6 +155,7 @@ void Renderer::frame(float dt) {
 
   // --- Shadows -----------------------------------------------------------------------------------------
   if (q.shadows) shadowPass(f);
+  probePass(f);
   reflectionPass(f);
 
   // --- The scene ----------------------------------------------------------------------------------------
@@ -290,7 +305,7 @@ void Renderer::drawMeshMat(const GpuMesh& m, const Mat4& world, const Material& 
   struct DrawCB { Mat4 world; float p0[4], p1[4], p2[4], p3[4]; } cb = {}; cb.world = world;
   cb.p0[0] = mat.type; cb.p0[1] = mat.rough; cb.p0[2] = mat.metal; cb.p0[3] = mat.emissive; cb.p1[0] = mat.tint[0]; cb.p1[1] = mat.tint[1]; cb.p1[2] = mat.tint[2]; cb.p1[3] = 1; cb.p3[0] = mat.twoSided ? 1.0f : 0.0f;
   if (inShadow) { gfx.cmd->SetPipelineState((inst ? psoShInst : psoShMesh).Get()); gfx.setDraw(gfx.cb(cb), blkNull); }
-  else { gfx.cmd->SetPipelineState((inReflection ? psoMeshR : psoMesh)[inst ? 1 : 0][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
+  else { gfx.cmd->SetPipelineState((inProbe ? psoMeshC : inReflection ? psoMeshR : psoMesh)[inst ? 1 : 0][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
   drawMesh(gfx, m, instances, inst);
 }
 void Renderer::drawMeshInst(const GpuMesh& m, const Material& mat, const D3D12_VERTEX_BUFFER_VIEW& inst, UINT instances) {
@@ -298,7 +313,7 @@ void Renderer::drawMeshInst(const GpuMesh& m, const Material& mat, const D3D12_V
   struct DrawCB { Mat4 world; float p0[4], p1[4], p2[4], p3[4]; } cb = {}; cb.world = Mat4::identity();
   cb.p0[0] = mat.type; cb.p0[1] = mat.rough; cb.p0[2] = mat.metal; cb.p0[3] = mat.emissive; cb.p1[0] = mat.tint[0]; cb.p1[1] = mat.tint[1]; cb.p1[2] = mat.tint[2]; cb.p1[3] = 1; cb.p3[0] = mat.twoSided ? 1.0f : 0.0f;
   if (inShadow) { gfx.cmd->SetPipelineState(psoShInst.Get()); gfx.setDraw(gfx.cb(cb), blkNull); }
-  else { gfx.cmd->SetPipelineState((inReflection ? psoMeshR : psoMesh)[1][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
+  else { gfx.cmd->SetPipelineState((inProbe ? psoMeshC : inReflection ? psoMeshR : psoMesh)[1][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
   drawMeshView(gfx, m, instances, &inst);
 }
 void Renderer::drawParticles(const D3D12_VERTEX_BUFFER_VIEW& v, UINT n) {
@@ -306,4 +321,43 @@ void Renderer::drawParticles(const D3D12_VERTEX_BUFFER_VIEW& v, UINT n) {
   struct DrawCB { float world[16]; float p[16]; } cb = {}; cb.world[0] = cb.world[5] = cb.world[10] = cb.world[15] = 1;
   gfx.cmd->SetPipelineState(psoFx.Get()); gfx.setDraw(gfx.cb(cb), mainBlock);
   gfx.cmd->IASetVertexBuffers(0, 1, &v); gfx.cmd->DrawInstanced(6, n, 0, 0); gfx.draws++;
+}
+
+// --- The reflection probe ----------------------------------------------------------------------------------------
+// One face of a cube of the surroundings (the city, the traffic, the sky) is drawn each frame, from the player's car, into probeW and
+// then copied into probeR (a separate copy, so the shaders never read what is being drawn). The shaders look it up by direction
+// (see ProbeSample in common.hlsli, which uses the same face directions and "up" vectors as here).
+static Mat4 invViewProjOf(const Mat4& view, float fovDeg, float aspect, float zn, float zf, Vec3 pos) {
+  Mat4 iv = Mat4::identity(); Vec3 r(view.m[0][0], view.m[0][1], view.m[0][2]), u(view.m[1][0], view.m[1][1], view.m[1][2]), b(view.m[2][0], view.m[2][1], view.m[2][2]);
+  iv.m[0][0] = r.x; iv.m[1][0] = r.y; iv.m[2][0] = r.z; iv.m[0][1] = u.x; iv.m[1][1] = u.y; iv.m[2][1] = u.z; iv.m[0][2] = b.x; iv.m[1][2] = b.y; iv.m[2][2] = b.z;
+  iv.m[0][3] = pos.x; iv.m[1][3] = pos.y; iv.m[2][3] = pos.z;
+  float t = std::tan(fovDeg * (float)PI / 360.0f);
+  Mat4 ip; std::memset(ip.m, 0, sizeof ip.m);
+  ip.m[0][0] = aspect * t; ip.m[1][1] = t; ip.m[2][3] = -1; ip.m[3][2] = (zf - zn) / (zf * zn); ip.m[3][3] = 1.0f / zf;
+  return mul(iv, ip);
+}
+void Renderer::probePass(const FrameCB& f) {
+  if (!q.reflections || !probeW.res || (probeTick++ & 1)) return;   // a face every other frame: reflections change slowly
+  const UINT face = probeFace; probeFace = (probeFace + 1) % 6;
+  static const Vec3 FW[6] = { Vec3(1, 0, 0), Vec3(-1, 0, 0), Vec3(0, 1, 0), Vec3(0, -1, 0), Vec3(0, 0, 1), Vec3(0, 0, -1) };
+  static const Vec3 UPV[6] = { Vec3(0, 1, 0), Vec3(0, 1, 0), Vec3(0, 0, -1), Vec3(0, 0, 1), Vec3(0, 1, 0), Vec3(0, 1, 0) };
+  const bool unset = probeCenter.x == 0 && probeCenter.y == 0 && probeCenter.z == 0;
+  Vec3 c = unset ? cam.pos : probeCenter; const float FOV = 94.0f, ZN = 0.3f, ZF = 5000.0f;
+  Mat4 v = lookAt(c, c + FW[face], UPV[face]), p = perspectiveRZ(FOV * (float)PI / 180.0f, 1.0f, ZN, ZF);
+  FrameCB pf = f; pf.view = v; pf.viewProj = mul(p, v); pf.invViewProj = invViewProjOf(v, FOV, 1.0f, ZN, ZF, c);
+  pf.camPos[0] = c.x; pf.camPos[1] = c.y; pf.camPos[2] = c.z;
+  const float c0[4] = { 0, 0, 0, 0 }, cFar[4] = { 1e6f, 0, 0, 0 };
+  gfx.barrier(probeW, D3D12_RESOURCE_STATE_RENDER_TARGET); gfx.barrier(probeVD, D3D12_RESOURCE_STATE_RENDER_TARGET); gfx.barrier(probeDepth, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+  D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { probeW.sliceRtv[face], probeVD.rtv }; gfx.cmd->OMSetRenderTargets(2, rtvs, FALSE, &probeDepth.dsv);
+  gfx.cmd->ClearRenderTargetView(probeW.sliceRtv[face], c0, 0, nullptr); gfx.cmd->ClearRenderTargetView(probeVD.rtv, cFar, 0, nullptr); gfx.cmd->ClearDepthStencilView(probeDepth.dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
+  gfx.setViewport(probeW.w, probeW.h); gfx.bindCommon(gfx.cb(pf)); inProbe = true;
+  if (drawWorld) drawWorld(*this, false, makeFrustum(pf.viewProj));
+  { gfx.cmd->SetPipelineState(psoSkyR.Get()); struct DrawCB { float world[16]; float p[16]; } cb = {}; cb.world[0] = cb.world[5] = cb.world[10] = cb.world[15] = 1; gfx.setDraw(gfx.cb(cb), mainBlock); gfx.cmd->DrawInstanced(3, 1, 0, 0); }
+  inProbe = false;
+  gfx.barrier(probeW, D3D12_RESOURCE_STATE_COPY_SOURCE); gfx.barrier(probeR, D3D12_RESOURCE_STATE_COPY_DEST);
+  D3D12_TEXTURE_COPY_LOCATION dst = {}, src = {}; dst.pResource = probeR.res.Get(); dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; dst.SubresourceIndex = face;
+  src.pResource = probeW.res.Get(); src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; src.SubresourceIndex = face;
+  gfx.cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+  gfx.barrier(probeR, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+  if (face == 5) probeReady = true;
 }

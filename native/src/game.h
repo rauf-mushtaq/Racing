@@ -23,7 +23,7 @@ struct InputState {
   bool fire = false;                                                                                       // held
   bool missile = false, bomb = false, oil = false, smoke = false, shield = false;                          // pressed this frame
   bool menu = false, up = false, down = false, left = false, right = false, enter = false, back = false;   // menu: pressed this frame
-  bool stats = false, vsync = false, ao = false, shadows = false;                                          // F3 F4 F5 F6
+  bool stats = false, vsync = false, ao = false, shadows = false, refl = false;                              // F3 F4 F5 F6 F7
 };
 // Keyboard, mouse and (dynamically loaded) XInput gamepad.
 class Input {

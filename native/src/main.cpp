@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
   Game G; G.init(R); std::memcpy(G.color, color, sizeof color);
   Hud hud; hud.init(R); Perf perf; perf.msaa = R.q.msaa;
   R.onBeginFrame = [&](Gfx& g, Vec3 cam) { G.scenery.update(g, cam); G.prepare(g, R.frustum); };
-  R.drawHud = [&](Gfx& g, Texture& t) { perf.draws = R.statDraws; perf.shadowDraws = R.statShadowDraws; perf.gpuMs = g.gpuMs; perf.W = R.W; perf.H = R.H; perf.vsync = g.vsync; perf.tearing = g.tearing; perf.ao = R.q.ao; perf.shadows = R.q.shadows; hud.draw(R, g, t, G, R.time, perf); };
+  R.drawHud = [&](Gfx& g, Texture& t) { perf.draws = R.statDraws; perf.shadowDraws = R.statShadowDraws; perf.gpuMs = g.gpuMs; perf.W = R.W; perf.H = R.H; perf.vsync = g.vsync; perf.tearing = g.tearing; perf.ao = R.q.ao; perf.shadows = R.q.shadows; perf.refl = R.q.reflections; hud.draw(R, g, t, G, R.time, perf); };
   R.gfx.vsync = vsyncOn;
   G.setCarKind(modelKind); if (gunsOut) { G.bondState.gunOut = 1; G.bondState.shield = 1; }
   if (startEscape) G.startEscape(); else if (raceIdx >= 0) G.startRace(raceIdx); else if (hasCar) G.spawn("manual", carX, carZ, carH); else G.spawn(spawn);
@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
     if (autoExit > 0) { if (now > autoExit) break; if (!resized && now > autoExit * 0.5) { resized = true; SetWindowPos(hwnd, nullptr, 0, 0, 640 + 16, 360 + 39, SWP_NOMOVE | SWP_NOZORDER); } }   // test: run for a while, resizing half way
     totalFrames++;
     InputState s = g_input.read();
-    if (s.vsync) { R.gfx.vsync = !R.gfx.vsync; } if (s.ao) R.q.ao = !R.q.ao; if (s.shadows) R.q.shadows = !R.q.shadows;
+    if (s.vsync) { R.gfx.vsync = !R.gfx.vsync; } if (s.ao) R.q.ao = !R.q.ao; if (s.shadows) R.q.shadows = !R.q.shadows; if (s.refl) R.q.reflections = !R.q.reflections;
     G.update(R, dt, s); R.time = now; R.frame((float)dt);
     worst = std::max(worst, raw * 1000.0); fcount++; fpsT += raw;
     if (fpsT > 0.5) { perf.fps = fcount / fpsT; perf.frameMs = fpsT * 1000.0 / fcount; perf.worstMs = worst; char title[200]; snprintf(title, sizeof title, "Sunset City (native)  %.0f fps  %.0f km/h", perf.fps, G.speedKmh); SetWindowTextA(hwnd, title); fcount = 0; fpsT = 0; worst = 0; }

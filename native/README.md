@@ -14,6 +14,7 @@ The same world as the web game, as a native Windows program: C++17, Direct3D 12 
 - Traffic with signals (ported from the web game), motorway traffic, cars that get knocked about.
 - **Races**: fifteen routes with checkpoint gates, timer, medals and saved best times.
 - **Escape mode**: you drive a silver 1960s-style grand tourer with gadgets and the police chase you (see below).
+- Live reflections: a cube of the surroundings (city, traffic, sky) is drawn from your car, one face every other frame, and the car's paint, its glass and the building windows reflect it. F7 turns reflections off (this and the wet-road mirror) if you need the frames.
 - Surfaces: brick courses with mortar, recessed windows with frames, curtains, blinds and lit rooms, weathering streaks, speckled and cracked asphalt with worn paint, palms with real leaflets, leafy trees with ragged edges, and reflections that see the street and its buildings instead of an empty sky.
 - Rendering: cascaded shadows, ambient occlusion, 4× MSAA HDR, bloom, depth of field, camera motion blur, haze,
   golden-hour sky and clouds, particles (smoke, fire, sparks, tracers).
@@ -39,7 +40,7 @@ The menu opens when the game starts: pick **Escape the police**, **Races** or **
 | Menu | Esc or Tab | Start |
 | Fullscreen | F11 | |
 | Stats overlay (fps, GPU time, draw calls) | F3 | |
-| Vsync on/off, ambient occlusion, shadows | F4, F5, F6 | |
+| Vsync on/off, ambient occlusion, shadows, reflections | F4, F5, F6, F7 | |
 
 **Escape mode gadgets** (the silver GT only): **F** or left mouse = machine guns (hold; they overheat), **G** = homing
 missile, **B** = bomb dropped behind you (explodes when a car drives close), **O** = oil slick, **X** = smoke screen
@@ -51,8 +52,8 @@ If something goes wrong the game writes `sunset_native.log` next to where you st
 shows the failing Direct3D call in a message box. Best race times are saved in `sunset_native_saves.txt`.
 
 **For a 1440p high-refresh display:** the game presents uncapped with tearing allowed when the display supports it (press F4
-for vsync). Press F3 to see the real frame time and GPU time. If it is not fast enough, F5/F6 turn ambient occlusion and
-shadows off, and `--msaa 2` or `--msaa 1` lowers anti-aliasing.
+for vsync). Press F3 to see the real frame time and GPU time. If it is not fast enough, F5/F6/F7 turn ambient occlusion,
+shadows and reflections off, and `--msaa 2` or `--msaa 1` lowers anti-aliasing.
 
 ## Build it
 

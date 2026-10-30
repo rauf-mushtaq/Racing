@@ -80,6 +80,21 @@ float3 AmbientSky(float3 n) {
 // horizon it is the dark street. Out in the country the walls fade away and the sky comes down to the horizon. gSpecP is the point
 // being shaded (set by the shader before it shades).
 static float3 gSpecP = float3(0, 0, 0);
+#ifndef NO_SHADOW_MAP
+// The reflection probe: six 94-degree faces (+x, -x, +y, -y, +z, -z) drawn from the car (renderer.cpp, probePass). The basis here is the
+// one lookAt builds: right = forward x up, up = right x forward.
+Texture2DArray<float4> gProbe : register(t2);
+float3 ProbeSample(float3 d) {
+  float3 a = abs(d), f, up; int face;
+  if (a.x >= a.y && a.x >= a.z) { face = d.x > 0 ? 0 : 1; f = float3(d.x > 0 ? 1 : -1, 0, 0); up = float3(0, 1, 0); }
+  else if (a.y >= a.z) { face = d.y > 0 ? 2 : 3; f = float3(0, d.y > 0 ? 1 : -1, 0); up = float3(0, 0, d.y > 0 ? -1 : 1); }
+  else { face = d.z > 0 ? 4 : 5; f = float3(0, 0, d.z > 0 ? 1 : -1); up = float3(0, 1, 0); }
+  float3 r = normalize(cross(f, up)), u = cross(r, f);
+  float k = 1.0 / max(dot(d, f), 1e-3) / 1.0724;                        // tan(47 degrees)
+  float2 ndc = float2(dot(d, r), dot(d, u)) * k;
+  return min(gProbe.SampleLevel(sLinearClamp, float3(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, face), 0).rgb, 12.0);
+}
+#endif
 float3 EnvReflect(float3 r, float3 wp) {
   float3 sky = SkyColor(r);
   float cityK = 1.0 - smoothstep(2000.0, 2700.0, max(abs(wp.x), abs(wp.z)));
@@ -87,6 +102,9 @@ float3 EnvReflect(float3 r, float3 wp) {
   float3 wall = lerp(float3(0.05, 0.06, 0.085), float3(0.62, 0.46, 0.32), lit * lit) * (0.8 + 0.4 * vnoise(float2((r.x + r.z * 0.7) * 7.0, r.y * 5.0 + r.z * 3.0)));
   float w = (1.0 - smoothstep(0.10, 0.62, r.y)) * cityK * smoothstep(-0.12, 0.04, r.y);
   float3 c = lerp(sky, wall, w);
+#ifndef NO_SHADOW_MAP
+  if (gWeather.z > 0.5) c = lerp(c, ProbeSample(r), smoothstep(-0.10, 0.02, r.y) * 0.92);     // the real street around the car
+#endif
   float3 street = float3(0.075, 0.07, 0.065) + float3(0.28, 0.2, 0.12) * pow(saturate(dot(normalize(r.xz + 1e-4), normalize(gSunDir.xz + 1e-4))), 6.0) * saturate(-r.y * 3.0);
   return lerp(c, street, smoothstep(0.02, -0.12, r.y) * cityK + smoothstep(0.0, -0.4, r.y) * (1.0 - cityK) * 0.5);
 }

@@ -27,7 +27,8 @@ public:
   UINT W = 0, H = 0; UINT statDraws = 0, statShadowDraws = 0;   // draw calls in the last frame (all, and the part spent on shadow cascades)
   std::function<void(Renderer&, bool, const Frustum&)> drawWorld;   // everything that isn't terrain, sea or sky; called for each shadow cascade and for the scene
   std::function<void(Gfx&, Vec3)> onBeginFrame;                       // called each frame after the command list is open (streaming uploads)
-  bool inShadow = false, inReflection = false;                                               // true while drawWorld is being called for a shadow cascade
+  Vec3 probeCenter = Vec3(0, 0, 0);                                 // where the reflection probe looks out from (the player's car); the camera if left at zero
+  bool inShadow = false, inReflection = false, inProbe = false;                                               // true while drawWorld is being called for a shadow cascade
   void drawMeshMat(const GpuMesh& m, const Mat4& world, const Material& mat, const Buffer* inst = nullptr, UINT instances = 1);
   void drawMeshInst(const GpuMesh& m, const Material& mat, const D3D12_VERTEX_BUFFER_VIEW& inst, UINT instances);   // instances from per-frame data (see Gfx::dynVB)
   void drawParticles(const D3D12_VERTEX_BUFFER_VIEW& v, UINT n);
@@ -44,7 +45,10 @@ public:
   DXGI_FORMAT ldrFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 private:
   ComPtr<ID3D12PipelineState> psoMesh[2][2], psoShMesh, psoShInst, psoShTerrain;   // mesh[instanced][twoSided]
-  ComPtr<ID3D12PipelineState> psoMeshR[2][2], psoSkyR, psoFx, psoSky, psoWater, psoBloomFirst, psoBloomDown, psoBloomUp, psoAO, psoAOBlur, psoComposite, psoDof;
+  ComPtr<ID3D12PipelineState> psoMeshR[2][2], psoMeshC[2][2], psoSkyR, psoFx, psoSky, psoWater, psoBloomFirst, psoBloomDown, psoBloomUp, psoAO, psoAOBlur, psoComposite, psoDof;
+  Texture probeW, probeR, probeVD, probeDepth;   // the reflection probe: six faces drawn into probeW one per frame and copied into probeR, which the shaders read
+  UINT probeFace = 0, probeTick = 0, staticRtv = 0, staticDsv = 0; bool probeReady = false;
+  void probePass(const FrameCB& f);
   Texture dofTex, reflColor, reflVD, reflDepth, msColor, msViewDepth, msDepth, color, viewDepth, shadow, aoRaw, aoBlur, ldr, bloom[5];
   Texture* sceneColor = nullptr; Texture* sceneDepth = nullptr; int nBloom = 5;
   UINT blkNull = 0, blkColor = 0, blkDepth = 0, blkAO = 0, blkAOBlur = 0, blkComposite = 0, blkCompositeDof = 0, blkDof = 0, blkBloom[5] = {}, staticSrv = 0;

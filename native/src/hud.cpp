@@ -175,7 +175,7 @@ void Hud::statsPanel(const Perf& p) {
   snprintf(b, sizeof b, "%u draws (%u in shadows)", p.draws, p.shadowDraws); text(b, x, y, 18.0f * S, WHITE, 0); y += 24 * S;
   snprintf(b, sizeof b, "%ux%u  MSAA %dx", p.W, p.H, p.msaa); text(b, x, y, 18.0f * S, WHITE, 0); y += 24 * S;
   snprintf(b, sizeof b, "present: %s", p.vsync ? "vsync" : (p.tearing ? "uncapped (tearing)" : "uncapped")); text(b, x, y, 18.0f * S, WHITE, 0); y += 24 * S;
-  snprintf(b, sizeof b, "F4 vsync   F5 AO %s   F6 shadows %s", p.ao ? "on" : "off", p.shadows ? "on" : "off"); text(b, x, y, 16.0f * S, DIM, 0);
+  snprintf(b, sizeof b, "F4 vsync   F5 AO %s   F6 shadows %s   F7 reflections %s", p.ao ? "on" : "off", p.shadows ? "on" : "off", p.refl ? "on" : "off"); text(b, x, y, 16.0f * S, DIM, 0);
 }
 void Hud::draw(Renderer& r, Gfx& g, Texture& target, const Game& game, double time, const Perf& perf) {
   if (!ready) return; verts.clear(); W = (float)r.W; H = (float)r.H; S = std::min(W / 1600.0f, H / 900.0f) * 1.1f;   // everything scales with the window

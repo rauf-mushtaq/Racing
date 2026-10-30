@@ -4,7 +4,7 @@
 #include "renderer.h"
 #include "game.h"
 
-struct Perf { double fps = 0, frameMs = 0, worstMs = 0, gpuMs = 0; unsigned draws = 0, shadowDraws = 0, W = 0, H = 0; int msaa = 4; bool vsync = false, tearing = false, ao = true, shadows = true; };
+struct Perf { double fps = 0, frameMs = 0, worstMs = 0, gpuMs = 0; unsigned draws = 0, shadowDraws = 0, W = 0, H = 0; int msaa = 4; bool vsync = false, tearing = false, ao = true, shadows = true, refl = true; };
 class Hud {
 public:
   void init(Renderer& r);
