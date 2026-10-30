@@ -1,7 +1,8 @@
 // Sunset City, native: window, the main loop, and command-line options for headless screenshots:
 //   sunset.exe --shot out.bmp [--size WxH] [--msaa N] [--spawn coast|desert|alpine|south|city|runway]
 //              [--cam chase|close|driver|hood|free] [--at x,z --height m --yaw deg --pitch deg]  (free camera)
-//              [--drive seconds] [--steer v] [--color r,g,b] [--noao] [--noshadow] [--time s]
+//              [--drive seconds] [--steer v] [--color r,g,b] [--noao] [--noshadow] [--time s] [--model super|bond] [--guns]
+//              [--escape] [--race N] [--fullscreen] [--vsync] [--simulate seconds]   (the last runs the game logic only and logs what happens)
 //   sunset.exe --check-shaders [file]     compile every shader and list any errors
 #include "renderer.h"
 #include "world.h"
@@ -11,26 +12,35 @@
 #include <cstdlib>
 #include <string>
 
+static void toggleFullscreen(HWND h) {   // borderless fullscreen on the monitor the window is on
+  static RECT saved; static bool full = false; LONG st = GetWindowLong(h, GWL_STYLE);
+  if (!full) { GetWindowRect(h, &saved); MONITORINFO mi = { sizeof mi }; GetMonitorInfo(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi); SetWindowLong(h, GWL_STYLE, (st & ~WS_OVERLAPPEDWINDOW) | WS_POPUP); SetWindowPos(h, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED); }
+  else { SetWindowLong(h, GWL_STYLE, (st & ~WS_POPUP) | WS_OVERLAPPEDWINDOW); SetWindowPos(h, nullptr, saved.left, saved.top, saved.right - saved.left, saved.bottom - saved.top, SWP_FRAMECHANGED | SWP_NOZORDER); }
+  full = !full;
+}
+static LONG WINAPI crashFilter(EXCEPTION_POINTERS* e) {   // write where it went wrong into the log, so a crash can be reported and found
+  logf("CRASH: exception 0x%08lx at %p (access address %p)", e->ExceptionRecord->ExceptionCode, e->ExceptionRecord->ExceptionAddress, e->ExceptionRecord->NumberParameters > 1 ? (void*)e->ExceptionRecord->ExceptionInformation[1] : nullptr);
+  void* st[40]; USHORT n = CaptureStackBackTrace(0, 40, st, nullptr);
+  for (USHORT i = 0; i < n; i++) { HMODULE m = nullptr; char name[260] = "?"; if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)st[i], &m)) GetModuleFileNameA(m, name, sizeof name); logf("  #%u %p  %s +0x%llx", i, st[i], name, (unsigned long long)((char*)st[i] - (char*)m)); }
+  ExitProcess(3);
+}
 static Input g_input; static Renderer* g_r = nullptr; static bool g_quit = false; static int g_mx = 0, g_my = 0;
 static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
   switch (m) {
     case WM_CLOSE: case WM_DESTROY: g_quit = true; return 0;
     case WM_SIZE: if (g_r && w != SIZE_MINIMIZED) g_r->resize(LOWORD(l), HIWORD(l)); return 0;
     case WM_KEYDOWN:
-      if (w < 256) g_input.keys[w] = true; if (w == VK_ESCAPE) g_quit = true;
-      if (w == VK_F11 && !(l & (1 << 30))) {   // borderless fullscreen on the monitor the window is on
-        static RECT saved; static bool full = false; LONG st = GetWindowLong(h, GWL_STYLE);
-        if (!full) { GetWindowRect(h, &saved); MONITORINFO mi = { sizeof mi }; GetMonitorInfo(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi); SetWindowLong(h, GWL_STYLE, (st & ~WS_OVERLAPPEDWINDOW) | WS_POPUP); SetWindowPos(h, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED); }
-        else { SetWindowLong(h, GWL_STYLE, (st & ~WS_POPUP) | WS_OVERLAPPEDWINDOW); SetWindowPos(h, nullptr, saved.left, saved.top, saved.right - saved.left, saved.bottom - saved.top, SWP_FRAMECHANGED | SWP_NOZORDER); }
-        full = !full;
-      }
+      if (w < 256) g_input.keys[w] = true;
+      if (w == VK_F11 && !(l & (1 << 30))) toggleFullscreen(h);
       return 0;
     case WM_KEYUP: if (w < 256) g_input.keys[w] = false; return 0;
     case WM_MOUSEWHEEL: g_input.wheel += (float)GET_WHEEL_DELTA_WPARAM(w) / 120.0f; return 0;
+    case WM_LBUTTONDOWN: g_input.leftDown = true; return 0;
+    case WM_LBUTTONUP: g_input.leftDown = false; return 0;
     case WM_RBUTTONDOWN: g_input.rightDown = true; SetCapture(h); g_mx = (short)LOWORD(l); g_my = (short)HIWORD(l); return 0;
     case WM_RBUTTONUP: g_input.rightDown = false; ReleaseCapture(); return 0;
     case WM_MOUSEMOVE: { int x = (short)LOWORD(l), y = (short)HIWORD(l); if (g_input.rightDown) { g_input.mouseDX += (float)(x - g_mx); g_input.mouseDY += (float)(y - g_my); } g_mx = x; g_my = y; return 0; }
-    case WM_KILLFOCUS: std::memset(g_input.keys, 0, sizeof g_input.keys); return 0;
+    case WM_KILLFOCUS: std::memset(g_input.keys, 0, sizeof g_input.keys); g_input.leftDown = false; return 0;
   }
   return DefWindowProc(h, m, w, l);
 }
@@ -42,7 +52,7 @@ static std::string findShaders() {
 
 int main(int argc, char** argv) {
   std::string shotPath, spawn = "coast", camName, shaderFilter; UINT W = 1600, H = 900; int msaa = 4, frames = 4;
-  double autoExit = 0; bool offscreen = false, aoOff = false, shadowOff = false, checkShaders = false, freeCam = false; double ax = 0, az = 0, driveS = 0, steerV = 0, carX = 0, carZ = 0, carH = 0; bool hasCar = false;
+  int modelKind = 0, raceIdx = -1, menuPage = -1; bool gunsOut = false, startEscape = false, startFull = false, vsyncOn = false; double simSeconds = 0, autoExit = 0; bool offscreen = false, aoOff = false, shadowOff = false, checkShaders = false, freeCam = false; double ax = 0, az = 0, driveS = 0, steerV = 0, carX = 0, carZ = 0, carH = 0; bool hasCar = false;
   float ah = 3, yaw = 90, pitch = -4, tod = 0, color[3] = { 0.85f, 0.20f, 0.03f }; bool hasAt = false, hasOrbit = false; double orbYaw = 0, orbDist = 7, orbH = 1.6;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i]; auto next = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
@@ -53,11 +63,13 @@ int main(int argc, char** argv) {
     else if (a == "--height") ah = (float)atof(next().c_str()); else if (a == "--time") tod = (float)atof(next().c_str());
     else if (a == "--car") { hasCar = true; sscanf(next().c_str(), "%lf,%lf,%lf", &carX, &carZ, &carH); } else if (a == "--color") sscanf(next().c_str(), "%f,%f,%f", &color[0], &color[1], &color[2]);
     else if (a == "--orbit") { hasOrbit = true; sscanf(next().c_str(), "%lf,%lf,%lf", &orbYaw, &orbDist, &orbH); }
-    else if (a == "--seconds") autoExit = atof(next().c_str());
+    else if (a == "--seconds") autoExit = atof(next().c_str()); else if (a == "--model") { std::string m = next(); modelKind = (m == "bond" || m == "gt") ? 1 : 0; } else if (a == "--guns") gunsOut = true;
+    else if (a == "--escape") startEscape = true; else if (a == "--race") raceIdx = atoi(next().c_str()); else if (a == "--fullscreen") startFull = true; else if (a == "--vsync") vsyncOn = true; else if (a == "--simulate") simSeconds = atof(next().c_str()); else if (a == "--menu") menuPage = atoi(next().c_str());
     else if (a == "--check-shaders") { checkShaders = true; if (i + 1 < argc && argv[i + 1][0] != '-') shaderFilter = next(); }
   }
   if (!shotPath.empty() || offscreen || checkShaders) SetEnvironmentVariableA("SUNSET_HEADLESS", "1");
   SetProcessDPIAware();   // render at the real pixel size on scaled displays
+  SetUnhandledExceptionFilter(crashFilter);
   logf("Sunset City (native) starting"); worldInit();
   Renderer R; R.gfx.shaderDir = findShaders(); logf("shaders: %s", R.gfx.shaderDir.c_str());
   if (checkShaders) {
@@ -79,40 +91,60 @@ int main(int argc, char** argv) {
   Quality q; q.msaa = msaa; q.ao = !aoOff; q.shadows = !shadowOff;
   R.init(hwnd, W, H, offscreen, q); R.time = tod;
   Game G; G.init(R); std::memcpy(G.color, color, sizeof color);
-  Hud hud; hud.init(R); double fpsShown = 60;
+  Hud hud; hud.init(R); Perf perf; perf.msaa = R.q.msaa;
   R.onBeginFrame = [&](Gfx& g, Vec3 cam) { G.scenery.update(g, cam); G.prepare(g, R.frustum); };
-  R.drawHud = [&](Gfx& g, Texture& t) { hud.draw(R, g, t, G, R.time, fpsShown); };
-  if (hasCar) G.spawn("manual", carX, carZ, carH); else G.spawn(spawn);
+  R.drawHud = [&](Gfx& g, Texture& t) { perf.draws = R.statDraws; perf.shadowDraws = R.statShadowDraws; perf.gpuMs = g.gpuMs; perf.W = R.W; perf.H = R.H; perf.vsync = g.vsync; perf.tearing = g.tearing; perf.ao = R.q.ao; perf.shadows = R.q.shadows; hud.draw(R, g, t, G, R.time, perf); };
+  R.gfx.vsync = vsyncOn;
+  G.setCarKind(modelKind); if (gunsOut) { G.bondState.gunOut = 1; G.bondState.shield = 1; }
+  if (startEscape) G.startEscape(); else if (raceIdx >= 0) G.startRace(raceIdx); else if (hasCar) G.spawn("manual", carX, carZ, carH); else G.spawn(spawn);
   if (camName == "close") G.camMode = 1; else if (camName == "driver") G.camMode = 2; else if (camName == "hood") G.camMode = 3; else if (camName == "free") freeCam = true;
   InputState in; in.steer = steerV;
   auto driveFor = [&](double seconds) { InputState d; d.gas = 1; d.steer = steerV; for (double t = 0; t < seconds; t += 1.0 / 60.0) G.update(R, 1.0 / 60.0, d); };
-  if (driveS > 0) driveFor(driveS); else for (int i = 0; i < 90; i++) G.update(R, 1.0 / 60.0, in);
+  if (driveS > 0) driveFor(driveS); else if (!startEscape && raceIdx < 0) for (int i = 0; i < 90; i++) G.update(R, 1.0 / 60.0, in);
   if (freeCam || hasAt) { R.cam.pos = Vec3((float)ax, (float)heightAt(ax, az) + ah, (float)az); R.cam.yaw = yaw; R.cam.pitch = pitch; freeCam = true; }
   if (hasOrbit) {   // a camera circling the car (angle measured from straight ahead, clockwise seen from above)
     double h = G.car.h + orbYaw * PI / 180.0; Vec3 c((float)G.car.x, (float)G.car.bodyY() + 0.7f, (float)G.car.z);
     R.cam.pos = c + Vec3((float)(std::sin(h) * orbDist), (float)orbH, (float)(std::cos(h) * orbDist)); Vec3 f = normalize(c - R.cam.pos);
     R.cam.yaw = (float)(std::atan2(f.x, -f.z) * 180 / PI); R.cam.pitch = (float)(std::asin(f.y) * 180 / PI); R.cam.fov = 45; freeCam = true;
   }
+  if (menuPage >= 0) { G.menuFrom = State::Free; G.openMenu(); if (menuPage > 0) { G.menuSel = 3; G.runMenuActionPublic(1); } }
   Vec3 loadAt = R.cam.pos; R.terrain.loadNow(R.gfx, loadAt); G.scenery.loadNow(R.gfx, loadAt); R.finishInit();
   g_r = &R;
+  if (simSeconds > 0) {   // the game logic only: scripted driving and weapons, with a log of what the police and the world do
+    double t = 0; int tick = 0; const double DT = 1.0 / 60.0; PoliceChase& E = G.escape;
+    while (t < simSeconds) {
+      InputState d; d.gas = t < 20 ? 0.5 : 1.0; d.brake = (t > 24 && t < 29) ? 1.0 : 0.0; if (d.brake > 0) d.gas = 0; d.steer = 0; d.nitro = t > 30;
+      d.fire = (t > 3 && t < 6) || (t > 25 && t < 28); d.missile = (tick == 60 * 7) || (tick == 60 * 9); d.bomb = (tick == 60 * 11) || (tick == 60 * 26); d.oil = tick == 60 * 13; d.smoke = tick == 60 * 15; d.shield = tick == 60 * 17;
+      G.update(R, DT, d); t += DT; tick++;
+      if (tick % 240 == 0) { int alive = 0; double nearD = 1e9; for (auto& c : E.cops) if (!c.wreck) { alive++; nearD = std::min(nearD, std::hypot(c.x - G.car.x, c.z - G.car.z)); }
+        logf("t=%5.1f car=(%7.1f,%7.1f) v=%5.1f hp=%5.1f stars=%d spotted=%d hidden=%4.1f/%4.1f cops=%d nearest=%6.1f kills=%d civ=%d missiles=%zu bombs=%zu fx=%zu result=%d state=%d", t, G.car.x, G.car.z, G.car.speed(), E.health, E.stars(), (int)E.spotted, E.hidden, E.hiddenNeeded, alive, nearD, E.kills, E.civilians, E.missiles.size(), E.bombs.size(), G.fx.count(), (int)E.result, (int)G.state); }
+      if (G.state == State::EscapeOver && t > 2) break;
+    }
+    logf("simulation finished: result %d after %.1f s, %d police vehicles destroyed", (int)E.result, E.time, E.kills); R.gfx.waitIdle(); ExitProcess(0);
+  }
   if (!shotPath.empty()) {
     for (int i = 0; i < frames; i++) {
       if (!freeCam) G.update(R, 1.0 / 60.0, in);
       if (i == frames - 1) R.requestShot(shotPath);
       R.frame(1.0f / 60.0f); R.time += 1.0 / 60.0; if (i == frames - 1) logf("draw calls: %u (%u of them for the shadow cascades)", R.statDraws, R.statShadowDraws); MSG m; while (PeekMessage(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessage(&m); }
     }
-    return 0;
+    R.gfx.waitIdle(); ExitProcess(0);
   }
-  LARGE_INTEGER fq, t0; QueryPerformanceFrequency(&fq); QueryPerformanceCounter(&t0); double last = 0, fpsT = 0; int fcount = 0;
+  if (startFull) toggleFullscreen(hwnd);
+  if (autoExit == 0 && !startEscape && raceIdx < 0) G.openMenu();
+  LARGE_INTEGER fq, t0; QueryPerformanceFrequency(&fq); QueryPerformanceCounter(&t0); double last = 0, fpsT = 0, worst = 0; int fcount = 0;
   long totalFrames = 0; bool resized = false;
-  while (!g_quit) {
+  while (!g_quit && !G.quit) {
     MSG m; while (PeekMessage(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessage(&m); }
-    LARGE_INTEGER t; QueryPerformanceCounter(&t); double now = (double)(t.QuadPart - t0.QuadPart) / fq.QuadPart, dt = std::min(0.1, now - last); last = now;
+    LARGE_INTEGER t; QueryPerformanceCounter(&t); double now = (double)(t.QuadPart - t0.QuadPart) / fq.QuadPart, raw = now - last, dt = std::min(0.1, raw); last = now;
     if (autoExit > 0) { if (now > autoExit) break; if (!resized && now > autoExit * 0.5) { resized = true; SetWindowPos(hwnd, nullptr, 0, 0, 640 + 16, 360 + 39, SWP_NOMOVE | SWP_NOZORDER); } }   // test: run for a while, resizing half way
     totalFrames++;
-    InputState s = g_input.read(); G.update(R, dt, s); R.time = now; R.frame((float)dt);
-    fcount++; fpsT += dt; if (fpsT > 1.0) { char title[200]; fpsShown = fcount / fpsT; snprintf(title, sizeof title, "Sunset City (native)  %.0f fps  %.0f km/h  gear %d", fpsShown, G.speedKmh, G.car.gear); SetWindowTextA(hwnd, title); fcount = 0; fpsT = 0; }
+    InputState s = g_input.read();
+    if (s.vsync) { R.gfx.vsync = !R.gfx.vsync; } if (s.ao) R.q.ao = !R.q.ao; if (s.shadows) R.q.shadows = !R.q.shadows;
+    G.update(R, dt, s); R.time = now; R.frame((float)dt);
+    worst = std::max(worst, raw * 1000.0); fcount++; fpsT += raw;
+    if (fpsT > 0.5) { perf.fps = fcount / fpsT; perf.frameMs = fpsT * 1000.0 / fcount; perf.worstMs = worst; char title[200]; snprintf(title, sizeof title, "Sunset City (native)  %.0f fps  %.0f km/h", perf.fps, G.speedKmh); SetWindowTextA(hwnd, title); fcount = 0; fpsT = 0; worst = 0; }
   }
   R.gfx.waitIdle(); logf("ran %ld frames in the main loop", totalFrames);
-  return 0;
+  ExitProcess(0);   // skip the destructors: worker threads and GPU objects are torn down by the system
 }

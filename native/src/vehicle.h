@@ -11,7 +11,7 @@ struct VehicleSpec {
   double wheelR = 0.345, wheelI = 1.3, engineI = 0.22;
   double spring[4] = { 58000, 58000, 66000, 66000 }, damper[4] = { 4200, 4200, 4800, 4800 }, arb[2] = { 32000, 22000 }, travel = 0.11;
   double mu = 1.2, kPeak = 0.1, aPeak[2] = { 0.13, 0.115 }, C[2] = { 1.55, 1.38 };
-  double gears[6] = { 3.09, 2.19, 1.6, 1.25, 1.03, 0.86 }, rev = 2.9, finalDrive = 3.42, eff = 0.9;
+  int nGears = 6; double gears[6] = { 3.09, 2.19, 1.6, 1.25, 1.03, 0.86 }, rev = 2.9, finalDrive = 3.42, eff = 0.9;
   double idle = 950, redline = 8000, limiter = 8250, Tmax = 690, peakRpm = 5500;
   double drag = 0.36, roll = 10, down = 0.9, brakeT[4] = { 2200, 2200, 1300, 1300 }, handT = 3200, steerMax = 0.6, frontDrive = 0.3, nitroForce = 8000;
 };
@@ -29,6 +29,7 @@ public:
   Wheel wheels[4];
   Ground (*groundFn)(double, double) = groundAt;   // what the wheels touch (a test can swap in a flat plane)
   Vehicle();
+  void configure();                                   // recompute the derived values after changing `s` (a different car)
   void reset(double x, double z, double h);
   double speed() const { return std::hypot(vx, vy); }
   void worldVel(double& X, double& Z) const { double fx = std::sin(h), fz = std::cos(h), rx = -std::cos(h), rz = std::sin(h); X = fx * vx + rx * vy; Z = fz * vx + rz * vy; }

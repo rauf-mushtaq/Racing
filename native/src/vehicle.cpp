@@ -4,12 +4,12 @@ static const double G = 9.81;
 static double magic(double s, double C) { double B = std::tan(PI / (2 * C)); return std::sin(C * std::atan(B * s)); }
 static double sgn(double v) { return v > 0 ? 1 : v < 0 ? -1 : 0; }
 
-Vehicle::Vehicle() {
+Vehicle::Vehicle() { configure(); reset(0, 0, 0); }
+void Vehicle::configure() {
   L = s.wheelPos[0][0] - s.wheelPos[2][0];
   I = s.mass * (4.61 * 4.61 + 2.06 * 2.06) / 12 * 1.05; Ip = s.mass * (4.61 * 4.61 + 1.1 * 1.1) / 12 * 0.9; Ir = s.mass * (2.06 * 2.06 + 1.1 * 1.1) / 12 * 0.9;
   double a = s.wheelPos[0][0], b = -s.wheelPos[2][0];
   for (int i = 0; i < 4; i++) { Fstatic[i] = s.mass * G * (i < 2 ? b : a) / L / 2; cStatic[i] = Fstatic[i] / s.spring[i]; }
-  reset(0, 0, 0);
 }
 void Vehicle::reset(double X, double Z, double H) {
   x = X; z = Z; h = H; px = X; pz = Z; ph = H; vx = vy = w = steer = 0; gear = 1; rpm = s.idle; shiftT = revT = ax = ay = 0; nitro = 1; nitroOn = false;
@@ -21,7 +21,7 @@ double Vehicle::torqueAt(double r) const { double xx = r / s.peakRpm; return s.T
 bool Vehicle::shift(int d) {
   if (shiftT > 0) return false;
   int g = gear + d;
-  if (g < -1 || g > 6 || g == 0) { if (g == 0 && speed() < 2) { gear = d < 0 ? -1 : 1; return true; } return false; }
+  if (g < -1 || g > s.nGears || g == 0) { if (g == 0 && speed() < 2) { gear = d < 0 ? -1 : 1; return true; } return false; }
   gear = g; shiftT = 0.16; return true;
 }
 
@@ -77,10 +77,10 @@ void Vehicle::step(double dt, const DriveInput& inp) {
   rpm_ = std::max(rpm_, S.idle);
   if (shiftT > 0) shiftT -= dt;
   if (autoGear && shiftT <= 0 && gear >= 1) {
-    if (rpmW > 7700 && gear < 6) shift(1);
+    if (rpmW > S.redline * 0.96 && gear < S.nGears) shift(1);
     else if (gear > 1) {
       double lower = wheelRpm * S.gears[gear - 2] * S.finalDrive;
-      if (lower < 7100 && ((thr > 0.6 && rpmW < 4300) || rpmW < 2600 || (brk > 0.2 && rpmW < 3600))) shift(-1);
+      if (lower < S.redline * 0.89 && ((thr > 0.6 && rpmW < S.redline * 0.54) || rpmW < S.redline * 0.33 || (brk > 0.2 && rpmW < S.redline * 0.45))) shift(-1);
     }
   }
   rpm += (std::min(rpm_, S.limiter + 100) - rpm) * std::min(1.0, dt * 18);

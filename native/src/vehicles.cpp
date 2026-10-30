@@ -1,30 +1,19 @@
 #include "vehicles.h"
-#include <functional>
+#include "shapes.h"
 
 uint32_t vcol(float r, float g, float b) { return packColor(r, g, b); }
 
 namespace {
-using Curve = std::vector<std::array<float, 2>>;
-float sample(const Curve& c, float z) {
+using Poly = std::vector<std::array<float, 2>>;
+float sample(const Poly& c, float z) {
   if (z <= c.front()[0]) return c.front()[1]; if (z >= c.back()[0]) return c.back()[1];
   for (size_t i = 1; i < c.size(); i++) if (z <= c[i][0]) { float t = (z - c[i - 1][0]) / std::max(1e-4f, c[i][0] - c[i - 1][0]); return c[i - 1][1] + (c[i][1] - c[i - 1][1]) * t; }
   return c.back()[1];
 }
 struct Spec {
   float len, w, wr, fo, ro, clear, noseR, tailR, tlY, hlY, mass = 1400, rad = 0.95f;
-  Curve top, topHalf, shoulder; float gz[2], ws[2], rw[2];
+  Poly top, topHalf, shoulder; float gz[2], ws[2], rw[2];
 };
-// Duplicate the vertices of every triangle so each can have its own colour (normals stay smooth).
-MeshData colourTriangles(const MeshData& m, const std::function<uint32_t(Vec3 centre, Vec3 normal)>& f) {
-  MeshData o; o.v.reserve(m.i.size()); o.i.reserve(m.i.size());
-  for (size_t t = 0; t + 2 < m.i.size(); t += 3) {
-    const MeshVertex &a = m.v[m.i[t]], &b = m.v[m.i[t + 1]], &c = m.v[m.i[t + 2]];
-    Vec3 pa(a.px, a.py, a.pz), pb(b.px, b.py, b.pz), pc(c.px, c.py, c.pz); Vec3 n = normalize(cross(pb - pa, pc - pa)); uint32_t col = f((pa + pb + pc) * (1.0f / 3.0f), n);
-    MeshVertex va = a, vb = b, vc = c; va.color = vb.color = vc.color = col; uint32_t base = (uint32_t)o.v.size();
-    o.v.push_back(va); o.v.push_back(vb); o.v.push_back(vc); o.tri(base, base + 1, base + 2);
-  }
-  return o;
-}
 // The body: a loft of cross-sections from tail to nose. Each section is the lower body (to the shoulder line) and the cabin above it.
 CarMesh buildCar(Gfx& g, const Spec& s, bool police, const float lightBarY) {
   const float zr = -s.len / 2, zf = s.len / 2; const int M = 44, NP = 16;
@@ -82,7 +71,7 @@ CarMesh buildCar(Gfx& g, const Spec& s, bool police, const float lightBarY) {
 }
 
 void VehicleModels::build(Gfx& g) {
-  auto C = [](std::initializer_list<std::array<float, 2>> l) { return Curve(l); };
+  auto C = [](std::initializer_list<std::array<float, 2>> l) { return Poly(l); };
   Spec saloon = { 4.75f, 0.9f, 0.33f, 0.95f, 1.05f, 0.2f, 0.25f, 0.18f, 0.82f, 0.7f, 1400, 0.95f,
     C({ { -2.375f, 0.95f }, { -2.0f, 1.0f }, { -1.4f, 1.02f }, { -0.9f, 1.42f }, { 0.4f, 1.45f }, { 1.0f, 1.0f }, { 2.0f, 0.88f }, { 2.375f, 0.72f } }),
     C({ { -2.4f, 0.78f }, { -0.9f, 0.62f }, { 0.4f, 0.66f }, { 1.0f, 0.8f }, { 2.4f, 0.78f } }), C({ { -2.375f, 0.9f }, { 0, 0.98f }, { 2.375f, 0.68f } }), { -1.05f, 0.95f }, { 0.45f, 1.02f }, { -1.4f, -0.88f } };

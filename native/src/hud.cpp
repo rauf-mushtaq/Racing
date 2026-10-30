@@ -52,39 +52,143 @@ void Hud::textRaw(const std::string& s, float x, float y, float px, const float 
   }
 }
 
-void Hud::draw(Renderer& r, Gfx& g, Texture& target, const Game& game, double time, double fps) {
-  if (!ready) return; verts.clear();
-  float W = (float)r.W, H = (float)r.H, S = std::min(W / 1600.0f, H / 900.0f) * 1.1f;   // everything scales with the window
-  const float white[4] = { 0.96f, 0.96f, 0.98f, 0.95f }, dim[4] = { 0.96f, 0.96f, 0.98f, 0.55f }, accent[4] = { 1.0f, 0.55f, 0.18f, 1.0f }, panel[4] = { 0.03f, 0.03f, 0.05f, 0.62f }, rim[4] = { 1, 1, 1, 0.16f };
-  const Vehicle& car = game.car; float R = 128.0f * S, cx = 30.0f * S + R, cy = H - 30.0f * S - R;
-  // Gauge face.
-  arc(cx, cy, 0, R, 0, 6.2832f, panel, 64); arc(cx, cy, R - 2.0f * S, R, 0, 6.2832f, rim, 64);
-  const float a0 = 225.0f * 3.14159f / 180.0f, sweep = 270.0f * 3.14159f / 180.0f, redline = 8000.0f;
+void Hud::star(float cx, float cy, float r, const float c[4]) {
+  float px[10], py[10]; for (int i = 0; i < 10; i++) { float a = -1.5708f + i * 0.62832f, rr = i % 2 ? r * 0.42f : r; px[i] = cx + std::cos(a) * rr; py[i] = cy + std::sin(a) * rr; }
+  for (int i = 0; i < 10; i++) tri(cx, cy, px[i], py[i], px[(i + 1) % 10], py[(i + 1) % 10], c);
+}
+std::vector<std::string> Hud::wrap(const std::string& s, float maxW, float px) {
+  std::vector<std::string> out; std::string line, word; auto flush = [&]() { if (line.empty()) line = word; else if (textWidth(line + " " + word, px) <= maxW) line += " " + word; else { out.push_back(line); line = word; } word.clear(); };
+  for (char ch : s) { if (ch == ' ') { if (!word.empty()) flush(); } else word += ch; } if (!word.empty()) flush(); if (!line.empty()) out.push_back(line); return out;
+}
+static std::string fmtTime(double t) { int m = (int)(t / 60); double s = t - m * 60; char b[32]; snprintf(b, sizeof b, "%d:%05.2f", m, s); return b; }
+static const float WHITE[4] = { 0.96f, 0.96f, 0.98f, 0.95f }, DIM[4] = { 0.96f, 0.96f, 0.98f, 0.55f }, ACCENT[4] = { 1.0f, 0.55f, 0.18f, 1.0f }, PANEL[4] = { 0.03f, 0.03f, 0.05f, 0.62f }, RIM[4] = { 1, 1, 1, 0.16f }, RED[4] = { 1.0f, 0.22f, 0.18f, 1.0f }, BLUE[4] = { 0.25f, 0.5f, 1.0f, 1.0f }, GREEN[4] = { 0.3f, 0.95f, 0.45f, 1.0f }, GOLD[4] = { 1.0f, 0.82f, 0.25f, 1.0f };
+
+void Hud::gauge(const Game& game, const Perf& perf) {
+  (void)perf; const Vehicle& car = game.car; float R = 128.0f * S, cx = 30.0f * S + R, cy = H - 30.0f * S - R;
+  arc(cx, cy, 0, R, 0, 6.2832f, PANEL, 64); arc(cx, cy, R - 2.0f * S, R, 0, 6.2832f, RIM, 64);
+  const float a0 = 225.0f * 3.14159f / 180.0f, sweep = 270.0f * 3.14159f / 180.0f, redline = (float)car.s.redline; int nt = (int)std::ceil(redline / 1000.0f);
   auto ang = [&](float f) { return a0 - sweep * f; };
-  float rpmF = clampf((float)car.rpm / redline, 0, 1);
+  float rpmF = clampf((float)car.rpm / (nt * 1000.0f), 0, 1), redF = redline / (nt * 1000.0f);
   const float track[4] = { 1, 1, 1, 0.10f }; arc(cx, cy, R * 0.80f, R * 0.92f, ang(1.0f), ang(0.0f), track, 56);
-  for (int i = 0; i < 48; i++) {   // the lit part of the arc, in segments that go from white to orange to red
-    float f0 = rpmF * i / 48.0f, f1 = rpmF * (i + 1) / 48.0f, m = (f0 + f1) * 0.5f; float c[4] = { 1.0f, 1.0f - clampf((m - 0.55f) * 2.0f, 0, 1) * 0.45f - clampf((m - 0.82f) * 5, 0, 1) * 0.4f, 0.95f - clampf((m - 0.35f) * 2.5f, 0, 0.9f), 0.95f };
+  for (int i = 0; i < 48; i++) {
+    float f0 = rpmF * i / 48.0f, f1 = rpmF * (i + 1) / 48.0f, m = (f0 + f1) * 0.5f / redF; float c[4] = { 1.0f, 1.0f - clampf((m - 0.55f) * 2.0f, 0, 1) * 0.45f - clampf((m - 0.82f) * 5, 0, 1) * 0.4f, 0.95f - clampf((m - 0.35f) * 2.5f, 0, 0.9f), 0.95f };
     if (m < 0.35f) { c[0] = 0.55f + m; c[1] = 0.9f; c[2] = 1.0f; }
     arc(cx, cy, R * 0.80f, R * 0.92f, ang(f0), ang(f1), c, 1);
   }
-  for (int k = 0; k <= 8; k++) {   // ticks and numbers (thousands of rpm)
-    float a = ang(k / 8.0f), c = std::cos(a), s = std::sin(a); const float* col = k >= 7 ? accent : white;
+  for (int k = 0; k <= nt; k++) {
+    float a = ang((float)k / nt), c = std::cos(a), s = std::sin(a); const float* col = k >= nt - 1 ? ACCENT : WHITE;
     line(cx + c * R * 0.93f, cy - s * R * 0.93f, cx + c * R * 0.99f, cy - s * R * 0.99f, 2.5f * S, col);
-    text(std::to_string(k), cx + c * R * 0.68f, cy - s * R * 0.68f + 7.0f * S, 18.0f * S, dim, 1);
+    text(std::to_string(k), cx + c * R * 0.68f, cy - s * R * 0.68f + 7.0f * S, 18.0f * S, DIM, 1);
   }
-  // Speed, units and gear.
-  char sp[16]; snprintf(sp, sizeof sp, "%d", (int)std::round(game.speedKmh)); text(sp, cx, cy + 22.0f * S, 66.0f * S, white, 1); text("km/h", cx, cy + 46.0f * S, 18.0f * S, dim, 1);
-  std::string gs = car.gear == -1 ? "R" : (car.speed() < 0.4 && car.gear == 1 && game.car.throttle < 0.05) ? "N" : std::to_string(car.gear); text(gs, cx, cy - 22.0f * S, 44.0f * S, accent, 1);
-  // Assist lights and the nitro bar.
+  char sp[16]; snprintf(sp, sizeof sp, "%d", (int)std::round(game.speedKmh)); text(sp, cx, cy + 22.0f * S, 66.0f * S, WHITE, 1); text("km/h", cx, cy + 46.0f * S, 18.0f * S, DIM, 1);
+  std::string gs = car.gear == -1 ? "R" : (car.speed() < 0.4 && car.gear == 1 && car.throttle < 0.05) ? "N" : std::to_string(car.gear); text(gs, cx, cy - 22.0f * S, 44.0f * S, ACCENT, 1);
   const float onC[4] = { 1.0f, 0.78f, 0.1f, 1.0f }, offC[4] = { 1, 1, 1, 0.18f };
   text("ABS", cx - 40.0f * S, cy + 72.0f * S, 13.0f * S, car.absOn ? onC : offC, 1); text("ESP", cx, cy + 72.0f * S, 13.0f * S, car.espOn ? onC : offC, 1); text("TCS", cx + 40.0f * S, cy + 72.0f * S, 13.0f * S, car.tcsOn ? onC : offC, 1);
   float nx0 = cx - R * 0.55f, nx1 = cx + R * 0.55f, ny = cy + R + 10.0f * S; const float nb[4] = { 1, 1, 1, 0.15f }, nf[4] = { 0.25f, 0.85f, 1.0f, 0.95f };
   solid(nx0, ny, nx1, ny + 6.0f * S, nb); solid(nx0, ny, nx0 + (nx1 - nx0) * (float)car.nitro, ny + 6.0f * S, nf);
-  // Top-right: frames per second, and a hint line that fades after a few seconds.
-  char fp[32]; snprintf(fp, sizeof fp, "%d FPS", (int)std::round(fps)); text(fp, W - 20.0f * S, 34.0f * S, 18.0f * S, dim, 2);
-  static const char* camNames[4] = { "WIDE CHASE", "CLOSE CHASE", "DRIVER", "HOOD" }; text(camNames[game.camMode], 24.0f * S, 40.0f * S, 20.0f * S, white, 0);
-  if (time < 9.0) { float a = clampf((float)(9.0 - time), 0, 1); float hc[4] = { 1, 1, 1, 0.8f * a }; text("W / S  throttle, brake      A / D  steer      Space  handbrake      Shift  nitro      C  camera      R  reset      F11  fullscreen", W * 0.5f, H - 28.0f * S, 17.0f * S, hc, 1); }
+}
+void Hud::raceHud(const Renderer& r, const Game& g) {
+  const Route& rt = g.route; if (rt.cps.empty()) return;
+  if (g.state == State::Countdown) { int n = (int)std::ceil(g.countT - 0.4); if (n > 0) { char b[8]; snprintf(b, sizeof b, "%d", n); float a = clampf((float)(g.countT - 0.4 - (n - 1)) * 1.4f, 0.2f, 1.0f); float c[4] = { 1, 1, 1, a }; text(b, W * 0.5f, H * 0.42f, 150.0f * S, c, 1); } text(rt.ev->name, W * 0.5f, H * 0.2f, 40.0f * S, WHITE, 1); text("Get ready", W * 0.5f, H * 0.2f + 36.0f * S, 22.0f * S, DIM, 1); }
+  // Timer and progress.
+  float px = W * 0.5f; const float p[4] = { 0.03f, 0.03f, 0.05f, 0.55f }; solid(px - 150 * S, 14 * S, px + 150 * S, 98 * S, p);
+  text(fmtTime(g.raceT), px, 62.0f * S, 48.0f * S, WHITE, 1); char b[96]; snprintf(b, sizeof b, "GATE %d / %d", std::min(g.nextCp + 1, (int)rt.cps.size()), (int)rt.cps.size()); text(b, px, 88.0f * S, 16.0f * S, DIM, 1);
+  if (g.state == State::Race && g.nextCp < (int)rt.cps.size()) {   // an arrow to the next gate
+    const Checkpoint& cp = rt.cps[g.nextCp]; double dx = cp.x - g.car.x, dz = cp.z - g.car.z, bearing = std::atan2(dx, -dz), rel = bearing - r.cam.yaw * PI / 180.0; float cx = px, cy = 150.0f * S, k = 26.0f * S;
+    float s = (float)std::sin(rel), c = (float)std::cos(rel); auto P = [&](float x, float y, float* ox, float* oy) { *ox = cx + x * c - y * s; *oy = cy - (x * s + y * c); };
+    float ax, ay, bx, by, cx2, cy2, dx2, dy2; P(0, k, &ax, &ay); P(-k * 0.7f, -k * 0.7f, &bx, &by); P(0, -k * 0.25f, &cx2, &cy2); P(k * 0.7f, -k * 0.7f, &dx2, &dy2);
+    const float ac[4] = { 0.3f, 0.9f, 1.0f, 0.95f }; tri(ax, ay, bx, by, cx2, cy2, ac); tri(ax, ay, cx2, cy2, dx2, dy2, ac);
+    snprintf(b, sizeof b, "%d m", (int)std::hypot(dx, dz)); text(b, cx, cy + 46.0f * S, 20.0f * S, WHITE, 1);
+    double best = g.bestFor(rt.ev->id); if (best >= 0) text("BEST " + fmtTime(best), W - 24.0f * S, 70.0f * S, 18.0f * S, DIM, 2);
+  }
+  if (g.state == State::Finished) {
+    float x0 = W * 0.5f - 280 * S, x1 = W * 0.5f + 280 * S, y0 = H * 0.24f, y1 = H * 0.24f + 400 * S; solid(x0, y0, x1, y1, PANEL);
+    text("FINISH", W * 0.5f, y0 + 62 * S, 64.0f * S, WHITE, 1); text(rt.ev->name, W * 0.5f, y0 + 100 * S, 24.0f * S, DIM, 1); text(fmtTime(g.raceT), W * 0.5f, y0 + 170 * S, 78.0f * S, ACCENT, 1);
+    static const char* mn[4] = { "No medal this time", "BRONZE MEDAL", "SILVER MEDAL", "GOLD MEDAL" }; const float* mc = g.lastMedal == 3 ? GOLD : g.lastMedal == 2 ? WHITE : g.lastMedal == 1 ? ACCENT : DIM; text(mn[g.lastMedal], W * 0.5f, y0 + 214 * S, 30.0f * S, mc, 1);
+    if (g.newBest) text("NEW BEST", W * 0.5f, y0 + 248 * S, 22.0f * S, GREEN, 1);
+    text("Gold  " + fmtTime(rt.medals.gold), W * 0.5f, y0 + 296 * S, 20.0f * S, GOLD, 1); text("Silver  " + fmtTime(rt.medals.silver), W * 0.5f, y0 + 324 * S, 20.0f * S, WHITE, 1); text("Bronze  " + fmtTime(rt.medals.bronze), W * 0.5f, y0 + 352 * S, 20.0f * S, ACCENT, 1);
+    text("R  race again        Esc  menu", W * 0.5f, y1 - 14 * S, 18.0f * S, DIM, 1);
+  }
+}
+void Hud::escapeHud(const Renderer& r, const Game& g) {
+  (void)r; const PoliceChase& e = g.escape; bool flashRed = std::fmod(g.clock * 3.6, 1.0) < 0.5;
+  if (e.damageFlash > 0.02f) { float c[4] = { 0.9f, 0.05f, 0.03f, (float)e.damageFlash * 0.28f }; solid(0, 0, W, H, c); }
+  // Wanted stars and the "lose them" bar.
+  float sx = 34.0f * S, sy = 92.0f * S; int stars = e.stars(); float frac = (float)(e.heat - std::floor(e.heat));
+  for (int i = 0; i < 5; i++) { const float off[4] = { 1, 1, 1, 0.16f }; float c[4]; bool on = i < stars; if (on) { const float* base = e.spotted ? (flashRed ? RED : BLUE) : WHITE; std::memcpy(c, base, sizeof c); } else std::memcpy(c, off, sizeof c); star(sx + i * 34.0f * S, sy, 14.0f * S, c); }
+  if (stars < 5) { float c[4] = { 1, 1, 1, 0.5f }; solid(sx - 14 * S, sy + 22 * S, sx - 14 * S + 5 * 34 * S * frac, sy + 25 * S, c); }
+  float bw = 380.0f * S, bx = W * 0.5f - bw / 2, by = 30.0f * S; const float tr[4] = { 1, 1, 1, 0.14f }; solid(bx, by, bx + bw, by + 12 * S, tr);
+  float prog = clampf((float)(e.hidden / e.hiddenNeeded), 0, 1); const float* pc = e.spotted ? RED : GREEN; solid(bx, by, bx + bw * prog, by + 12 * S, pc);
+  text(e.spotted ? "SPOTTED - BREAK LINE OF SIGHT" : "HIDDEN - KEEP OUT OF SIGHT", W * 0.5f, by + 40 * S, 20.0f * S, e.spotted ? RED : GREEN, 1);
+  // Integrity.
+  float hx = W * 0.5f - 190.0f * S, hy = H - 150.0f * S; float hp = clampf((float)e.health / 100.0f, 0, 1); const float hb[4] = { 1, 1, 1, 0.15f }; float hc[4] = { 1.0f - hp * 0.7f, 0.3f + hp * 0.65f, 0.25f, 0.95f };
+  solid(hx, hy, hx + 380 * S, hy + 10 * S, hb); solid(hx, hy, hx + 380 * S * hp, hy + 10 * S, hc); text("INTEGRITY", hx, hy - 6 * S, 14.0f * S, DIM, 0);
+  if (e.shieldT > 0) text("ARMOUR UP", hx + 380 * S, hy - 6 * S, 14.0f * S, BLUE, 2);
+  // The gadgets.
+  struct G { const char* key; const char* name; float fill; std::string note; bool ready; const float* col; } gs[6] = {
+    { "F", "GUNS", (float)e.gunHeat, e.jammed ? "JAM" : "", !e.jammed, RED }, { "G", "MISSILE", e.ammoMissile / 6.0f, "x" + std::to_string(e.ammoMissile), e.ammoMissile > 0, ACCENT }, { "B", "BOMB", e.ammoBomb / 4.0f, "x" + std::to_string(e.ammoBomb), e.ammoBomb > 0, ACCENT },
+    { "O", "OIL", 1.0f - (float)(e.cdOil / 7.0), "", e.cdOil <= 0, WHITE }, { "X", "SMOKE", 1.0f - (float)(e.cdSmoke / 14.0), "", e.cdSmoke <= 0, WHITE }, { "V", "ARMOUR", e.shieldT > 0 ? (float)(e.shieldT / 6.0) : 1.0f - (float)(e.cdShield / 15.0), "", e.cdShield <= 0 && e.shieldT <= 0, BLUE } };
+  float gw = 92.0f * S, gx0 = W * 0.5f - gw * 3, gy0 = H - 118.0f * S;
+  for (int i = 0; i < 6; i++) {
+    float x0 = gx0 + i * gw + 4 * S, x1 = x0 + gw - 8 * S, y0 = gy0, y1 = gy0 + 86 * S; solid(x0, y0, x1, y1, PANEL);
+    const float* kc = gs[i].ready ? WHITE : DIM; text(gs[i].key, x0 + 10 * S, y0 + 26 * S, 22.0f * S, gs[i].ready ? ACCENT : DIM, 0); text(gs[i].name, (x0 + x1) * 0.5f, y0 + 54 * S, 15.0f * S, kc, 1);
+    if (!gs[i].note.empty()) text(gs[i].note, x1 - 8 * S, y0 + 26 * S, 18.0f * S, kc, 2);
+    const float tr2[4] = { 1, 1, 1, 0.14f }; solid(x0 + 8 * S, y1 - 14 * S, x1 - 8 * S, y1 - 8 * S, tr2); float fc[4] = { gs[i].col[0], gs[i].col[1], gs[i].col[2], gs[i].ready ? 1.0f : 0.5f }; solid(x0 + 8 * S, y1 - 14 * S, x0 + 8 * S + (x1 - x0 - 16 * S) * clampf(gs[i].fill, 0, 1), y1 - 8 * S, fc);
+  }
+  // Radar: the police relative to your heading.
+  float rr = 92.0f * S, rx = W - rr - 30.0f * S, ry = 170.0f * S; arc(rx, ry, 0, rr, 0, 6.2832f, PANEL, 48); arc(rx, ry, rr - 1.5f * S, rr, 0, 6.2832f, RIM, 48); arc(rx, ry, rr * 0.5f - 1, rr * 0.5f, 0, 6.2832f, RIM, 32);
+  double sh = std::sin(g.car.h), ch = std::cos(g.car.h); const double RANGE = 320;
+  for (const Cop& c : e.cops) {
+    if (c.wreck) continue; double dx = c.x - g.car.x, dz = c.z - g.car.z, fwd = dx * sh + dz * ch, rgt = -(dx * ch - dz * sh); double d = std::hypot(fwd, rgt); double k = d > RANGE ? RANGE / d : 1.0;
+    float px2 = rx + (float)(rgt * k / RANGE) * rr * 0.92f, py2 = ry - (float)(fwd * k / RANGE) * rr * 0.92f; const float* cc = std::fmod(g.clock * 3.6 + c.flash, 1.0) < 0.5 ? RED : BLUE; float rd = (c.kind ? 6.0f : 4.5f) * S; solid(px2 - rd, py2 - rd, px2 + rd, py2 + rd, cc);
+  }
+  tri(rx, ry - 8 * S, rx - 6 * S, ry + 6 * S, rx + 6 * S, ry + 6 * S, WHITE);
+  if (g.state == State::EscapeOver) {
+    float x0 = W * 0.5f - 290 * S, x1 = W * 0.5f + 290 * S, y0 = H * 0.22f, y1 = y0 + 400 * S; solid(x0, y0, x1, y1, PANEL);
+    const char* title = e.result == PoliceChase::ESCAPED ? "YOU LOST THEM" : e.result == PoliceChase::BUSTED ? "BUSTED" : "WRECKED"; const float* tc = e.result == PoliceChase::ESCAPED ? GREEN : RED;
+    text(title, W * 0.5f, y0 + 76 * S, 66.0f * S, tc, 1); char b[128];
+    snprintf(b, sizeof b, "Time  %s", fmtTime(e.time).c_str()); text(b, W * 0.5f, y0 + 150 * S, 28.0f * S, WHITE, 1); snprintf(b, sizeof b, "Highest heat  %d star%s", e.maxStars, e.maxStars == 1 ? "" : "s"); text(b, W * 0.5f, y0 + 190 * S, 24.0f * S, WHITE, 1);
+    snprintf(b, sizeof b, "Police vehicles destroyed  %d", e.kills); text(b, W * 0.5f, y0 + 228 * S, 24.0f * S, WHITE, 1); snprintf(b, sizeof b, "Civilian cars wrecked  %d", e.civilians); text(b, W * 0.5f, y0 + 266 * S, 24.0f * S, WHITE, 1);
+    text("R  try again        Esc  menu", W * 0.5f, y1 - 20 * S, 18.0f * S, DIM, 1);
+  }
+}
+void Hud::menu(const Game& g) {
+  const float veil[4] = { 0.02f, 0.02f, 0.04f, 0.58f }; solid(0, 0, W, H, veil);
+  float pw = 640.0f * S, x0 = W * 0.5f - pw / 2, ytop = 90.0f * S; text(g.menuTitle, W * 0.5f, ytop, 60.0f * S, WHITE, 1);
+  int n = (int)g.menuItems.size(), vis = std::min(n, 11), first = std::max(0, std::min(g.menuSel - vis / 2, n - vis)); float ih = 44.0f * S, y = ytop + 40.0f * S;
+  for (int i = first; i < first + vis; i++) {
+    bool sel = i == g.menuSel; const float hl[4] = { 1.0f, 0.55f, 0.18f, 0.9f }, nm[4] = { 0.03f, 0.03f, 0.05f, 0.55f }; solid(x0, y, x0 + pw, y + ih - 4 * S, sel ? hl : nm);
+    const float dk[4] = { 0.05f, 0.04f, 0.04f, 1.0f }; text(g.menuItems[i].label, x0 + 22.0f * S, y + ih * 0.66f, 24.0f * S, sel ? dk : WHITE, 0); y += ih;
+  }
+  if (first > 0) text("...", W * 0.5f, ytop + 34.0f * S, 20.0f * S, DIM, 1); if (first + vis < n) text("...", W * 0.5f, y + 6.0f * S, 20.0f * S, DIM, 1);
+  if (!g.menuItems.empty()) { auto lines = wrap(g.menuItems[g.menuSel].detail, pw, 19.0f * S); float yy = y + 34.0f * S; for (auto& l : lines) { text(l, W * 0.5f, yy, 19.0f * S, DIM, 1); yy += 25.0f * S; } }
+  text("Up / Down  choose      Enter  select      Esc  back", W * 0.5f, H - 40.0f * S, 18.0f * S, DIM, 1);
+}
+void Hud::toasts(const Game& g) {
+  float y = (g.inEscapeHud() ? 160.0f : 230.0f) * S;
+  for (auto it = g.toasts.rbegin(); it != g.toasts.rend(); ++it) { float a = clampf((float)(3.2 - it->age) * 1.5f, 0, 1) * clampf((float)it->age * 8.0f, 0, 1); float c[4] = { 1, 1, 1, 0.95f * a }; text(it->text, W * 0.5f, y, 30.0f * S, c, 1); y += 36.0f * S; }
+}
+void Hud::statsPanel(const Perf& p) {
+  float x = 24.0f * S, y = 74.0f * S, w = 300.0f * S; const float bg[4] = { 0.02f, 0.02f, 0.03f, 0.7f }; solid(x - 10 * S, y - 22 * S, x + w, y + 7 * 24.0f * S, bg); char b[160];
+  snprintf(b, sizeof b, "%.0f fps    %.2f ms    worst %.1f ms", p.fps, p.frameMs, p.worstMs); text(b, x, y, 18.0f * S, WHITE, 0); y += 24 * S;
+  snprintf(b, sizeof b, "GPU %.2f ms", p.gpuMs); text(p.gpuMs > 0 ? b : "GPU timing n/a", x, y, 18.0f * S, WHITE, 0); y += 24 * S;
+  snprintf(b, sizeof b, "%u draws (%u in shadows)", p.draws, p.shadowDraws); text(b, x, y, 18.0f * S, WHITE, 0); y += 24 * S;
+  snprintf(b, sizeof b, "%ux%u  MSAA %dx", p.W, p.H, p.msaa); text(b, x, y, 18.0f * S, WHITE, 0); y += 24 * S;
+  snprintf(b, sizeof b, "present: %s", p.vsync ? "vsync" : (p.tearing ? "uncapped (tearing)" : "uncapped")); text(b, x, y, 18.0f * S, WHITE, 0); y += 24 * S;
+  snprintf(b, sizeof b, "F4 vsync   F5 AO %s   F6 shadows %s", p.ao ? "on" : "off", p.shadows ? "on" : "off"); text(b, x, y, 16.0f * S, DIM, 0);
+}
+void Hud::draw(Renderer& r, Gfx& g, Texture& target, const Game& game, double time, const Perf& perf) {
+  if (!ready) return; verts.clear(); W = (float)r.W; H = (float)r.H; S = std::min(W / 1600.0f, H / 900.0f) * 1.1f;   // everything scales with the window
+  if (game.state != State::Menu) gauge(game, perf);
+  static const char* camNames[4] = { "WIDE CHASE", "CLOSE CHASE", "DRIVER", "HOOD" };
+  if (game.state != State::Menu) text(camNames[game.camMode], 24.0f * S, 40.0f * S, 20.0f * S, WHITE, 0);
+  char fp[32]; snprintf(fp, sizeof fp, "%d FPS", (int)std::round(perf.fps)); text(fp, W - 20.0f * S, 34.0f * S, 18.0f * S, DIM, 2);
+  if (game.inRaceHud()) raceHud(r, game); if (game.inEscapeHud()) escapeHud(r, game);
+  if (game.state != State::Menu) toasts(game);
+  if (game.showStats) statsPanel(perf);
+  if (time < 9.0 && (game.state == State::Free)) { float a = clampf((float)(9.0 - time), 0, 1); float hc[4] = { 1, 1, 1, 0.8f * a }; text("W / S  throttle, brake      A / D  steer      Space  handbrake      Shift  nitro      C  camera      R  reset      Esc  menu      F3  stats", W * 0.5f, H - 28.0f * S, 17.0f * S, hc, 1); }
+  if (game.state == State::Escape && game.escape.time < 14) { float a = clampf((float)(14.0 - game.escape.time), 0, 1); float hc[4] = { 1, 1, 1, 0.85f * a }; text("F guns (hold, or left mouse)      G missile      B bomb      O oil      X smoke      V armour      Shift nitro      Esc menu", W * 0.5f, H - 28.0f * S + 0.0f, 17.0f * S, hc, 1); }
+  if (game.state == State::Menu) menu(game);
   if (!verts.empty()) {
     UINT bytes = (UINT)(verts.size() * sizeof(V)); CBAlloc a = g.allocCB(bytes); std::memcpy(a.ptr, verts.data(), bytes);
     g.barrier(target, D3D12_RESOURCE_STATE_RENDER_TARGET); g.cmd->OMSetRenderTargets(1, &target.rtv, FALSE, nullptr); g.setViewport(r.W, r.H); g.cmd->SetPipelineState(pso.Get());
