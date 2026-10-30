@@ -14,6 +14,8 @@
 #include "events.h"
 #include "escape.h"
 #include "peds.h"
+#include "wheel.h"
+#include "settings.h"
 #include <map>
 #include <deque>
 
@@ -24,18 +26,20 @@ struct InputState {
   bool missile = false, bomb = false, oil = false, smoke = false, shield = false;                          // pressed this frame
   bool menu = false, up = false, down = false, left = false, right = false, enter = false, back = false;   // menu: pressed this frame
   bool stats = false, vsync = false, ao = false, shadows = false, refl = false, tod = false;                // F3 F4 F5 F6 F7, T
+  float mouseX = 0, mouseY = 0; bool click = false;                                                         // the pointer in window pixels, and a left click this frame (menus)
 };
 // Keyboard, mouse and (dynamically loaded) XInput gamepad.
 class Input {
 public:
-  bool keys[256] = {}; bool prev[256] = {}; float mouseDX = 0, mouseDY = 0, wheel = 0; bool rightDown = false, leftDown = false;
+  bool keys[256] = {}; bool prev[256] = {}; float mouseDX = 0, mouseDY = 0, wheel = 0; bool rightDown = false, leftDown = false; int mx = 0, my = 0;
   InputState read();
 private:
-  unsigned padPrev = 0; void* xinput = nullptr;
+  unsigned padPrev = 0; void* xinput = nullptr; bool leftPrev = false;
 };
 
 enum class State { Free, Menu, Countdown, Race, Finished, Escape, EscapeOver };
-struct MenuItem { std::string label, detail; int action = 0, arg = 0; };
+struct MenuItem { std::string label, detail; int action = 0, arg = 0; bool adjust = false; };   // adjust: Left / Right change the value
+struct MenuHit { float x0, y0, x1, y1; int index; };   // where the HUD drew a menu row (so the mouse can pick it)
 struct Toast { std::string text; double age = 0; };
 
 class Game {
@@ -48,6 +52,9 @@ public:
   State state = State::Free, menuFrom = State::Free; bool quit = false, showStats = false;
   Route route; int nextCp = 0; double raceT = 0, countT = 0; double lastBest = -1; int lastMedal = -1; bool newBest = false; std::map<std::string, double> bests;
   std::vector<MenuItem> menuItems; int menuSel = 0, menuPage = 0; std::string menuTitle; std::deque<Toast> toasts; int trafficLevel = 2;
+  Settings settings; WheelInput wheel; mutable std::vector<MenuHit> menuHits;   // written by the HUD each frame it draws the menu
+  void applyGraphics();                                // push the graphics settings into the renderer
+  bool useSaved = true;                                // false in test runs: ignore the saved settings file
   double time = 0;
 
   void init(Renderer& r);
@@ -68,7 +75,8 @@ public:
   bool playing() const { return state != State::Menu; }
 private:
   double acc = 0, alpha = 1; std::string lastWhere; GpuMesh gateCyl, gateBox; double shakeT = 0;
-  void buildMenu(int page); void menuInput(const InputState& in); void runMenuAction(const MenuItem& it);
+  void buildMenu(int page); void menuInput(const InputState& in); void runMenuAction(const MenuItem& it, int dir = 1); void rebuildKeep() { int keep = menuSel; buildMenu(menuPage); menuSel = std::min(keep, (int)menuItems.size() - 1); }
+  Renderer* rend = nullptr; float lastMX = -1, lastMY = -1; std::string wheelHelp;
   void updateCamera(Renderer& r, double dt, const InputState& in);
   void drawGates(Renderer& r, bool shadow);
   void finishRace(); void placeAtCheckpoint(int k); void loadSaves(); void saveSaves();

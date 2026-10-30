@@ -28,6 +28,7 @@ private:
   void raceHud(const Renderer& r, const Game& game);
   void escapeHud(const Renderer& r, const Game& game);
   void menu(const Game& game);
+  void wheelPanel(const Game& game, float x, float y);   // the live view of the wheel and pedals (settings page)
   void toasts(const Game& game);
   void statsPanel(const Perf& perf);   // align: 0 left, 1 centre, 2 right; y is the baseline
 };

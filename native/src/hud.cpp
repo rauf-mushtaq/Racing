@@ -152,17 +152,51 @@ void Hud::escapeHud(const Renderer& r, const Game& g) {
     text("R  try again        Esc  menu", W * 0.5f, y1 - 20 * S, 18.0f * S, DIM, 1);
   }
 }
+void Hud::wheelPanel(const Game& g, float x, float y) {
+  const WheelInput& w = g.wheel; float pw = 330.0f * S; const float bg[4] = { 0.02f, 0.02f, 0.04f, 0.72f }, track[4] = { 0.25f, 0.25f, 0.3f, 0.9f }, green[4] = { 0.25f, 0.85f, 0.35f, 1 }, red[4] = { 0.95f, 0.25f, 0.2f, 1 }, orange[4] = { 1.0f, 0.55f, 0.18f, 1 }, blue[4] = { 0.35f, 0.65f, 1.0f, 1 };
+  float ph = 330.0f * S; solid(x, y, x + pw, y + ph, bg); float cx = x + 16 * S, bw = pw - 32 * S, yy = y + 30 * S;
+  text("LIVE INPUT", cx, yy, 20.0f * S, WHITE, 0); yy += 26 * S;
+  if (w.devices.empty()) { for (auto& l : wrap("No wheel or controller found. Plug the wheel and pedals into USB, then pick \"Look for controllers again\".", bw, 17.0f * S)) { text(l, cx, yy, 17.0f * S, DIM, 0); yy += 22 * S; } return; }
+  for (size_t i = 0; i < w.devices.size() && i < 2; i++) { auto lines = wrap(w.devices[i].name, bw, 16.0f * S); text(lines.empty() ? "" : lines[0], cx, yy, 16.0f * S, DIM, 0); yy += 21 * S; }
+  yy += 6 * S;
+  auto bar = [&](const char* label, float v, bool centred, const float col[4], bool known) {
+    text(label, cx, yy, 16.0f * S, known ? WHITE : DIM, 0); float by = yy + 8 * S, bh = 14 * S; solid(cx, by, cx + bw, by + bh, track);
+    if (known) { if (centred) { float mid = cx + bw / 2; if (v >= 0) solid(mid, by, mid + v * bw / 2, by + bh, col); else solid(mid + v * bw / 2, by, mid, by + bh, col); solid(mid - 1 * S, by - 3 * S, mid + 1 * S, by + bh + 3 * S, WHITE); } else solid(cx, by, cx + v * bw, by + bh, col); }
+    yy += 42 * S;
+  };
+  bool wheelOk = g.settings.wheelOn;
+  bar("Steering", w.steerValue(), true, orange, wheelOk && w.have(g.settings.steer));
+  bar("Throttle", w.throttleValue(), false, green, wheelOk && w.have(g.settings.throttle));
+  bar("Brake", w.brakeValue(), false, red, wheelOk && w.have(g.settings.brake));
+  // the raw axes of the first controller: move something and watch which one follows
+  const WheelInput::Sample& s0 = w.dev[w.devices[0].id]; text("Raw axes of the first controller", cx, yy, 15.0f * S, DIM, 0); yy += 8 * S; static const char* nm[6] = { "X", "Y", "Z", "R", "U", "V" };
+  for (int a = 0; a < 6; a++) { if (!w.devices[0].has[a]) continue; float by = yy + 4 * S; text(nm[a], cx, by + 11 * S, 14.0f * S, DIM, 0); solid(cx + 22 * S, by + 2 * S, cx + bw, by + 10 * S, track); solid(cx + 22 * S, by + 2 * S, cx + 22 * S + s0.ax[a] * (bw - 22 * S), by + 10 * S, blue); yy += 14 * S; }
+}
 void Hud::menu(const Game& g) {
   const float veil[4] = { 0.02f, 0.02f, 0.04f, 0.58f }; solid(0, 0, W, H, veil);
-  float pw = 640.0f * S, x0 = W * 0.5f - pw / 2, ytop = 90.0f * S; text(g.menuTitle, W * 0.5f, ytop, 60.0f * S, WHITE, 1);
+  float pw = 640.0f * S, x0 = W * 0.5f - pw / 2, ytop = 90.0f * S; if (g.menuPage == 4 && W * 0.5f + pw / 2 + 30 * S + 330 * S > W) x0 = 24.0f * S;   // leave room for the live panel on a narrow window
+  text(g.menuTitle, g.menuPage == 4 ? x0 + pw / 2 : W * 0.5f, ytop, 60.0f * S, WHITE, 1);
   int n = (int)g.menuItems.size(), vis = std::min(n, 11), first = std::max(0, std::min(g.menuSel - vis / 2, n - vis)); float ih = 44.0f * S, y = ytop + 40.0f * S;
+  g.menuHits.clear();
   for (int i = first; i < first + vis; i++) {
-    bool sel = i == g.menuSel; const float hl[4] = { 1.0f, 0.55f, 0.18f, 0.9f }, nm[4] = { 0.03f, 0.03f, 0.05f, 0.55f }; solid(x0, y, x0 + pw, y + ih - 4 * S, sel ? hl : nm);
-    const float dk[4] = { 0.05f, 0.04f, 0.04f, 1.0f }; text(g.menuItems[i].label, x0 + 22.0f * S, y + ih * 0.66f, 24.0f * S, sel ? dk : WHITE, 0); y += ih;
+    bool sel = i == g.menuSel; const float hl[4] = { 1.0f, 0.55f, 0.18f, 0.9f }, nm[4] = { 0.03f, 0.03f, 0.05f, 0.55f }; solid(x0, y, x0 + pw, y + ih - 4 * S, sel ? hl : nm); g.menuHits.push_back({ x0, y, x0 + pw, y + ih - 4 * S, i });
+    const float dk[4] = { 0.05f, 0.04f, 0.04f, 1.0f }; text(g.menuItems[i].label, x0 + 22.0f * S, y + ih * 0.66f, 24.0f * S, sel ? dk : WHITE, 0);
+    if (g.menuItems[i].adjust && sel) { text("<", x0 + pw - 54 * S, y + ih * 0.66f, 24.0f * S, dk, 0); text(">", x0 + pw - 26 * S, y + ih * 0.66f, 24.0f * S, dk, 0); }
+    y += ih;
   }
-  if (first > 0) text("...", W * 0.5f, ytop + 34.0f * S, 20.0f * S, DIM, 1); if (first + vis < n) text("...", W * 0.5f, y + 6.0f * S, 20.0f * S, DIM, 1);
-  if (!g.menuItems.empty()) { auto lines = wrap(g.menuItems[g.menuSel].detail, pw, 19.0f * S); float yy = y + 34.0f * S; for (auto& l : lines) { text(l, W * 0.5f, yy, 19.0f * S, DIM, 1); yy += 25.0f * S; } }
-  text("Up / Down  choose      Enter  select      Esc  back", W * 0.5f, H - 40.0f * S, 18.0f * S, DIM, 1);
+  if (first > 0) text("...", x0 + pw / 2, ytop + 34.0f * S, 20.0f * S, DIM, 1); if (first + vis < n) text("...", x0 + pw / 2, y + 6.0f * S, 20.0f * S, DIM, 1);
+  if (!g.menuItems.empty()) { auto lines = wrap(g.menuItems[g.menuSel].detail, pw, 19.0f * S); float yy = y + 34.0f * S; for (auto& l : lines) { text(l, x0 + pw / 2, yy, 19.0f * S, DIM, 1); yy += 25.0f * S; } }
+  if (g.menuPage == 4) wheelPanel(g, x0 + pw + 30 * S, ytop + 40 * S);
+  const WheelInput& w = g.wheel;
+  if (w.noticeT > 0 && !w.notice.empty()) { const float nc[4] = { 0.55f, 1.0f, 0.6f, 1.0f }; text(w.notice, W * 0.5f, H - 78.0f * S, 21.0f * S, nc, 1); }
+  text(g.menuPage >= 2 ? "Up / Down  choose      Left / Right  change      Enter or click  select      Esc  back" : "Up / Down  choose      Enter or click  select      Esc  back", W * 0.5f, H - 40.0f * S, 18.0f * S, DIM, 1);
+  if (w.binding != WheelInput::NONE) {                                                    // the setup wizard: what to do now, and whether it has been seen
+    const float box[4] = { 0.03f, 0.03f, 0.06f, 0.94f }, edge[4] = { 1.0f, 0.55f, 0.18f, 1 }, track[4] = { 0.25f, 0.25f, 0.3f, 1 }, ok[4] = { 0.3f, 0.9f, 0.4f, 1 };
+    float bw = std::min(W - 40 * S, 820.0f * S), bx = W * 0.5f - bw / 2, by = H * 0.5f - 90.0f * S; solid(bx - 3 * S, by - 3 * S, bx + bw + 3 * S, by + 183.0f * S, edge); solid(bx, by, bx + bw, by + 180.0f * S, box);
+    auto lines = wrap(w.prompt, bw - 60 * S, 28.0f * S); float yy = by + 52 * S; for (auto& l : lines) { text(l, W * 0.5f, yy, 28.0f * S, WHITE, 1); yy += 36 * S; }
+    solid(bx + 30 * S, by + 132 * S, bx + bw - 30 * S, by + 146 * S, track); solid(bx + 30 * S, by + 132 * S, bx + 30 * S + w.progress * (bw - 60 * S), by + 146 * S, ok);
+    text("Esc  cancel", W * 0.5f, by + 170 * S, 17.0f * S, DIM, 1);
+  }
 }
 void Hud::toasts(const Game& g) {
   float y = (g.inEscapeHud() ? 160.0f : 230.0f) * S;
@@ -186,7 +220,7 @@ void Hud::draw(Renderer& r, Gfx& g, Texture& target, const Game& game, double ti
   if (game.inRaceHud()) raceHud(r, game); if (game.inEscapeHud()) escapeHud(r, game);
   if (game.state != State::Menu) toasts(game);
   if (game.showStats) statsPanel(perf);
-  if (time < 9.0 && (game.state == State::Free)) { float a = clampf((float)(9.0 - time), 0, 1); float hc[4] = { 1, 1, 1, 0.8f * a }; text("W / S  throttle, brake      A / D  steer      Space  handbrake      Shift  nitro      C  camera      R  reset      Esc  menu      T  time of day      F3  stats", W * 0.5f, H - 28.0f * S, 17.0f * S, hc, 1); }
+  if (time < 9.0 && (game.state == State::Free)) { float a = clampf((float)(9.0 - time), 0, 1); float hc[4] = { 1, 1, 1, 0.8f * a }; text("W / S  throttle, brake      A / D  steer      Space  handbrake      Shift  nitro      C  camera      R  reset      Esc  menu and settings (wheel setup)      T  time of day      F3  stats", W * 0.5f, H - 28.0f * S, 17.0f * S, hc, 1); }
   if (game.state == State::Escape && game.escape.time < 14) { float a = clampf((float)(14.0 - game.escape.time), 0, 1); float hc[4] = { 1, 1, 1, 0.85f * a }; text("F guns (hold, or left mouse)      G missile      B bomb      O oil      X smoke      V armour      Shift nitro      Esc menu", W * 0.5f, H - 28.0f * S + 0.0f, 17.0f * S, hc, 1); }
   if (game.state == State::Menu) menu(game);
   if (!verts.empty()) {

@@ -41,7 +41,7 @@ The menu opens when the game starts: pick **Escape the police**, **Races** or **
 | Look round (hold) | right mouse button | right stick |
 | Gear down / up (free roam and races) | Q / E | LB / RB |
 | Back on the road / restart | R | Back |
-| Menu | Esc or Tab | Start |
+| Menu and settings | Esc or Tab | Start |
 | Fullscreen | F11 | |
 | Time of day (midday / golden hour) | T | |
 | Stats overlay (fps, GPU time, draw calls) | F3 | |
@@ -74,6 +74,15 @@ native\build\Release\sunset.exe
 On Linux the same source cross-compiles with MinGW-w64 (`cmake -DCMAKE_TOOLCHAIN_FILE=native/cmake/mingw-w64.cmake`),
 and runs under Wine (with vkd3d) for tests.
 
+## Settings, and your steering wheel and pedals
+
+Press **Esc** (or Tab) and choose **Settings**. Your choices are saved in `sunset_native_settings.txt` next to the game.
+
+- **Graphics**: vsync, ambient occlusion, shadows, reflections, time of day, anti-aliasing (this one applies the next time you start the game). The F4 to F7 and T keys still work and are remembered too.
+- **Steering wheel and pedals**: plug the wheel and pedals in (USB), open *Settings > Steering wheel and pedals* and the live panel on the right shows what the game sees. Then, for each of **Steering**, **Throttle pedal** and **Brake pedal**, pick it and do what the screen says (turn the wheel fully left then right, press the pedal fully down). The game finds the axis by watching what moved, so there is nothing to look up. It copes with pedals that read backwards, with throttle and brake sharing one axis (the default of several wheels), and with the pedals being on a different USB device from the wheel. Then bind any wheel buttons you want (handbrake, shift paddles, camera, nitro, the gadget buttons...), and tune the sensitivity, linearity and dead zones. The wheel's hat switch moves around the menus.
+- Any wheel that Windows lists under "Set up USB game controllers" works (Logitech, Thrustmaster, Fanatec, ...). It uses the standard Windows joystick interface: up to six axes per device (X, Y, Z, R, U, V). For Logitech wheels install Logitech G HUB so the pedals show up as axes. **Force feedback is not supported yet** (it needs DirectInput). Xbox controllers keep working as before.
+- `sunset.exe --selftest-wheel` runs the wheel logic against a simulated device (no hardware needed) and reports each check.
+
 ## Options (for testing)
 
 ```
@@ -85,6 +94,8 @@ sunset.exe --fullscreen --vsync                             borderless fullscree
 sunset.exe --shot out.bmp --drive 5 --cam chase|close|driver|hood|free      save a picture and exit
 sunset.exe --simulate 60 --escape                           run the game logic only, log what the police do
 sunset.exe --check-shaders                                  compile every shader and list errors
+sunset.exe --selftest-wheel                                 check the wheel setup and mapping logic with a simulated wheel
+sunset.exe --shot out.bmp --menu 2|3|4 [--fakewheel] [--wizard]   a picture of the settings pages (4 = wheel, with a simulated wheel and the setup prompt)
 sunset.exe --shot out.bmp --showcase 0..8                  one model on the ground ahead of the car: 0-5 traffic (saloon, SUV, hatchback, van, truck, bus), 6 police car, 7 pursuit truck, 8 pedestrians
 ```
 
@@ -103,6 +114,7 @@ sunset.exe --shot out.bmp --showcase 0..8                  one model on the grou
 | `src/carasset.*`, `assets/`, `tools/` | the baked car models (`.scm` files), their loader and drawing code, and the script that converts glTF models into them |
 | `src/traffic.*`, `peds.*`, `fx.*` | traffic and parked cars, pedestrians, particles |
 | `src/events.*`, `escape.*` | the races, and the police chase with its weapons |
+| `src/settings.*`, `wheel.*` | saved settings, and the wheel and pedals (Windows joystick API, the setup wizard, mapping, buttons) |
 | `src/game.*`, `hud.*`, `main.cpp` | the game state, menu and input, HUD, and the entry point |
 | `shaders/*.hlsl` | sky, terrain, water, meshes, shadows, post-processing, HUD |
 

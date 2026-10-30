@@ -11,6 +11,7 @@ InputState Input::read() {
   s.cam = edge('C'); s.reset = edge('R'); s.shiftUp = edge('E'); s.shiftDown = edge('Q');
   s.fire = keys['F'] || leftDown; s.missile = edge('G'); s.bomb = edge('B'); s.oil = edge('O'); s.smoke = edge('X'); s.shield = edge('V');
   s.menu = edge(VK_ESCAPE) || edge(VK_TAB); s.up = edge(VK_UP) || edge('W'); s.down = edge(VK_DOWN) || edge('S'); s.left = edge(VK_LEFT) || edge('A'); s.right = edge(VK_RIGHT) || edge('D'); s.enter = edge(VK_RETURN) || edge(VK_SPACE); s.back = edge(VK_BACK);
+  s.mouseX = (float)mx; s.mouseY = (float)my; s.click = leftDown && !leftPrev; leftPrev = leftDown;
   s.stats = edge(VK_F3); s.vsync = edge(VK_F4); s.ao = edge(VK_F5); s.shadows = edge(VK_F6); s.refl = edge(VK_F7); s.tod = edge('T');
   if (rightDown) { s.lookDX = mouseDX; s.lookDY = mouseDY; } s.zoom = wheel; mouseDX = mouseDY = wheel = 0;
   std::memcpy(prev, keys, sizeof keys);
@@ -39,6 +40,7 @@ void Game::setCarKind(int kind) {
   carKind = kind; car.s = VehicleSpec(); if (kind == 1) BondModel::configure(car); else { car.configure(); car.reset(car.x, car.z, car.h); }
 }
 void Game::init(Renderer& r) {
+  rend = &r; if (useSaved) settings.load(); wheel.S = &settings; if (useSaved) trafficLevel = settings.traffic;
   scenery.init(r.gfx); model.build(r.gfx); bond.build(r.gfx); city.init(r.gfx); vmodels.build(r.gfx); traffic.init(r.gfx, vmodels); peds.init(r.gfx); traffic.setDensity(trafficLevel, pose()); escape.init(r.gfx, &vmodels);
   { MeshData c; c.cylinder(Vec3(0, 0, 0), Vec3(0, 1, 0), 1.0f, 1.0f, 12, packColor(1, 1, 1)); gateCyl = uploadMesh(r.gfx, c); MeshData b; b.box(Vec3(-0.5f, -0.5f, -0.5f), Vec3(0.5f, 0.5f, 0.5f), packColor(1, 1, 1)); gateBox = uploadMesh(r.gfx, b); }
   r.drawWorld = [this](Renderer& rr, bool shadow, const Frustum& f) { draw(rr, shadow, f); };
@@ -72,7 +74,12 @@ int Game::medalFor(const std::string& id, const Route& rt) const { double t = be
 // --- The menu -----------------------------------------------------------------------------------------------------------------
 void Game::openMenu() { if (state == State::Menu) return; menuFrom = state; state = State::Menu; buildMenu(0); }
 void Game::closeMenu() { if (state != State::Menu) return; state = menuFrom == State::Menu ? State::Free : menuFrom; }
-enum { A_RESUME = 1, A_FREE, A_RACES, A_ESCAPE, A_CAR, A_TRAFFIC, A_QUIT, A_RACE, A_BACK, A_RESTART };
+enum { A_RESUME = 1, A_FREE, A_RACES, A_ESCAPE, A_CAR, A_TRAFFIC, A_QUIT, A_RACE, A_BACK, A_RESTART, A_SETTINGS, A_PAGE, A_GFX, A_WHEEL };
+enum { W_ON = 1, W_SCAN, W_STEER, W_THROTTLE, W_BRAKE, W_SENS, W_LIN, W_DEAD, W_PDEAD, W_PCURVE, W_RESET, W_BTN = 100 };   // wheel menu actions (W_BTN + act binds that button)
+static int parentPage(int page) { return page >= 3 ? 2 : 0; }
+static std::string onoff(bool b) { return b ? "On" : "Off"; }
+static std::string num(float v, int dec = 1) { char b[32]; snprintf(b, sizeof b, "%.*f", dec, v); return b; }
+void Game::applyGraphics() { if (!rend) return; rend->gfx.vsync = settings.vsync; rend->q.ao = settings.ao; rend->q.shadows = settings.shadows; rend->q.reflections = settings.reflections; rend->dayTarget = settings.day ? 1.0f : 0.0f; }
 void Game::buildMenu(int page) {
   menuPage = page; menuItems.clear(); menuSel = 0;
   if (page == 0) {
@@ -82,10 +89,43 @@ void Game::buildMenu(int page) {
     menuItems.push_back({ "Escape the police", "You have the silver GT with its gadgets. Machine guns, missiles, bombs, oil, smoke and an armour plate. Lose them, or wreck them.", A_ESCAPE, 0 });
     menuItems.push_back({ "Races", "Fifteen routes through the city and out along the motorways, with medals.", A_RACES, 0 });
     menuItems.push_back({ "Free roam", "Drive anywhere. The whole 12 by 16 km world is open.", A_FREE, 0 });
-    menuItems.push_back({ std::string("Car: ") + (carKind == 1 ? "Silver GT" : "Supercar"), "Which car you drive in free roam and the races (the escape mode always uses the silver GT).", A_CAR, 0 });
+    menuItems.push_back({ std::string("Car: ") + (carKind == 1 ? "Silver GT" : "Supercar"), "Which car you drive in free roam and the races (the escape mode always uses the silver GT).", A_CAR, 0, true });
     static const char* tl[4] = { "Off", "Light", "Normal", "Heavy" };
-    menuItems.push_back({ std::string("Traffic: ") + tl[trafficLevel], "How many cars share the roads.", A_TRAFFIC, 0 });
+    menuItems.push_back({ std::string("Traffic: ") + tl[trafficLevel], "How many cars share the roads.", A_TRAFFIC, 0, true });
+    menuItems.push_back({ "Settings", "Graphics, and your steering wheel and pedals.", A_PAGE, 2 });
     menuItems.push_back({ "Quit", "", A_QUIT, 0 });
+  } else if (page == 2) {
+    menuTitle = "SETTINGS";
+    menuItems.push_back({ "Graphics", "Vsync, ambient occlusion, shadows, reflections, time of day and anti-aliasing.", A_PAGE, 3 });
+    std::string wd = wheel.devices.empty() ? "No wheel or controller found yet." : std::to_string(wheel.devices.size()) + " controller(s) found.";
+    menuItems.push_back({ "Steering wheel and pedals", "Connect your wheel and pedals: the game finds the axes when you move them. " + wd, A_PAGE, 4 });
+    static const char* tl2[4] = { "Off", "Light", "Normal", "Heavy" };
+    menuItems.push_back({ std::string("Traffic: ") + tl2[trafficLevel], "How many cars share the roads.", A_TRAFFIC, 0, true });
+    menuItems.push_back({ "Back", "", A_BACK, 0 });
+  } else if (page == 3) {
+    menuTitle = "GRAPHICS";
+    menuItems.push_back({ "Vsync: " + onoff(settings.vsync), "Waits for the screen's refresh: no tearing, but the frame rate is capped. Off gives the highest frame rate. (F4)", A_GFX, 0, true });
+    menuItems.push_back({ "Ambient occlusion: " + onoff(settings.ao), "Soft contact shadows in corners and under cars. Costs some speed. (F5)", A_GFX, 1, true });
+    menuItems.push_back({ "Shadows: " + onoff(settings.shadows), "The sun's shadows. Turn off for a big speed-up on a slow graphics card. (F6)", A_GFX, 2, true });
+    menuItems.push_back({ "Reflections: " + onoff(settings.reflections), "Live reflections in paint, glass, windows and wet roads. (F7)", A_GFX, 3, true });
+    menuItems.push_back({ std::string("Time of day: ") + (settings.day ? "Midday" : "Golden hour"), "Bright midday sun, or the low orange light of the evening. (T)", A_GFX, 4, true });
+    menuItems.push_back({ "Anti-aliasing: " + (settings.msaa == 1 ? std::string("Off") : std::to_string(settings.msaa) + "x"), "Smooths jagged edges. The change applies the next time you start the game.", A_GFX, 5, true });
+    menuItems.push_back({ "Back", "", A_BACK, 0 });
+  } else if (page == 4) {
+    menuTitle = "WHEEL AND PEDALS"; if (menuPage != 4 || wheel.devices.empty()) wheel.scan();
+    menuItems.push_back({ "Wheel and pedals: " + onoff(settings.wheelOn), "Turn the wheel on or off without losing your setup.", A_WHEEL, W_ON, true });
+    menuItems.push_back({ "Look for controllers again", "Plug in the wheel, then pick this. " + (wheel.devices.empty() ? std::string("None found right now.") : std::to_string(wheel.devices.size()) + " found."), A_WHEEL, W_SCAN });
+    menuItems.push_back({ "Steering: " + (settings.steer.valid() ? std::string("set") : std::string("not set")), "Pick this, hold the wheel straight, then turn it fully left and then fully right. Now: " + wheel.describe(settings.steer), A_WHEEL, W_STEER });
+    menuItems.push_back({ "Throttle pedal: " + (settings.throttle.valid() ? std::string("set") : std::string("not set")), "Pick this, let go of the pedals, then press the throttle all the way down. Now: " + wheel.describe(settings.throttle), A_WHEEL, W_THROTTLE });
+    menuItems.push_back({ "Brake pedal: " + (settings.brake.valid() ? std::string("set") : std::string("not set")), "Pick this, let go of the pedals, then press the brake all the way down. Works with pedals that share one axis. Now: " + wheel.describe(settings.brake), A_WHEEL, W_BRAKE });
+    menuItems.push_back({ "Steering sensitivity: " + num(settings.steerSens, 2), "How far the car's wheels turn for a given wheel angle. Above 1 means less turning of your wheel for full lock. (Left / Right)", A_WHEEL, W_SENS, true });
+    menuItems.push_back({ "Steering linearity: " + num(settings.steerLin, 2), "1 is direct. Higher is gentler around the centre and sharper at the ends. (Left / Right)", A_WHEEL, W_LIN, true });
+    menuItems.push_back({ "Steering dead zone: " + std::to_string((int)std::lround(settings.steerDead * 100)) + "%", "Ignore tiny movements around the centre. (Left / Right)", A_WHEEL, W_DEAD, true });
+    menuItems.push_back({ "Pedal dead zone: " + std::to_string((int)std::lround(settings.pedalDead * 100)) + "%", "Ignore the first bit of pedal travel. (Left / Right)", A_WHEEL, W_PDEAD, true });
+    menuItems.push_back({ "Pedal response: " + num(settings.pedalCurve, 2), "1 is direct. Above 1 makes the pedals gentler at first. (Left / Right)", A_WHEEL, W_PCURVE, true });
+    for (int a = 0; a < ACT_COUNT; a++) menuItems.push_back({ std::string(ACT_NAMES[a]) + ": " + wheel.describeButton(a), "Pick this, then press the button you want on the wheel. Pressing a button that is already used moves it here.", A_WHEEL, W_BTN + a });
+    menuItems.push_back({ "Forget the wheel setup", "Clear the steering, pedals and buttons (the game's own keys still work).", A_WHEEL, W_RESET });
+    menuItems.push_back({ "Back", "", A_BACK, 0 });
   } else {
     menuTitle = "RACES"; const auto& E = raceEvents(); std::string group;
     for (size_t i = 0; i < E.size(); i++) { Route rt = buildRoute(E[i]); char d[256]; double b = bestFor(E[i].id); std::string best = b >= 0 ? " Best " + std::to_string((int)(b / 60)) + ":" + (((int)b % 60) < 10 ? "0" : "") + std::to_string((int)b % 60) : "";
@@ -93,24 +133,55 @@ void Game::buildMenu(int page) {
     menuItems.push_back({ "Back", "", A_BACK, 0 });
   }
 }
-void Game::runMenuAction(const MenuItem& it) {
+void Game::runMenuAction(const MenuItem& it, int dir) {
   switch (it.action) {
     case A_RESUME: closeMenu(); break;
     case A_FREE: setCarKind(carKind); state = State::Free; spawn("coast"); break;
     case A_RACES: buildMenu(1); break;
-    case A_BACK: buildMenu(0); break;
+    case A_BACK: buildMenu(parentPage(menuPage)); break;
+    case A_PAGE: buildMenu(it.arg); break;
     case A_ESCAPE: startEscape(); break;
     case A_RACE: startRace(it.arg); break;
-    case A_CAR: setCarKind(carKind ? 0 : 1); buildMenu(0); menuSel = 4 - (menuFrom == State::Menu || menuFrom == State::Finished || menuFrom == State::EscapeOver ? 1 : 0); break;
-    case A_TRAFFIC: trafficLevel = (trafficLevel + 1) % 4; traffic.setDensity(trafficLevel, pose()); buildMenu(0); menuSel = 5 - (menuFrom == State::Menu || menuFrom == State::Finished || menuFrom == State::EscapeOver ? 1 : 0); break;
+    case A_CAR: setCarKind(carKind ? 0 : 1); rebuildKeep(); break;
+    case A_TRAFFIC: trafficLevel = (trafficLevel + (dir < 0 ? 3 : 1)) % 4; settings.traffic = trafficLevel; settings.save(); traffic.setDensity(trafficLevel, pose()); rebuildKeep(); break;
+    case A_GFX:
+      switch (it.arg) {
+        case 0: settings.vsync = !settings.vsync; break; case 1: settings.ao = !settings.ao; break; case 2: settings.shadows = !settings.shadows; break;
+        case 3: settings.reflections = !settings.reflections; break; case 4: settings.day = settings.day ? 0 : 1; break;
+        case 5: settings.msaa = dir < 0 ? (settings.msaa == 4 ? 2 : settings.msaa == 2 ? 1 : 4) : (settings.msaa == 1 ? 2 : settings.msaa == 2 ? 4 : 1); break;
+      }
+      applyGraphics(); settings.save(); rebuildKeep(); break;
+    case A_WHEEL: {
+      auto clampf2 = [](float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }; float d = dir < 0 ? -1.0f : 1.0f;
+      switch (it.arg) {
+        case W_ON: settings.wheelOn = !settings.wheelOn; break; case W_SCAN: wheel.scan(); break;
+        case W_STEER: wheel.startBind(WheelInput::STEER_LEFT); break; case W_THROTTLE: wheel.startBind(WheelInput::THROTTLE); break; case W_BRAKE: wheel.startBind(WheelInput::BRAKE); break;
+        case W_SENS: settings.steerSens = clampf2(std::round((settings.steerSens + 0.1f * d) * 100) / 100, 0.3f, 4.0f); break;
+        case W_LIN: settings.steerLin = clampf2(std::round((settings.steerLin + 0.1f * d) * 100) / 100, 0.5f, 2.5f); break;
+        case W_DEAD: settings.steerDead = clampf2(std::round((settings.steerDead + 0.01f * d) * 100) / 100, 0.0f, 0.4f); break;
+        case W_PDEAD: settings.pedalDead = clampf2(std::round((settings.pedalDead + 0.01f * d) * 100) / 100, 0.0f, 0.4f); break;
+        case W_PCURVE: settings.pedalCurve = clampf2(std::round((settings.pedalCurve + 0.1f * d) * 100) / 100, 0.5f, 2.5f); break;
+        case W_RESET: settings.clearWheel(); wheel.notice = "Wheel setup cleared."; wheel.noticeT = 3; break;
+        default: if (it.arg >= W_BTN && it.arg < W_BTN + ACT_COUNT) wheel.startBind(WheelInput::BUTTON, it.arg - W_BTN); break;
+      }
+      settings.save(); rebuildKeep(); break;
+    }
     case A_QUIT: quit = true; break;
   }
 }
 void Game::menuInput(const InputState& in) {
   int n = (int)menuItems.size(); if (!n) return;
+  if (wheel.binding != WheelInput::NONE) return;                                       // the wheel setup wizard has the floor (Esc cancels it)
+  int click = 0;                                                                        // 0 none, 1 clicked (activate), 2 clicked on the left of an adjustable row (decrease)
+  if (in.mouseX != lastMX || in.mouseY != lastMY) { lastMX = in.mouseX; lastMY = in.mouseY; for (const MenuHit& h : menuHits) if (in.mouseX >= h.x0 && in.mouseX < h.x1 && in.mouseY >= h.y0 && in.mouseY < h.y1) { menuSel = h.index; break; } }
+  if (in.click) for (const MenuHit& h : menuHits) if (in.mouseX >= h.x0 && in.mouseX < h.x1 && in.mouseY >= h.y0 && in.mouseY < h.y1) { menuSel = h.index; click = (in.mouseX < h.x0 + (h.x1 - h.x0) * 0.3f && menuItems[h.index].adjust) ? 2 : 1; break; }
   if (in.up) menuSel = (menuSel + n - 1) % n; if (in.down) menuSel = (menuSel + 1) % n;
-  if (in.enter || in.right) runMenuAction(menuItems[menuSel]);
-  if (in.back || in.left) { if (menuPage == 1) buildMenu(0); }
+  const MenuItem it = menuItems[menuSel];
+  if (click == 1) runMenuAction(it, 1);
+  else if (click == 2) runMenuAction(it, -1);
+  else if (in.enter || in.right) runMenuAction(it, 1);
+  else if (in.left && it.adjust) runMenuAction(it, -1);
+  else if (in.back || in.left) { if (menuPage != 0) buildMenu(parentPage(menuPage)); }
 }
 
 // --- Races ------------------------------------------------------------------------------------------------------------------------
@@ -152,7 +223,7 @@ void Game::update(Renderer& r, double dt, const InputState& in) {
   time += dt; clock += dt;
   if (in.stats) showStats = !showStats;
   for (auto& t : toasts) t.age += dt; while (!toasts.empty() && toasts.front().age > 3.2) toasts.pop_front();
-  if (in.menu) { if (state == State::Menu) { if (menuPage == 1) buildMenu(0); else if (menuFrom != State::Menu) closeMenu(); } else openMenu(); }
+  if (in.menu) { if (state == State::Menu) { if (wheel.binding != WheelInput::NONE) wheel.cancelBind(); else if (menuPage != 0) buildMenu(parentPage(menuPage)); else if (menuFrom != State::Menu) closeMenu(); } else openMenu(); }
   if (state == State::Menu) { menuInput(in); updateCamera(r, dt, in); fx.update(dt * 0.3); return; }
   if (in.cam) camMode = (camMode + 1) % 4;
   if (in.reset) {

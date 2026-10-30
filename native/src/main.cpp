@@ -39,7 +39,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_LBUTTONUP: g_input.leftDown = false; return 0;
     case WM_RBUTTONDOWN: g_input.rightDown = true; SetCapture(h); g_mx = (short)LOWORD(l); g_my = (short)HIWORD(l); return 0;
     case WM_RBUTTONUP: g_input.rightDown = false; ReleaseCapture(); return 0;
-    case WM_MOUSEMOVE: { int x = (short)LOWORD(l), y = (short)HIWORD(l); if (g_input.rightDown) { g_input.mouseDX += (float)(x - g_mx); g_input.mouseDY += (float)(y - g_my); } g_mx = x; g_my = y; return 0; }
+    case WM_MOUSEMOVE: { int x = (short)LOWORD(l), y = (short)HIWORD(l); g_input.mx = x; g_input.my = y; if (g_input.rightDown) { g_input.mouseDX += (float)(x - g_mx); g_input.mouseDY += (float)(y - g_my); } g_mx = x; g_my = y; return 0; }
     case WM_KILLFOCUS: std::memset(g_input.keys, 0, sizeof g_input.keys); g_input.leftDown = false; return 0;
   }
   return DefWindowProc(h, m, w, l);
@@ -59,7 +59,10 @@ static std::string findAssets() {
 int main(int argc, char** argv) {
   std::string shotPath, spawn = "coast", camName, shaderFilter; UINT W = 1600, H = 900; int msaa = 4, frames = 4;
   int modelKind = 0, raceIdx = -1, menuPage = -1; bool gunsOut = false, startEscape = false, startFull = false, vsyncOn = false; double simSeconds = 0, autoExit = 0; bool offscreen = false, aoOff = false, shadowOff = false, checkShaders = false, freeCam = false; double ax = 0, az = 0, driveS = 0, steerV = 0, carX = 0, carZ = 0, carH = 0; bool hasCar = false;
-  int showcaseN = -1; float dayArg = 1.0f; float ah = 3, yaw = 90, pitch = -4, tod = 0, color[3] = { 0.50f, 0.012f, 0.02f }; bool hasAt = false, hasOrbit = false; double orbYaw = 0, orbDist = 7, orbH = 1.6;
+  bool selfTestWheel = false, fakeWheel = false, wizardShot = false; int showcaseN = -1; float dayArg = 1.0f; float ah = 3, yaw = 90, pitch = -4, tod = 0, color[3] = { 0.50f, 0.012f, 0.02f }; bool hasAt = false, hasOrbit = false; double orbYaw = 0, orbDist = 7, orbH = 1.6;
+  bool testRun = false; for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--shot") || !strcmp(argv[i], "--simulate") || !strcmp(argv[i], "--check-shaders") || !strcmp(argv[i], "--selftest-wheel")) testRun = true;
+  Settings saved; if (!testRun) saved.load();                    // what the player chose last time (the command line below still wins; test runs ignore it)
+  msaa = saved.msaa; vsyncOn = saved.vsync; aoOff = !saved.ao; shadowOff = !saved.shadows; dayArg = saved.day ? 1.0f : 0.0f;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i]; auto next = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
     if (a == "--shot") shotPath = next(); else if (a == "--size") sscanf(next().c_str(), "%ux%u", &W, &H); else if (a == "--msaa") msaa = atoi(next().c_str());
@@ -71,7 +74,7 @@ int main(int argc, char** argv) {
     else if (a == "--showcase") showcaseN = atoi(next().c_str()); else if (a == "--orbit") { hasOrbit = true; sscanf(next().c_str(), "%lf,%lf,%lf", &orbYaw, &orbDist, &orbH); }
     else if (a == "--seconds") autoExit = atof(next().c_str()); else if (a == "--model") { std::string m = next(); modelKind = (m == "bond" || m == "gt") ? 1 : 0; } else if (a == "--guns") gunsOut = true;
     else if (a == "--escape") startEscape = true; else if (a == "--race") raceIdx = atoi(next().c_str()); else if (a == "--fullscreen") startFull = true; else if (a == "--vsync") vsyncOn = true; else if (a == "--simulate") simSeconds = atof(next().c_str()); else if (a == "--menu") menuPage = atoi(next().c_str());
-    else if (a == "--check-shaders") { checkShaders = true; if (i + 1 < argc && argv[i + 1][0] != '-') shaderFilter = next(); }
+    else if (a == "--selftest-wheel") selfTestWheel = true; else if (a == "--fakewheel") fakeWheel = true; else if (a == "--wizard") wizardShot = true; else if (a == "--check-shaders") { checkShaders = true; if (i + 1 < argc && argv[i + 1][0] != '-') shaderFilter = next(); }
   }
   if (!shotPath.empty() || offscreen || checkShaders) SetEnvironmentVariableA("SUNSET_HEADLESS", "1");
   SetProcessDPIAware();   // render at the real pixel size on scaled displays
@@ -93,10 +96,13 @@ int main(int argc, char** argv) {
   }
   WNDCLASSA wc = {}; wc.lpfnWndProc = WndProc; wc.hInstance = GetModuleHandle(nullptr); wc.lpszClassName = "SunsetCityWnd"; wc.hCursor = LoadCursor(nullptr, IDC_ARROW); RegisterClassA(&wc);
   RECT rc = { 0, 0, (LONG)W, (LONG)H }; AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+  if (selfTestWheel) return wheelSelfTest() == 0 ? 0 : 1;
   HWND hwnd = CreateWindowA("SunsetCityWnd", "Sunset City", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, rc.right - rc.left, rc.bottom - rc.top, nullptr, nullptr, wc.hInstance, nullptr);
   Quality q; q.msaa = msaa; q.ao = !aoOff; q.shadows = !shadowOff;
-  R.init(hwnd, W, H, offscreen, q); R.time = tod; R.day = R.dayTarget = dayArg;
-  Game G; G.init(R); std::memcpy(G.color, color, sizeof color);
+  R.init(hwnd, W, H, offscreen, q); R.time = tod; R.day = R.dayTarget = dayArg; R.q.reflections = saved.reflections;
+  Game G; G.useSaved = !testRun; G.init(R); std::memcpy(G.color, color, sizeof color);
+  if (fakeWheel) { Settings& st = G.settings; st.steer = { 15, 0, 0.5f, 1.0f, 0.0f }; st.throttle = { 15, 2, 1.0f, 0.0f, 0 }; st.brake = { 15, 3, 1.0f, 0.0f, 0 }; st.btn[ACT_HANDBRAKE] = 15 * 32 + 4; st.btn[ACT_SHIFTUP] = 15 * 32 + 1;
+    float ax[6] = { 0.74f, 0.5f, 0.45f, 0.93f, 0.5f, 0.5f }; G.wheel.fake(ax, 0x5); G.wheel.poll(0.0); }   // for screenshots of the settings page
   Hud hud; hud.init(R); Perf perf; perf.msaa = R.q.msaa;
   R.onBeginFrame = [&](Gfx& g, Vec3 cam) { G.scenery.update(g, cam); G.prepare(g, R.frustum); };
   R.drawHud = [&](Gfx& g, Texture& t) { perf.draws = R.statDraws; perf.shadowDraws = R.statShadowDraws; perf.gpuMs = g.gpuMs; perf.W = R.W; perf.H = R.H; perf.vsync = g.vsync; perf.tearing = g.tearing; perf.ao = R.q.ao; perf.shadows = R.q.shadows; perf.refl = R.q.reflections; hud.draw(R, g, t, G, R.time, perf); };
@@ -119,7 +125,8 @@ int main(int argc, char** argv) {
     Vec3 pos = c + Vec3((float)(std::sin(G.car.h + 2.5) * dist), showcaseN == 8 ? 0.6f : 1.4f, (float)(std::cos(G.car.h + 2.5) * dist)); Vec3 f = normalize(c - pos);
     R.cam.pos = pos; R.cam.yaw = (float)(std::atan2(f.x, -f.z) * 180 / PI); R.cam.pitch = (float)(std::asin(f.y) * 180 / PI); R.cam.fov = 40; freeCam = true;
   }
-  if (menuPage >= 0) { G.menuFrom = State::Free; G.openMenu(); if (menuPage > 0) { G.menuSel = 3; G.runMenuActionPublic(1); } }
+  if (menuPage >= 0) { G.menuFrom = State::Free; G.openMenu(); if (menuPage > 0) G.runMenuActionPublic(menuPage); }
+  if (wizardShot) { G.wheel.startBind(WheelInput::THROTTLE); for (int i = 0; i < 100; i++) { G.wheel.poll(1.0 / 60.0); G.wheel.updateBind(1.0 / 60.0); } }
   Vec3 loadAt = R.cam.pos; R.terrain.loadNow(R.gfx, loadAt); G.scenery.loadNow(R.gfx, loadAt); R.finishInit();
   g_r = &R;
   if (simSeconds > 0) {   // the game logic only: scripted driving and weapons, with a log of what the police and the world do
@@ -154,7 +161,9 @@ int main(int argc, char** argv) {
     if (autoExit > 0) { if (now > autoExit) break; if (!resized && now > autoExit * 0.5) { resized = true; SetWindowPos(hwnd, nullptr, 0, 0, 640 + 16, 360 + 39, SWP_NOMOVE | SWP_NOZORDER); } }   // test: run for a while, resizing half way
     totalFrames++;
     InputState s = g_input.read();
+    G.wheel.poll(dt); G.wheel.updateBind(dt); G.wheel.apply(s, G.state == State::Menu);
     if (s.vsync) { R.gfx.vsync = !R.gfx.vsync; } if (s.ao) R.q.ao = !R.q.ao; if (s.shadows) R.q.shadows = !R.q.shadows; if (s.refl) R.q.reflections = !R.q.reflections; if (s.tod) R.dayTarget = R.dayTarget > 0.5f ? 0.0f : 1.0f;
+    if (s.vsync || s.ao || s.shadows || s.refl || s.tod) { Settings& st = G.settings; st.vsync = R.gfx.vsync; st.ao = R.q.ao; st.shadows = R.q.shadows; st.reflections = R.q.reflections; st.day = R.dayTarget > 0.5f ? 1 : 0; st.save(); }
     G.update(R, dt, s); R.time = now; R.frame((float)dt);
     worst = std::max(worst, raw * 1000.0); fcount++; fpsT += raw;
     if (fpsT > 0.5) { perf.fps = fcount / fpsT; perf.frameMs = fpsT * 1000.0 / fcount; perf.worstMs = worst; char title[200]; snprintf(title, sizeof title, "Sunset City (native)  %.0f fps  %.0f km/h", perf.fps, G.speedKmh); SetWindowTextA(hwnd, title); fcount = 0; fpsT = 0; worst = 0; }
