@@ -89,7 +89,7 @@ export class HUD {
     c.fillText(units === 'mph' ? 'mph' : 'km/h', cx, cy + R * 0.84);
   }
 
-  drawMap(car, traffic, route, nextCp, waypoint) {
+  drawMap(car, traffic, route, nextCp, waypoint, police) {
     const c = this.mctx, W = this.map.width, H = this.map.height, cx = W / 2, cy = H * 0.62;
     const scale = W / 520; // metres to pixels
     c.clearRect(0, 0, W, H);
@@ -126,6 +126,14 @@ export class HUD {
     }
     c.fillStyle = 'rgba(255,255,255,0.75)';
     for (const t of traffic.cars) { c.fillRect(t.x - 3, t.z - 3, 6, 6); }
+    if (police) {                                       // police: red and blue, flashing; wrecks are grey
+      for (const q of police.cops) {
+        const on = ((police.clock * 3.4 + q.flash) % 1) < 0.5;
+        c.fillStyle = q.wreck ? 'rgba(120,120,120,0.7)' : on ? '#ff3a2a' : '#3a6bff';
+        c.beginPath(); c.arc(q.x, q.z, q.kind ? 13 : 10, 0, Math.PI * 2); c.fill();
+        if (!q.wreck) { c.strokeStyle = 'rgba(255,255,255,0.8)'; c.lineWidth = 3; c.stroke(); }
+      }
+    }
     c.restore();
     if (waypoint) {                                     // the waypoint, pinned to the rim when it's off the map
       const dx = (waypoint.x - car.x) * scale, dz = (waypoint.z - car.z) * scale, th = car.h + Math.PI;
@@ -141,6 +149,31 @@ export class HUD {
     c.strokeStyle = 'rgba(255,255,255,0.25)'; c.lineWidth = 2; c.beginPath(); c.arc(W / 2, H / 2, W / 2 - 2, 0, Math.PI * 2); c.stroke();
   }
 
+  // The police chase's heads-up display: wanted stars, status, armour and escape bars, the gadget buttons and the screen flashes.
+  chase(P, clock) {
+    const root = $('chase');
+    if (!P) { root.classList.add('hidden'); $('sirens').style.opacity = 0; $('dmg').style.opacity = 0; return; }
+    root.classList.remove('hidden');
+    if (!this.cg) this.cg = { stars: [...document.querySelectorAll('#c-stars i')], gads: [...document.querySelectorAll('[data-g]')].map(el => ({ el, g: el.dataset.g, cnt: el.querySelector('.cnt') })), status: $('c-status'), health: $('c-health'), hide: $('c-hide'), sirens: $('sirens'), dmg: $('dmg') };
+    const C = this.cg, st = P.stars, blink = ((clock * 4) % 1) < 0.5;
+    C.stars.forEach((el, i) => { el.className = i < st ? (P.spotted && blink ? 'on hot' : 'on') : ''; });
+    const txt = P.bustT > 0.4 ? 'BEING ARRESTED' : P.spotted ? 'SPOTTED' : P.hidden > 0.5 ? `HIDING ${Math.max(1, Math.ceil(P.hiddenNeeded - P.hidden))}` : 'SEARCHING FOR YOU';
+    if (C.status.textContent !== txt) C.status.textContent = txt;
+    C.status.className = P.bustT > 0.4 ? 'bust' : P.spotted ? 'seen' : 'hid';
+    C.health.style.width = `${clamp(P.health, 0, 100)}%`; C.health.className = P.health < 35 ? 'low' : '';
+    C.hide.style.width = `${clamp(P.hidden / P.hiddenNeeded, 0, 1) * 100}%`;
+    for (const { el, g, cnt } of C.gads) {
+      let cd = 0, n = '', live = false;
+      if (g === 'fire') cd = P.jammed ? 1 : P.gunHeat; else if (g === 'missile') { n = P.ammoMissile; cd = n ? 0 : 1; } else if (g === 'bomb') { n = P.ammoBomb; cd = n ? 0 : 1; }
+      else if (g === 'oil') cd = P.cdOil / 7; else if (g === 'smoke') cd = P.cdSmoke / 14; else if (g === 'shield') { cd = P.cdShield / 15; live = P.shieldT > 0; }
+      el.style.setProperty('--cd', cd.toFixed(3)); el.classList.toggle('live', live); el.classList.toggle('jam', g === 'fire' && P.jammed);
+      if (cnt && cnt.textContent !== String(n)) cnt.textContent = n;
+    }
+    // Flashes: blue and red at the edges when cops are close, red when hurt.
+    const near = clamp(1 - P.nearest / 90, 0, 1);
+    C.sirens.className = ((clock * 3.4) % 1) < 0.5 ? 'a' : 'b'; C.sirens.style.opacity = (near * 0.9).toFixed(3);
+    C.dmg.style.opacity = clamp(P.damageFlash * 0.9 + (P.health < 25 ? 0.12 + 0.1 * Math.sin(clock * 6) : 0), 0, 0.9).toFixed(3);
+  }
   toast(text, secs = 2.2) {
     const el = $('toast'); el.textContent = text; el.classList.add('show');
     clearTimeout(this._tt); this._tt = setTimeout(() => el.classList.remove('show'), secs * 1000);

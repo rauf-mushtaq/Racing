@@ -143,8 +143,8 @@ export function buildCockpit(body, bodyGeo, style = 'modern') {
   const classic = style === 'classic';
   const g = new THREE.Group(); body.add(g);
   const L = classic
-    ? { eye: [0.36, 1.12, -0.36], wheel: [0.36, 0.82, 0.16], tilt: 0.34, R: 0.19, tube: 0.0125, half: 0.84, dash: [[0.88, 0.935], [0.52, 0.915], [0.34, 0.88], [0.30, 0.78], [0.42, 0.62], [0.88, 0.58]], cluster: [0.36, 0.84, 0.4], clusterSize: [0.5, 0.2], seatZ: -0.46, cowl: [0.86, 0.94], doorX: 0.83, roofY: 1.3, mirror: [0, 1.17, 0.12] }
-    : { eye: [0.37, 1.055, -0.28], wheel: [0.37, 0.80, 0.25], tilt: 0.40, R: 0.15, tube: 0.0155, half: 0.9, dash: [[0.96, 0.845], [0.64, 0.84], [0.42, 0.805], [0.31, 0.745], [0.30, 0.62], [0.42, 0.52], [0.96, 0.50]], cluster: [0.37, 0.885, 0.58], clusterSize: [0.56, 0.21], seatZ: -0.42, cowl: [0.93, 0.84], doorX: 0.9, roofY: 1.1, mirror: [0, 1.0, 0.2] };
+    ? { eye: [0.36, 1.12, -0.36], wheel: [0.36, 0.82, 0.16], tilt: 0.34, R: 0.19, tube: 0.0125, half: 0.78, dash: [[0.88, 0.935], [0.52, 0.915], [0.34, 0.88], [0.30, 0.78], [0.42, 0.62], [0.88, 0.58]], cluster: [0.36, 0.84, 0.4], clusterSize: [0.5, 0.2], seatZ: -0.46, cowl: [0.86, 0.94], doorX: 0.755, pillarX: [0.7, 0.6], roofY: 1.3, mirror: [0, 1.17, 0.12] }
+    : { eye: [0.37, 1.055, -0.28], wheel: [0.37, 0.80, 0.25], tilt: 0.40, R: 0.15, tube: 0.0155, half: 0.9, dash: [[0.96, 0.845], [0.64, 0.84], [0.42, 0.805], [0.31, 0.745], [0.30, 0.62], [0.42, 0.52], [0.96, 0.50]], cluster: [0.37, 0.885, 0.58], clusterSize: [0.56, 0.21], seatZ: -0.42, cowl: [0.93, 0.84], doorX: 0.9, pillarX: [0.84, 0.66], roofY: 1.1, mirror: [0, 1.0, 0.2] };
   const eye = new THREE.Vector3(...L.eye);
   // The inside of the shell: dark headliner and pillars.
   const hidden = new THREE.MeshBasicMaterial({ visible: false });
@@ -223,7 +223,7 @@ export function buildCockpit(body, bodyGeo, style = 'modern') {
   }
   // --- Pillars and roof ---
   for (const s of [-1, 1]) {
-    const a = new THREE.Vector3(s * 0.84, L.cowl[1], L.cowl[0] - 0.04), b = new THREE.Vector3(s * 0.66, L.roofY, -0.05);
+    const a = new THREE.Vector3(s * L.pillarX[0], L.cowl[1], L.cowl[0] - 0.04), b = new THREE.Vector3(s * L.pillarX[1], L.roofY, -0.05);
     const o = new THREE.Mesh(RB(0.06, 0.045, a.distanceTo(b), 0.015), alcantara); o.position.copy(a).lerp(b, 0.5); o.lookAt(b); g.add(o);
   }
   // Rear-view mirror.
@@ -234,7 +234,7 @@ export function buildCockpit(body, bodyGeo, style = 'modern') {
   // --- Steering wheel ---
   const wheel = new THREE.Group(); wheel.position.set(...L.wheel); wheel.rotation.x = L.tilt; g.add(wheel);
   const spin = new THREE.Group(); wheel.add(spin);
-  const rimMat = classic ? new THREE.MeshStandardMaterial({ map: woodTex(), roughness: 0.38, metalness: 0.0, clearcoat: 0 }) : new THREE.MeshStandardMaterial({ map: rimTex('#17161a', '#ff6a1c'), bumpMap: leatherBump([6, 1]), bumpScale: 0.4, roughness: 0.55 });
+  const rimMat = classic ? new THREE.MeshStandardMaterial({ map: woodTex(), roughness: 0.38, metalness: 0.0 }) : new THREE.MeshStandardMaterial({ map: rimTex('#17161a', '#ff6a1c'), bumpMap: leatherBump([6, 1]), bumpScale: 0.4, roughness: 0.55 });
   rimMat.userData.noProbe = true;
   const rim = new THREE.Mesh(rimGeo(L.R, L.tube, classic ? 0.0 : 0.3, classic ? 1.0 : 0.88), rimMat); spin.add(rim);
   if (!classic) {   // twelve o'clock marker

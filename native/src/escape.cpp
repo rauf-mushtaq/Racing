@@ -64,6 +64,10 @@ void PoliceChase::spawnCop(const Vehicle& p, int kind, bool farAway) {
     double score = -std::fabs(d - (minD + 40)) - ((x - p.x) * fx + (z - p.z) * fz > 30 ? 120 : 0) + (canSee(x, z, p.x, p.z, 400) ? -150 : 0);   // out of sight, behind or beside the player
     if (score > best) { best = score; bx = x; bz = z; }
   }
+  if (best < -1e8) {   // nothing usable found: a spot on the road grid well away from the player
+    double a = rnd() * 6.2832, d = farAway ? 300 : 200; bx = p.x + std::sin(a) * d; bz = p.z + std::cos(a) * d;
+    if (inCity(bx, bz, 0)) { int ni = std::max(-N, std::min(N, (int)std::lround(bx / SP))), nj = std::max(-N, std::min(N, (int)std::lround(bz / SP))); if (std::fabs(bx - ni * SP) < std::fabs(bz - nj * SP)) bx = ni * SP; else bz = nj * SP; }
+  }
   c.x = bx; c.z = bz; c.y = groundAt(bx, bz).y; c.h = std::atan2(p.x - bx, p.z - bz); c.speed = 12; cops.push_back(c);
 }
 
@@ -128,9 +132,10 @@ void PoliceChase::updateCop(Cop& c, double dt, Vehicle& player, Traffic& traffic
   else c.spin = 0;
   double maxYaw = 2.3 / (1 + c.speed / 16), turn = clampd(err * 4.0, -maxYaw, maxYaw); c.h += turn * dt + c.spin * dt; c.roll += turn * c.speed * 0.0016 * dt * 20;
   c.speed += clampd(speedT - c.speed, -26 * dt, (c.kind ? 9.0 : 12.0) * dt); if (c.speed < 0) c.speed = 0;
+  double ox0 = c.x, oz0 = c.z;   // where it was at the start of the step, to tell when it is stuck
   double sx = std::sin(c.h) * c.speed + c.vx, sz = std::cos(c.h) * c.speed + c.vz; c.x += sx * dt; c.z += sz * dt; double k = std::exp(-3.0 * dt); c.vx *= k; c.vz *= k;
   // The static world: push out of buildings, trees and barriers, scrub speed.
-  static const double OFFS[3] = { 1.4, 0, -1.4 }; double ox0 = c.x, oz0 = c.z;
+  static const double OFFS[3] = { 1.4, 0, -1.4 };
   for (double off : OFFS) { double px = c.x + std::sin(c.h) * off, pz = c.z + std::cos(c.h) * off, nx, nz; if (pushOutStatic(px, pz, 1.0, &nx, &nz)) { c.x = px - std::sin(c.h) * off; c.z = pz - std::cos(c.h) * off; double into = std::fabs(nx * std::sin(c.h) + nz * std::cos(c.h)); if (c.speed > 10) damageCop(c, (c.speed - 10) * into * 0.35 * dt * 6, fx); c.speed *= 1.0 - 0.9 * into * std::min(1.0, dt * 6); } }
   if (c.x < coastX(c.z) + 70) { c.x = coastX(c.z) + 70; c.speed *= 0.7; }
   c.stuck = (std::hypot(c.x - ox0, c.z - oz0) < 0.25 * dt * 10 && dist > 40) ? c.stuck + dt : std::max(0.0, c.stuck - dt);

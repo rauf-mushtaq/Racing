@@ -10,6 +10,7 @@ import { mulberry32, clamp, wrapAngle } from './util.js';
 
 const COLORS = ['#e8e8e8', '#111214', '#9aa0a6', '#5b6066', '#1e2f55', '#8a1c1c', '#c8b89a', '#2f4a3a', '#d7d3cc', '#30343a', '#6b1f2e', '#2a5d8f'].map(c => new THREE.Color(c));
 const COUNTS = { off: 0, light: 30, normal: 56, heavy: 96 };
+const WRECK_COLOR = new THREE.Color(0.035, 0.033, 0.032), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 const CAP = 140;
 
 export class Traffic {
@@ -45,7 +46,7 @@ export class Traffic {
       const c = { active: true, type: (this.rnd() * 4) | 0, color: COLORS[(this.rnd() * COLORS.length) | 0], len: 4.7 };
       const r = this.rnd();
       c.type = r < 0.07 ? 4 : r < 0.1 ? 5 : r < 0.2 ? 3 : (this.rnd() * 3) | 0;
-      c.len = this.models[c.type].len; c.mass = this.models[c.type].mass; c.rad = this.models[c.type].rad;
+      c.len = this.models[c.type].len; c.mass = this.models[c.type].mass; c.rad = this.models[c.type].rad; c.hp = c.maxHp = this.hpOf(c);
       this.cars.push(c);
       this.spawn(c, player, 30, 520, true);
     }
@@ -126,14 +127,15 @@ export class Traffic {
     }
     const cum = [0]; for (let q = 1; q < n; q++) cum.push(cum[q - 1] + Math.hypot(pts[q].x - pts[q - 1].x, pts[q].z - pts[q - 1].z));
     const r = this.rnd(), type = r < 0.18 ? 4 : r < 0.22 ? 5 : r < 0.4 ? 3 : r < 0.6 ? 1 : (this.rnd() * 3) | 0;
-    Object.assign(c, { type, len: this.models[type].len, mass: this.models[type].mass, rad: this.models[type].rad, hwy: true, axis: null, from: null, to: null, pts, cum, total: cum[n - 1], straightLen: cum[n - 1], turning: false, s: initial ? this.rnd() * 300 : 0, blvd: true, mode: 'drive', wait: 0, knockT: 0 });
+    Object.assign(c, { type, len: this.models[type].len, mass: this.models[type].mass, rad: this.models[type].rad, hp: 0, hwy: true, axis: null, from: null, to: null, pts, cum, total: cum[n - 1], straightLen: cum[n - 1], turning: false, s: initial ? this.rnd() * 300 : 0, blvd: true, mode: 'drive', wait: 0, knockT: 0 });
     c.speed = 24; c.vmax = (type >= 4 ? 21 : 29 + this.rnd() * 8) * (0.9 + this.rnd() * 0.2);
-    c.h = undefined; this.place(c);
+    c.h = undefined; c.hp = c.maxHp = this.hpOf(c); c.burn = 0; this.place(c);
   }
 
   spawn(c, player, minD, maxD, initial = false) {
     if (Math.abs(player.x) > EDGE + 150 || Math.abs(player.z) > EDGE + 150) return this.spawnHwy(c, player, minD, maxD, initial);
     if (c.hwy) { c.hwy = false; const r = this.rnd(); c.type = r < 0.07 ? 4 : r < 0.1 ? 5 : r < 0.2 ? 3 : (this.rnd() * 3) | 0; c.len = this.models[c.type].len; c.mass = this.models[c.type].mass; c.rad = this.models[c.type].rad; c.h = undefined; }
+    c.hp = c.maxHp = this.hpOf(c); c.burn = 0;
     for (let tries = 0; tries < 40; tries++) {
       // Pick a junction near the player (the map is far bigger than the traffic's reach).
       const i = clamp(Math.round(player.x / SP) + Math.floor(this.rnd() * 9) - 4, -N, N), j = clamp(Math.round(player.z / SP) + Math.floor(this.rnd() * 9) - 4, -N, N);
@@ -164,8 +166,18 @@ export class Traffic {
 
   velocityOf(c) { return c.mode === 'knocked' ? [c.vx, c.vz] : [Math.sin(c.h) * c.speed, Math.cos(c.h) * c.speed]; }
   knock(c, vx, vz, spin) {
-    if (c.mode !== 'knocked') { c.mode = 'knocked'; c.knockT = 0; c.spin = 0; }
-    c.vx = vx; c.vz = vz; c.spin += spin;
+    if (c.mode !== 'knocked' && c.mode !== 'wreck') { c.mode = 'knocked'; c.knockT = 0; c.spin = 0; }
+    c.vx = vx; c.vz = vz; c.spin = (c.spin || 0) + spin;
+  }
+  hpOf(c) { return Math.min(320, 70 + (c.mass || 1400) / 25); }
+  // Weapons hurt cars: when the last of a car's hit points goes it is a burning wreck until it is cleared away. Returns true
+  // at the moment it is wrecked.
+  damage(c, amount) {
+    if (c.mode === 'wreck' || !(amount > 0)) return false;
+    c.hp -= amount;
+    if (c.hp > 0) return false;
+    this.knock(c, c.mode === 'knocked' ? c.vx : Math.sin(c.h) * (c.speed || 0) * 0.5, c.mode === 'knocked' ? c.vz : Math.cos(c.h) * (c.speed || 0) * 0.5, 0);
+    c.mode = 'wreck'; c.burn = 0; c.knockT = 0; c.speed = 0; return true;
   }
 
   // A car that has been knocked off its path sits on whatever ground it ended up on: its height follows the
@@ -183,14 +195,15 @@ export class Traffic {
   update(dt, player, signals) {
     const pf = [Math.sin(player.h), Math.cos(player.h)];
     for (const c of this.cars) {
-      if (c.mode === 'knocked') {
+      if (c.mode === 'knocked' || c.mode === 'wreck') {
         c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.spin * dt;
         this.settle(c);
-        const sp = Math.hypot(c.vx, c.vz), dec = Math.max(0, sp - 7 * dt) / (sp || 1);
+        const wreck = c.mode === 'wreck';
+        const sp = Math.hypot(c.vx, c.vz), dec = Math.max(0, sp - (wreck ? 11 : 7) * dt) / (sp || 1);
         c.vx *= dec; c.vz *= dec; c.spin *= Math.exp(-2 * dt);
-        if (sp < 0.3) c.knockT += dt;
+        if (wreck) c.burn += dt; else if (sp < 0.3) c.knockT += dt;
         const far = Math.hypot(c.x - player.x, c.z - player.z);
-        if (c.knockT > 6 && far > 60) this.spawn(c, player, 160, 420);
+        if (wreck ? (c.burn > 26 && far > 40) || far > 520 : c.knockT > 6 && far > 60) this.spawn(c, player, 160, 420);
         continue;
       }
       const f = [Math.sin(c.h), Math.cos(c.h)], r = [-f[1], f[0]];
@@ -253,7 +266,7 @@ export class Traffic {
       let i = 0;
       for (const c of m.list) {
         this.eul.set(-(c.pitch || 0), c.h, c.roll || 0, 'YXZ'); q.setFromEuler(this.eul); v.set(c.x, c.y ?? 0, c.z); m4.compose(v, q, one);
-        m.body.setMatrixAt(i, m4); m.lights.setMatrixAt(i, m4); m.body.setColorAt(i, c.color);
+        const wr = c.mode === 'wreck'; m.body.setMatrixAt(i, m4); m.lights.setMatrixAt(i, wr ? ZERO : m4); m.body.setColorAt(i, wr ? WRECK_COLOR : c.color);
         v.y += 0.03; m4.compose(v, q, one); if (nb < CAP * 2) this.blobs.setMatrixAt(nb++, m4);
         if (++i >= CAP) break;
       }

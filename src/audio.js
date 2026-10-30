@@ -31,7 +31,11 @@ export class AudioEngine {
         return { flt, g };
       };
       const tyre = noise('bandpass', 1100, 6), wind = noise('lowpass', 500, 0.7), intake = noise('bandpass', 400, 1.2), nitro = noise('highpass', 2500, 0.7);
-      Object.assign(this, { ctx, master, eGain, eFilt, oscs, tyre, wind, intake, nitro, buf, comp });
+      // The siren: a two-tone, through a band-pass so it sounds like a horn in the street rather than a test tone.
+      const sirenO = ctx.createOscillator(); sirenO.type = 'sawtooth'; sirenO.frequency.value = 650;
+      const sirenF = ctx.createBiquadFilter(); sirenF.type = 'bandpass'; sirenF.frequency.value = 1100; sirenF.Q.value = 0.9;
+      const sirenG = ctx.createGain(); sirenG.gain.value = 0; sirenO.connect(sirenF); sirenF.connect(sirenG); sirenG.connect(comp); sirenO.start();
+      Object.assign(this, { ctx, master, eGain, eFilt, oscs, tyre, wind, intake, nitro, buf, comp, sirenO, sirenG });
     } catch (e) { this.ctx = null; }
   }
   setVolume(v, enabled) {
@@ -54,6 +58,31 @@ export class AudioEngine {
     this.wind.g.gain.setTargetAtTime(on * Math.min(0.25, spd * spd / 9000), t, 0.1);
     this.wind.flt.frequency.setTargetAtTime(300 + spd * 12, t, 0.1);
     this.nitro.g.gain.setTargetAtTime(on * (car.nitroOn ? 0.09 : 0), t, 0.05);
+  }
+  // The police siren at a distance-based level (0 silent to 1 right behind you).
+  siren(level, clock) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.sirenO.frequency.setTargetAtTime(Math.floor(clock * 2.1) % 2 ? 880 : 640, t, 0.025);
+    this.sirenG.gain.setTargetAtTime(level * 0.11, t, 0.12);
+  }
+  // A short noise burst through a filter: the building block of the gunfire, explosions and the missile.
+  burst(f0, f1, dur, vol, type = 'bandpass', q = 1) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, src = this.ctx.createBufferSource(); src.buffer = this.buf;
+    const f = this.ctx.createBiquadFilter(); f.type = type; f.Q.value = q; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(this.comp); src.start(t, Math.random()); src.stop(t + dur + 0.02);
+  }
+  gun() { const t = this.ctx && this.ctx.currentTime; if (!t || t - (this.lastGun || 0) < 0.045) return; this.lastGun = t; this.burst(2400, 700, 0.07, 0.3, 'bandpass', 0.8); }
+  whoosh() { this.burst(500, 4000, 0.6, 0.3, 'bandpass', 0.6); }
+  boom(power = 1) {
+    if (!this.ctx) return;
+    this.burst(900 * power, 60, 0.9 + power * 0.5, 0.9, 'lowpass', 0.7);
+    const t = this.ctx.currentTime, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.7);
+    g.gain.setValueAtTime(0.7 * Math.min(1.2, power), t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+    o.connect(g); g.connect(this.comp); o.start(t); o.stop(t + 0.85);
   }
   thump(strength) {
     if (!this.ctx) return;

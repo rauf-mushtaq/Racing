@@ -20,7 +20,9 @@ import { initGrass } from './grass.js';
 import { initStructures } from './structures.js';
 import { TOD, TOD_NAME } from './tod.js';
 import { makeHeroCar, setPaint, PAINTS, HERO_DIMS } from './carModel.js';
-import { Vehicle } from './vehicle.js';
+import { Vehicle, SPEC } from './vehicle.js';
+import { makeGT, GT_SPEC } from './gt.js';
+import { PoliceChase } from './police.js';
 import { collideStatic, collideTraffic, collideTerrain } from './collide.js';
 import { Traffic } from './traffic.js';
 import { FX } from './fx.js';
@@ -146,7 +148,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let grass = null, structures, sky, city, terrain, traffic, carMesh, fx, gates, hud, csm = null, probe = null;
+let grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -170,8 +172,16 @@ async function build() {
   await city.loadAround(START.x, START.z, Math.min(2, Q.loadR), loadMsg);
   loadMsg('Starting the traffic…'); await nextFrame();
   traffic = new Traffic(scene, city, Q.shadows);
-  carMesh = makeHeroCar(settings.color);
-  scene.add(carMesh);
+  carMesh = heroMesh = makeHeroCar(settings.color);
+  heroMesh.userData.dims = HERO_DIMS; heroMesh.userData.cgOff = CG_OFF;
+  scene.add(heroMesh);
+  // The police chase's grand tourer and its pursuers are built up front (hidden), so their materials are in the scene for the
+  // shadows and reflections and their shaders compile now rather than in the middle of a chase.
+  gtMesh = makeGT(); gtMesh.visible = false; scene.add(gtMesh);
+  police = new PoliceChase(scene);
+  police.onBoom = (x, z, power) => audio.boom(power * clamp(1.1 - Math.hypot(x - car.x, z - car.z) / 380, 0.12, 1));
+  police.onGun = () => audio.gun(); police.onMissile = () => audio.whoosh(); police.onBeep = f => audio.beep(f, 0.12, 0.22);
+  police.onCrash = j => { const k = Math.min(1, j / 25000); audio.thump(0.2 + k); game.shake = Math.max(game.shake, k * 0.6); };
   fx = new FX(scene);
   gates = new Gates(scene);
   hud = new HUD();
@@ -195,7 +205,7 @@ function setupProbe() {
   const cam = new THREE.CubeCamera(0.5, 9000, rt);
   scene.add(cam);
   probe = { rt, cam, face: 0, frame: 0 };
-  carMesh.traverse(o => {
+  for (const mesh of [heroMesh, gtMesh]) mesh.traverse(o => {
     for (const m of [].concat(o.material || [])) if ((m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) && m.envMapIntensity !== undefined && !m.userData.noProbe) m.envMap = rt.texture;
   });
   carMesh.visible = false; cam.position.set(car.x, carY + 0.9, car.z); cam.update(renderer, scene); carMesh.visible = true;
@@ -253,7 +263,7 @@ function addFlare() {
 }
 
 function applyAids() {
-  car.abs = settings.abs; car.tcs = settings.tcs; car.esp = settings.esp; car.auto = settings.auto; car.steerAssist = settings.steerAssist;
+  car.abs = settings.abs; car.tcs = settings.tcs; car.esp = settings.esp; car.auto = game.chaseOn ? true : settings.auto; car.steerAssist = settings.steerAssist;
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +275,10 @@ let carY = 0.0, camYaw = START.h, pitch = 0, roll = 0, pitchV = 0, rollV = 0;
 function setState(s) {
   game.state = s;
   const driving = s === 'free' || s === 'race' || s === 'countdown';
-  $('hud').classList.toggle('hidden', !driving && s !== 'finish' && s !== 'map');
+  $('hud').classList.toggle('hidden', !driving && s !== 'finish' && s !== 'map' && s !== 'chaseEnd');
+  $('chase-end').classList.toggle('hidden', s !== 'chaseEnd');
+  document.body.classList.toggle('chasing', !!game.chaseOn && (driving || s === 'chaseEnd'));
+  if (!game.chaseOn && hud) hud.chase(null);
   $('menu').classList.toggle('hidden', s !== 'menu');
   $('pause').classList.toggle('hidden', s !== 'paused');
   $('finish').classList.toggle('hidden', s !== 'finish');
@@ -280,17 +293,67 @@ function setState(s) {
   if (hud) hud.resize();
 }
 
+// --- The police chase ---------------------------------------------------------------------------------------------------
+// The chase happens in the free-roam state with game.chaseOn set; when it ends the state becomes 'chaseEnd' (the result card).
+function swapCar(kind) {
+  const next = kind === 'gt' ? gtMesh : heroMesh;
+  if (carMesh !== next) { carMesh.visible = false; carMesh = next; carMesh.visible = true; car.setSpec(kind === 'gt' ? GT_SPEC : SPEC); }
+  game.head = null; applyAids();
+}
+function startChase() {
+  game.route = null; game.waypoint = null; gates.clear(); hud.race(null); hud.nav(null);
+  game.chaseOn = true; swapCar('gt');
+  resetCar(START.x, START.z, START.h);
+  city.loadNow(START.x, START.z, 1); terrain.loadNow(START.x, START.z, 1); if (grass) grass.now(START.x, START.z);
+  traffic.setDensity(settings.traffic === 'off' ? 'light' : settings.traffic, car);
+  for (const c of traffic.cars) traffic.spawn(c, car, 40, 500, true);
+  driver.reset(); game.gprev = {};
+  police.start(car, traffic);
+  setState('free'); hud.toast('THE POLICE ARE ON YOU', 2.2); audio.beep(880, 0.12); setTimeout(() => audio.beep(660, 0.2), 140);
+}
+function endChase() {
+  if (!game.chaseOn && carMesh === heroMesh) return;
+  game.chaseOn = false; police.stop(); audio.siren(0, 0); swapCar('hero'); hud.chase(null);
+}
+function chaseResult() {
+  const P = police, t = P.time, won = P.result === 'escaped';
+  let newBest = false;
+  if (won && (settings.chaseBest == null || t < settings.chaseBest)) { settings.chaseBest = t; save(); newBest = true; }
+  $('ce-title').textContent = won ? 'YOU GOT AWAY' : P.result === 'busted' ? 'BUSTED' : 'WRECKED';
+  $('ce-title').style.color = won ? '#7ff0a6' : '#ff6a5a';
+  $('ce-sub').textContent = won ? 'You lost them in the backstreets.' : P.result === 'busted' ? 'Boxed in and stopped: the police have you.' : 'The grand tourer is a burning wreck.';
+  const row = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`;
+  $('ce-table').innerHTML = row('Time', fmtTime(t)) + row('Heat reached', '★'.repeat(P.maxStars)) + row('Police cars wrecked', P.kills) + row('Bystander cars wrecked', P.civilians) + row('Armour left', Math.round(P.health) + '%') +
+    (settings.chaseBest != null ? row(newBest ? 'New best escape!' : 'Best escape', fmtTime(settings.chaseBest)) : '');
+  setState('chaseEnd');
+  audio.beep(won ? 880 : 220, 0.25); setTimeout(() => audio.beep(won ? 1320 : 165, 0.4), 180);
+}
+// Per frame, inside the simulation block.
+function chaseUpdate(dt, raw) {
+  const g = raw.gadgets || {}, pv = game.gprev || (game.gprev = {});
+  const inp = { fire: !!g.fire, missile: !!g.missile && !pv.missile, bomb: !!g.bomb && !pv.bomb, oil: !!g.oil && !pv.oil, smoke: !!g.smoke && !pv.smoke, shield: !!g.shield && !pv.shield };
+  game.gprev = { ...g };
+  police.clock = game.clock;
+  police.update(dt, car, traffic, game.state === 'free' ? inp : {});
+  for (const m of police.consumeMessages()) hud.toast(m, 1.9);
+  game.shake = Math.max(game.shake, police.shake * 0.7);
+  const level = police.result === 'running' ? clamp(1 - police.nearest / 300, 0, 1) ** 1.4 : 0;
+  audio.siren(level, game.clock);
+  if (police.result !== 'running' && game.state === 'free' && police.endT > (police.result === 'escaped' ? 1.0 : 1.7)) chaseResult();
+}
+
 function resetCar(x, z, h) {
   car.reset(x, z, h); carY = groundAt(x, z).y; car.baseY = carY; camYaw = h; fx.reset();
 }
 
 function startFree() {
-  game.route = null; gates.clear();
+  endChase(); game.route = null; gates.clear();
   if (game.state === 'menu') resetCar(car.x, car.z, car.h);
   setState('free'); hud.toast('FREE ROAM', 1.6);
 }
 
 function startEvent(ev) {
+  endChase();
   const route = buildRoute(ev);
   game.route = route; game.next = 0; game.t = 0; game.cdT = 3.4; game.lastBeep = 4; game.splits = [];
   gates.build(route);
@@ -387,7 +450,7 @@ function nextCamera() {
 }
 input.on('camera', nextCamera);
 $('cam-btn').addEventListener('click', e => { e.stopPropagation(); nextCamera(); });
-input.on('reset', () => { if (game.state === 'free' || game.state === 'race') respawnOnRoad(); });
+input.on('reset', () => { if ((game.state === 'free' || game.state === 'race') && !game.chaseOn) respawnOnRoad(); });
 input.on('shiftUp', () => { if (!car.auto) car.shift(1); });
 input.on('shiftDown', () => { if (!car.auto) car.shift(-1); });
 input.on('mute', () => { settings.sound = !settings.sound; save(); audio.setVolume(settings.volume, settings.sound); hud.toast(settings.sound ? 'SOUND ON' : 'SOUND OFF', 1); });
@@ -410,6 +473,7 @@ for (const b of document.querySelectorAll('[data-m]')) b.addEventListener('click
   const m = b.dataset.m;
   if (m === 'free') { hidePanel(); startFree(); }
   else if (m === 'events') eventsPanel();
+  else if (m === 'chase') chasePanel();
   else if (m === 'garage') garagePanel();
   else if (m === 'settings') settingsPanel(panel);
   else if (m === 'controls') controlsPanel();
@@ -427,6 +491,20 @@ function eventsPanel() {
   panel.querySelectorAll('[data-ev]').forEach(b => b.addEventListener('click', () => { hidePanel(); startEvent(EVENTS[+b.dataset.ev]); }));
 }
 
+function chasePanel() {
+  const best = settings.chaseBest != null ? `Your fastest escape: <b>${fmtTime(settings.chaseBest)}</b>` : 'You have not got away yet.';
+  showPanel(`<h2>POLICE CHASE</h2>
+    <p class="hint">The police want you, and you are driving a silver 1960s-style grand tourer with a few extras from the workshop. Get out of sight and stay hidden to lose them. The longer they see you the hotter it gets: more cruisers, then heavy pursuit trucks. Get wrecked, or boxed in and stopped, and it is over. ${best}</p>
+    <div class="keys">
+      <kbd>J / 1</kbd><span>Machine guns (hold; they overheat)</span><kbd>K / 2</kbd><span>Homing missile (locks on ahead)</span>
+      <kbd>L / 3</kbd><span>Drop a proximity bomb</span><kbd>O / 4</kbd><span>Oil slick</span>
+      <kbd>I / 5</kbd><span>Smoke screen (cops can't see through it)</span><kbd>H / 6</kbd><span>Armour shield</span>
+    </div>
+    <p class="hint" style="margin-top:12px">On a tablet the gadget buttons appear on the right. Ammo slowly refills. Nitro (NOS) and the handbrake work as always.</p>
+    <button class="big" id="chase-go">START THE CHASE</button>`);
+  $('chase-go').addEventListener('click', () => { hidePanel(); startChase(); });
+}
+
 function garagePanel() {
   game.garage = true;
   const sw = Object.entries(PAINTS).map(([k, p]) => `<button class="sw ${settings.color === k ? 'on' : ''}" data-c="${k}"><i style="background:#${p.color.toString(16).padStart(6, '0')}"></i>${p.name}</button>`).join('');
@@ -434,7 +512,7 @@ function garagePanel() {
     <div class="spec"><div><b>6.5 L</b>V12</div><div><b>690 Nm</b>torque</div><div><b>AWD</b>drive</div><div><b>340</b>km/h</div></div>
     <div class="swatches">${sw}</div>`);
   panel.querySelectorAll('[data-c]').forEach(b => b.addEventListener('click', () => {
-    settings.color = b.dataset.c; save(); setPaint(carMesh, settings.color);
+    settings.color = b.dataset.c; save(); setPaint(heroMesh, settings.color);
     panel.querySelectorAll('[data-c]').forEach(x => x.classList.toggle('on', x === b));
   }));
 }
@@ -511,7 +589,7 @@ function controlsPanel() {
 document.querySelectorAll('[data-p]').forEach(b => b.addEventListener('click', () => {
   const p = b.dataset.p;
   if (p === 'resume') togglePause();
-  else if (p === 'restart') { $('pause-panel').classList.add('hidden'); if (game.route) startEvent(game.route.ev); else { respawnOnRoad(); setState('free'); } }
+  else if (p === 'restart') { $('pause-panel').classList.add('hidden'); if (game.route) startEvent(game.route.ev); else if (game.chaseOn) startChase(); else { respawnOnRoad(); setState('free'); } }
   else if (p === 'settings') settingsPanel($('pause-panel'));
   else if (p === 'quit') { $('pause-panel').classList.add('hidden'); toMenu(); }
 }));
@@ -521,8 +599,9 @@ document.querySelectorAll('[data-f]').forEach(b => b.addEventListener('click', (
   else if (f === 'next') startEvent(EVENTS[(i + 1) % EVENTS.length]);
   else toMenu();
 }));
+document.querySelectorAll('[data-ce]').forEach(b => b.addEventListener('click', () => { if (b.dataset.ce === 'retry') startChase(); else toMenu(); }));
 function toMenu() {
-  game.route = null; gates.clear();
+  endChase(); game.route = null; gates.clear();
   resetCar(START.x, START.z, START.h);
   setState('menu'); hidePanel();
   document.querySelectorAll('[data-m]').forEach(x => x.classList.remove('sel'));
@@ -538,6 +617,7 @@ const NO_INPUT = { steer: 0, gas: 0, brake: 0, handbrake: false, nitro: false, a
 function onHit(j, px, pz) {
   if (j < 900) return;
   const s = Math.min(1, j / 25000);
+  if (game.chaseOn) police.playerHit(j, car.s.mass);
   audio.thump(0.2 + s);
   game.shake = Math.max(game.shake, s * 0.6);
   for (const p of input.pads()) if (p.vibrationActuator) p.vibrationActuator.playEffect('dual-rumble', { duration: 120 + s * 200, strongMagnitude: s, weakMagnitude: s * 0.6 }).catch(() => {});
@@ -549,6 +629,7 @@ function physics(dt, inp) {
   collideStatic(car, onHit);
   collideTerrain(car, onHit);
   collideTraffic(car, traffic, onHit);
+  if (game.chaseOn) police.collidePlayer(car);
 }
 
 // ---------------------------------------------------------------------------
@@ -565,7 +646,7 @@ const CG_OFF = 0.261;
 function updateCarMesh(dt, alpha) {
   let x = lerp(car.px, car.x, alpha), z = lerp(car.pz, car.z, alpha);
   const h = car.ph + wrapAngle(car.h - car.ph) * alpha;
-  x += Math.sin(h) * CG_OFF; z += Math.cos(h) * CG_OFF;
+  const cgo = carMesh.userData.cgOff; x += Math.sin(h) * cgo; z += Math.cos(h) * cgo;
   carY = car.baseY ?? groundAt(car.x, car.z).y;
   carMesh.position.set(x, carY, z);
   carMesh.rotation.y = h;
@@ -684,7 +765,7 @@ function wheelFx(pose) {
   let i = 0;
   for (const w of carMesh.userData.wheels) {
     const wi = car.wheels[(w.front ? 0 : 2) + (w.side > 0 ? 0 : 1)];
-    const lx = w.side * HERO_DIMS.track / 2, lz = w.front ? HERO_DIMS.wzf : HERO_DIMS.wzr;
+    const dm = carMesh.userData.dims, lx = w.side * dm.track / 2, lz = w.front ? dm.wzf : dm.wzr;
     const wx = pose.x + c * lx + s * lz, wz = pose.z - s * lx + c * lz;
     const slide = Math.max(Math.abs(wi.slipA) - 0.14, 0) * 3 + Math.max(Math.abs(wi.slipK) - 0.18, 0) * 2;
     const on = moving && wi.contact && !wi.grass && slide > 0.05;
@@ -767,10 +848,11 @@ function tick(dt) {
     acc += dt;
     let n = 0;
     while (acc >= STEP && n < 16) {
-      if (st === 'countdown' || st === 'menu' || st === 'finish') {
-        // Hold the car still but let the engine rev.
-        car.step(STEP, st === 'finish' ? { ...NO_INPUT, brake: 1 } : inp, groundAt);
-        if (st !== 'finish') { car.x = car.px; car.z = car.pz; car.h = car.ph; car.vx = car.vy = car.w = 0; }
+      if (st === 'countdown' || st === 'menu' || st === 'finish' || st === 'chaseEnd') {
+        // Hold the car still but let the engine rev (after a race or a chase it just brakes to a halt).
+        const done = st === 'finish' || st === 'chaseEnd';
+        car.step(STEP, done ? { ...NO_INPUT, brake: 1 } : inp, groundAt);
+        if (!done) { car.x = car.px; car.z = car.pz; car.h = car.ph; car.vx = car.vy = car.w = 0; }
         else { collideStatic(car, null); }
       } else physics(STEP, inp);
       acc -= STEP; n++;
@@ -780,9 +862,10 @@ function tick(dt) {
     const sig = signalState(game.clock);
     if (sig.Z !== game.sigZ || sig.X !== game.sigX) { game.sigZ = sig.Z; game.sigX = sig.X; city.setSignals(sig); }
     traffic.update(dt, car, sig);
+    if (game.chaseOn) chaseUpdate(dt, raw);
     if (st === 'race' || st === 'countdown') raceUpdate(dt);
-    else if (st === 'free') waypointUpdate();
-    if (st === 'free' || st === 'race') checkDiscoveries();
+    else if (st === 'free' && !game.chaseOn) waypointUpdate();
+    if ((st === 'free' && !game.chaseOn) || st === 'race') checkDiscoveries();
   }
   city.update(car.x, car.z, st === 'paused' || st === 'map' ? 2 : 3.5);
   terrain.update(dt, car.x, car.z, st === 'paused' || st === 'map' ? 1.5 : 3);
@@ -794,6 +877,7 @@ function tick(dt) {
   traffic.render(car, camFrustum);
   if (grass) grass.update(performance.now() / 1000, camera.position.x, camera.position.z);
   updateCamera(dt, pose);
+  if (game.chaseOn && st !== 'paused' && st !== 'map') police.draw(game.clock || 0, car, dt, carMesh, camera, renderer);
   sky.dome.position.set(camera.position.x, 0, camera.position.z);
   placeSun(sky.sun, tmpV.set(pose.x, 0, pose.z));
   if (csm) csm.update();
@@ -806,9 +890,10 @@ function tick(dt) {
     grade.uniforms.uTime.value = (performance.now() / 1000) % 100;
   }
   updateProbe(pose);
-  audio.update(car, st === 'free' || st === 'race' || st === 'countdown' || st === 'finish');
+  audio.update(car, st === 'free' || st === 'race' || st === 'countdown' || st === 'finish' || st === 'chaseEnd');
   if (st === 'free' || st === 'race' || st === 'countdown') hud.drawDial(car, settings.units, { abs: car.abs, esp: car.esp, tcs: car.tcs });
-  if (st === 'free' || st === 'race' || st === 'countdown') hud.drawMap(car, traffic, game.route, game.next, game.waypoint);
+  if (st === 'free' || st === 'race' || st === 'countdown') hud.drawMap(car, traffic, game.route, game.next, game.waypoint, game.chaseOn ? police : null);
+  if (game.chaseOn) hud.chase(st === 'paused' || st === 'map' ? null : police, game.clock || 0);
   if (settings.fps && (game.fpsT = (game.fpsT || 0) + dt) > 0.5) { game.fpsT = 0; $('fps').textContent = `${Math.round(1000 / frameAvg)} FPS · ${renderer.domElement.width}×${renderer.domElement.height} · ${quality}`; }
 
   // Adapt resolution every couple of seconds. This is done before drawing: resizing clears the
@@ -851,4 +936,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-window.__game = { simulate, driver, tick, game, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+window.__game = { simulate, driver, input, tick, game, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

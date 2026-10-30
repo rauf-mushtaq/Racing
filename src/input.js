@@ -8,7 +8,7 @@ const WHEEL_RE = /wheel|racing|g29|g920|g923|g27|g25|t300|t150|t248|t128|tmx|t50
 export class Input {
   constructor() {
     this.keys = new Set();
-    this.touch = { left: false, right: false, gas: false, brake: false, hand: false, nitro: false };
+    this.touch = { left: false, right: false, gas: false, brake: false, hand: false, nitro: false, fire: false, missile: false, bomb: false, oil: false, smoke: false, shield: false };
     this.handlers = {};
     this.padPrev = {};
     this.tilt = { on: false, angle: 0, flip: 1, zero: 0 };
@@ -136,6 +136,11 @@ export class Input {
     let brake = k('KeyS') || k('ArrowDown') || this.touch.brake ? 1 : 0;
     let handbrake = k('Space') || this.touch.hand;
     let nitro = k('ShiftLeft') || k('ShiftRight') || k('KeyN') || this.touch.nitro;
+    // The gadgets of the police chase: held states (the chase itself takes the edges).
+    const gadgets = {
+      fire: k('KeyJ') || k('Digit1') || this.touch.fire, missile: k('KeyK') || k('Digit2') || this.touch.missile, bomb: k('KeyL') || k('Digit3') || this.touch.bomb,
+      oil: k('KeyO') || k('Digit4') || this.touch.oil, smoke: k('KeyI') || k('Digit5') || this.touch.smoke, shield: k('KeyH') || k('Digit6') || this.touch.shield,
+    };
     let analog = false; const digital = { steer: true, gas: true, brake: true };
     if (this.tilt.on && settings.touchSteer === 'tilt' && this.lastDevice === 'touch') {
       steer = clamp((this.tilt.angle - this.tilt.zero) / 0.45, -1, 1); analog = true; digital.steer = false;
@@ -166,6 +171,9 @@ export class Input {
         if (lt > 0.04) { brake = Math.max(brake, lt); used = true; digital.brake = false; }
         if (p.buttons[0] && p.buttons[0].pressed) { handbrake = true; used = true; }
         if (p.buttons[2] && p.buttons[2].pressed) { nitro = true; used = true; }
+        const pb = i => !!(p.buttons[i] && p.buttons[i].pressed);
+        if (pb(1)) { gadgets.fire = true; used = true; } if (pb(5)) gadgets.missile = true; if (pb(4)) gadgets.bomb = true;
+        if (pb(12)) gadgets.oil = true; if (pb(13)) gadgets.smoke = true; if (pb(11)) gadgets.shield = true;
         if (p.buttons[14] && p.buttons[14].pressed) steer = -1;
         if (p.buttons[15] && p.buttons[15].pressed) steer = 1;
         this.padEdge(p, 3, 'camera'); this.padEdge(p, 5, 'shiftUp'); this.padEdge(p, 4, 'shiftDown');
@@ -174,6 +182,6 @@ export class Input {
       }
       if (used) { this.lastDevice = isWheel ? 'wheel' : 'pad'; this.emit('any'); }
     }
-    return { steer, gas, brake, handbrake, nitro, analog, sens: settings.sens, digital, device: this.lastDevice === 'touch' && !(digital.steer === false) ? 'touch' : this.lastDevice };
+    return { steer, gas, brake, handbrake, nitro, analog, sens: settings.sens, digital, gadgets, device: this.lastDevice === 'touch' && !(digital.steer === false) ? 'touch' : this.lastDevice };
   }
 }

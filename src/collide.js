@@ -8,7 +8,7 @@ import { groundAt, WORLD_LIM, isWater } from './world.js';
 const CIRCLES = [-1.45, 0, 1.45], RAD = 1.0;
 const found = [];
 
-function applyImpulse(car, px, pz, nx, nz, e, mu, hit, otherMassInv = 0, otherVel = null) {
+export function applyImpulse(car, px, pz, nx, nz, e, mu, hit, otherMassInv = 0, otherVel = null) {
   const m = car.s.mass, I = car.I;
   const [Vx, Vz] = car.worldVel();
   let Om = -car.w; // world yaw rate about +y

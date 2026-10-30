@@ -329,6 +329,17 @@ function trafficType(o) {
     const glass = i >= bodyTris;
     colr.set(glass ? [0.05, 0.06, 0.07] : [1, 1, 1], i * 3);
   }
+  if (o.livery) {   // a police car: dark body, white doors
+    const pa = gi.attributes.position;
+    for (let t = 0; t < bodyTris; t += 3) {
+      const ax = pa.getX(t), ay = pa.getY(t), az = pa.getZ(t), bx = pa.getX(t + 1), by = pa.getY(t + 1), bz = pa.getZ(t + 1), cx2 = pa.getX(t + 2), cy2 = pa.getY(t + 2), cz2 = pa.getZ(t + 2);
+      const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx2 - ax, vy = cy2 - ay, vz = cz2 - az;
+      let nx = uy * vz - uz * vy; const ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, nl = Math.hypot(nx, ny, nz) || 1; nx /= nl;
+      const cy = (ay + by + cy2) / 3, cz = (az + bz + cz2) / 3;
+      const door = Math.abs(nx) > 0.6 && cz > -o.len * 0.28 && cz < o.len * 0.18 && cy > o.clear + 0.14 && cy < P.shoulder(cz) - 0.04;
+      for (let k = 0; k < 3; k++) colr.set(door ? [0.92, 0.93, 0.95] : [0.03, 0.035, 0.05], (t + k) * 3);
+    }
+  }
   gi.setAttribute('color', new THREE.BufferAttribute(colr, 3));
   gi.clearGroups();
   const parts = [gi];
@@ -354,22 +365,24 @@ function trafficType(o) {
 }
 function colorize(g, c) { g = g.toNonIndexed(); g.deleteAttribute('uv'); const a = []; for (let i = 0; i < g.attributes.position.count; i++) a.push(c.r, c.g, c.b); g.setAttribute('color', new THREE.Float32BufferAttribute(a, 3)); return g; }
 
-export function trafficModels() {
-  return [
-    trafficType({ // saloon
+const SALOON = {
       len: 4.75, w: 0.9, wr: 0.33, fo: 0.95, ro: 1.05, clear: 0.2, noseR: 0.25, tailR: 0.18, tlY: 0.82, hlY: 0.7,
       top: [[-2.375, 0.95], [-2.0, 1.0], [-1.4, 1.02], [-0.9, 1.42], [0.4, 1.45], [1.0, 1.0], [2.0, 0.88], [2.375, 0.72]],
       topHalf: [[-2.4, 0.78], [-0.9, 0.62], [0.4, 0.66], [1.0, 0.8], [2.4, 0.78]],
       shoulder: [[-2.375, 0.9], [0, 0.98], [2.375, 0.68]],
       gz: [-1.05, 0.95], ws: [0.45, 1.02], rw: [-1.4, -0.88],
-    }),
-    trafficType({ // SUV
+};
+const SUV = {
       len: 4.8, w: 0.97, wr: 0.38, fo: 0.95, ro: 1.0, clear: 0.3, noseR: 0.25, tailR: 0.12, tlY: 1.05, hlY: 0.9,
       top: [[-2.4, 1.55], [-2.2, 1.72], [0.6, 1.76], [1.3, 1.22], [2.1, 1.1], [2.4, 0.92]],
       topHalf: [[-2.4, 0.84], [0.6, 0.78], [1.3, 0.86], [2.4, 0.84]],
       shoulder: [[-2.4, 1.12], [0, 1.15], [1.4, 1.1], [2.4, 0.85]],
       gz: [-2.1, 1.25], ws: [0.6, 1.3], rw: [-2.4, -2.0],
-    }),
+};
+export function trafficModels() {
+  return [
+    trafficType(SALOON),
+    trafficType(SUV),
     trafficType({ // hatchback
       len: 4.1, w: 0.87, wr: 0.31, fo: 0.82, ro: 0.72, clear: 0.18, noseR: 0.22, tailR: 0.1, tlY: 0.95, hlY: 0.72,
       top: [[-2.05, 1.2], [-1.85, 1.42], [0.3, 1.48], [0.9, 1.02], [1.7, 0.9], [2.05, 0.74]],
@@ -400,3 +413,8 @@ export function trafficModels() {
     }),
   ];
 }
+
+// Police vehicles: the saloon and the SUV in black and white, with their light bars added in police.js.
+export function policeModels() { return { cruiser: trafficType({ ...SALOON, livery: true }), truck: trafficType({ ...SUV, livery: true, mass: 2600 }) }; }
+export { loft, stationsFor, archBottom, mergeByMaterial };
+

@@ -161,11 +161,11 @@ export class Vehicle {
     rpm = Math.max(rpm, s.idle);
     if (this.shiftT > 0) this.shiftT -= dt;
     if (this.auto && this.shiftT <= 0 && this.gear >= 1) {
-      const n = s.gears.length;
-      if (rpmW > 7700 && this.gear < n) this.shift(1);
+      const n = s.gears.length, k = s.redline / 8000;                 // the shift points are tuned for an 8000 rpm engine: scale them to this one
+      if (rpmW > 7700 * k && this.gear < n) this.shift(1);
       else if (this.gear > 1) {
         const lower = wheelRpm * s.gears[this.gear - 2] * s.final;
-        if (lower < 7100 && ((thr > 0.6 && rpmW < 4300) || rpmW < 2600 || (brk > 0.2 && rpmW < 3600))) this.shift(-1);
+        if (lower < 7100 * k && ((thr > 0.6 && rpmW < 4300 * k) || rpmW < 2600 * k || (brk > 0.2 && rpmW < 3600 * k))) this.shift(-1);
       }
     }
     this.rpm += (Math.min(rpm, s.limiter + 100) - this.rpm) * Math.min(1, dt * 18);
