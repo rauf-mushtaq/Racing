@@ -16,6 +16,8 @@ cbuffer Frame : register(b0) {
   float4 gSunScreen;   // xy = sun position in uv, z = how much of the sun is in view
   float4 gShadowBias;  // depth bias for each cascade
   float4 gShadowTexel; // size of a shadow texel in metres, per cascade
+  float4 gWeather;     // x = wetness of the streets (0 dry, 1 soaked), y = reflection strength
+  float4x4 gPrevVP;    // last frame's view-projection, for motion blur
 };
 cbuffer Draw : register(b1) { float4x4 gWorld; float4 gP0; float4 gP1; float4 gP2; float4 gP3; };
 

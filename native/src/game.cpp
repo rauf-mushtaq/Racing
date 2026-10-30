@@ -39,7 +39,7 @@ void Game::setCarKind(int kind) {
   carKind = kind; car.s = VehicleSpec(); if (kind == 1) BondModel::configure(car); else { car.configure(); car.reset(car.x, car.z, car.h); }
 }
 void Game::init(Renderer& r) {
-  scenery.init(r.gfx); model.build(r.gfx); bond.build(r.gfx); city.init(r.gfx); vmodels.build(r.gfx); traffic.init(r.gfx, vmodels); traffic.setDensity(trafficLevel, pose()); escape.init(r.gfx, &vmodels);
+  scenery.init(r.gfx); model.build(r.gfx); bond.build(r.gfx); city.init(r.gfx); vmodels.build(r.gfx); traffic.init(r.gfx, vmodels); peds.init(r.gfx); traffic.setDensity(trafficLevel, pose()); escape.init(r.gfx, &vmodels);
   { MeshData c; c.cylinder(Vec3(0, 0, 0), Vec3(0, 1, 0), 1.0f, 1.0f, 12, packColor(1, 1, 1)); gateCyl = uploadMesh(r.gfx, c); MeshData b; b.box(Vec3(-0.5f, -0.5f, -0.5f), Vec3(0.5f, 0.5f, 0.5f), packColor(1, 1, 1)); gateBox = uploadMesh(r.gfx, b); }
   r.drawWorld = [this](Renderer& rr, bool shadow, const Frustum& f) { draw(rr, shadow, f); };
   r.drawFx = [this](Renderer& rr) { fx.draw(rr, rr.cam.pos); };
@@ -166,6 +166,13 @@ void Game::update(Renderer& r, double dt, const InputState& in) {
   stepPhysics(dt, in);
   trafficAcc += std::min(dt, 0.066); while (trafficAcc >= 1.0 / 60) { traffic.update(1.0 / 60, pose(), clock); trafficAcc -= 1.0 / 60; }
   fx.update(dt);
+  { // Tyre smoke when the car slides or the wheels spin.
+    double fxd = std::sin(car.h), fzd = std::cos(car.h), rxd = -std::cos(car.h), rzd = std::sin(car.h), vxw, vzw; car.worldVel(vxw, vzw);
+    for (int i = 0; i < 4; i++) { const Wheel& w = car.wheels[i]; if (!w.contact || w.N < 800 || car.speed() < 5) continue; double sl = std::max(std::fabs(w.slipA) * 3.0, std::fabs(w.slipK)); if (sl < 0.9) continue;
+      static uint32_t sr = 7; sr = sr * 1664525u + 1013904223u; if ((sr >> 8) / 16777216.0 > dt * 28.0 * std::min(1.0, sl - 0.8)) continue;
+      double wx = car.x + fxd * car.s.wheelPos[i][0] + rxd * car.s.wheelPos[i][1], wz = car.z + fzd * car.s.wheelPos[i][0] + rzd * car.s.wheelPos[i][1];
+      fx.smoke(Vec3((float)wx, (float)car.bodyY() + 0.12f, (float)wz), Vec3((float)(vxw * 0.25), 0.7f, (float)(vzw * 0.25)), 0.45f, 1.5f, 0.72f, 0.32f, 1.8f); }
+  }
   if (state == State::Countdown) {
     countT -= dt; if (countT <= 0.4 && countT + dt > 0.4) toast("GO");
     if (countT <= 0.4) state = State::Race;
@@ -193,7 +200,7 @@ void Game::updateCamera(Renderer& r, double dt, const InputState& in) {
     double wvx, wvz; car.worldVel(wvx, wvz); double target = h;
     if (spd > 6) { double vd = std::atan2(wvx, wvz); target = h + wrapAngle(vd - h) * 0.35 * std::min(1.0, (spd - 6) / 20); }
     camYaw += wrapAngle(target - camYaw) * (1 - std::exp(-4.0 * dt));
-    double dist = (camMode == 0 ? 6.0 : 4.5) + spd * 0.02, height = (camMode == 0 ? 2.05 : 1.45) + orbitPitch * 4.0, yaw = camYaw + orbit;
+    double dist = (camMode == 0 ? 5.5 : 4.2) + spd * 0.02, height = (camMode == 0 ? 1.85 : 1.35) + orbitPitch * 4.0, yaw = camYaw + orbit;
     Vec3 want = carPos + Vec3((float)(-std::sin(yaw) * dist), (float)height, (float)(-std::cos(yaw) * dist));
     if (!camPos.x && !camPos.z) camPos = want; double a = 1 - std::exp(-14.0 * dt); camPos = camPos + (want - camPos) * (float)a;
     Vec3 aim = carPos + Vec3((float)(std::sin(yaw) * 4.0), 1.1f, (float)(std::cos(yaw) * 4.0));
@@ -206,6 +213,7 @@ void Game::updateCamera(Renderer& r, double dt, const InputState& in) {
   }
   if (inEscapeHud() && escape.shake > 0.01) { double s = escape.shake * 0.35; pos = pos + Vec3((float)(std::sin(time * 63) * s), (float)(std::sin(time * 79) * s * 0.7), (float)(std::cos(time * 57) * s)); }
   double gy = heightAt(pos.x, pos.z) + 0.7; if (camMode <= 1 && pos.y < gy) pos.y = (float)gy;
+  r.focusDist = std::max(2.0f, length(pos - carPos) + 1.0f);
   Vec3 f = normalize(look - pos);
   r.cam.pos = pos; r.cam.yaw = (float)(std::atan2(f.x, -f.z) / k2r); r.cam.pitch = (float)(std::asin(f.y) / k2r); r.cam.fov = (float)fov;
 }
@@ -227,9 +235,9 @@ void Game::drawGates(Renderer& r, bool shadow) {
     if (active) { em.emissive = 1.6f; r.drawMeshMat(gateCyl, mul(translation((float)cp.x, (float)y, (float)cp.z), scaling(0.45f, 260.0f, 0.45f)), em); }
   }
 }
-void Game::prepare(Gfx& g, const Frustum& f) { traffic.prepare(g, pose(), f, clock); }
+void Game::prepare(Gfx& g, const Frustum& f) { traffic.prepare(g, pose(), f, clock); peds.prepare(g, pose(), f, clock); }
 void Game::draw(Renderer& r, bool shadow, const Frustum& f) {
-  scenery.draw(r, shadow, f); city.draw(r, shadow, f, r.cam.pos); traffic.draw(r, shadow);
+  scenery.draw(r, shadow, f); city.draw(r, shadow, f, r.cam.pos); traffic.draw(r, shadow); peds.draw(r, shadow);
   if (inEscapeHud()) escape.draw(r, shadow, clock);
   if (carKind == 1) { bondState.braking = braking; bond.draw(r, car, alpha, bondState); } else model.draw(r, car, alpha, color, braking);
   drawGates(r, shadow);

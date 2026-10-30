@@ -3,19 +3,27 @@
 The same world as the web game, as a native Windows program: C++17, Direct3D 12 and HLSL shaders
 (compiled when the game starts, shader model 5.0, so any Direct3D 12 graphics card runs them).
 
-**Status: a vertical slice.** It has the whole 12 × 16 km world with its coast, snowy mountains, desert,
-canyon and grassland; the 43 km ring motorway and spokes (lane markings, median barriers, guardrails,
-bridges); a procedural city on the 25 × 25 road grid (glass towers downtown, mid-rise, low-rise and suburban
-houses, palms on the boulevards, all solid to the car); pines, palms, cacti and rocks; the car with the same
-four-wheel physics as the web game; cascaded shadows, ambient occlusion, bloom, haze and a golden-hour sky;
-and a gauge HUD.
-Not ported yet: the web game's detailed city (these buildings are simpler boxes with shader-drawn windows),
-traffic, the races, the bunkers and airfield buildings, grass tufts, the map screen, menus and sound.
+**What is in it now**
+
+- The whole 12 × 16 km world: coast, snowy mountains, desert, canyon, grassland, the 43 km ring motorway and its spokes.
+- A procedural city on the 25 × 25 road grid: glass towers with spandrel panels and mullions, punched-window offices with
+  pilasters, sills and cornices, shopfronts with awnings and sign bands, houses, roof equipment, neon blade signs, palms and
+  street trees, street lamps, parked cars along the kerbs (all solid), pedestrians on the pavements.
+- Wet streets: crosswalks, stop lines, worn lanes, kerbs and paving, puddles, and a real **planar reflection** of the city
+  (buildings, traffic, your car, the sky and the sun) in the road.
+- Traffic with signals (ported from the web game), motorway traffic, cars that get knocked about.
+- **Races**: fifteen routes with checkpoint gates, timer, medals and saved best times.
+- **Escape mode**: you drive a silver 1960s-style grand tourer with gadgets and the police chase you (see below).
+- Rendering: cascaded shadows, ambient occlusion, 4× MSAA HDR, bloom, depth of field, camera motion blur, haze,
+  golden-hour sky and clouds, particles (smoke, fire, sparks, tracers).
+
+Not ported from the web game: the bunkers and airfield buildings, grass tufts, the map screen, sound.
 
 ## Play
 
-Run `sunset.exe` (keep the `shaders` folder next to it). If you have no compiler installed, use the zip in
-[`prebuilt/`](prebuilt/), or the `SunsetCityNative-win64` artifact of the *native-windows* GitHub Action.
+Run `sunset.exe` (keep the `shaders` folder next to it), or `play_fullscreen.bat`. If you have no compiler installed, use the
+zip in [`prebuilt/`](prebuilt/), or the `SunsetCityNative-win64` artifact of the *native-windows* GitHub Action.
+The menu opens when the game starts: pick **Escape the police**, **Races** or **Free roam**.
 
 | | Keyboard | Gamepad (Xbox) |
 |---|---|---|
@@ -25,13 +33,25 @@ Run `sunset.exe` (keep the `shaders` folder next to it). If you have no compiler
 | Nitro | Shift or N | X |
 | Camera (wide chase, close chase, driver, hood) | C | Y |
 | Look round (hold) | right mouse button | right stick |
-| Gear down / up | Q / E | LB / RB |
-| Back on the road | R | Back |
+| Gear down / up (free roam and races) | Q / E | LB / RB |
+| Back on the road / restart | R | Back |
+| Menu | Esc or Tab | Start |
 | Fullscreen | F11 | |
-| Quit | Esc | |
+| Stats overlay (fps, GPU time, draw calls) | F3 | |
+| Vsync on/off, ambient occlusion, shadows | F4, F5, F6 | |
 
-If something goes wrong the game writes `sunset_native.log` next to where you started it, and shows the
-failing Direct3D call in a message box.
+**Escape mode gadgets** (the silver GT only): **F** or left mouse = machine guns (hold; they overheat), **G** = homing
+missile, **B** = bomb dropped behind you (explodes when a car drives close), **O** = oil slick, **X** = smoke screen
+(blocks the police's view), **V** = armour plate. On a pad: RB guns, B missile, LB bomb, D-pad up oil, down smoke, left armour.
+The police see you or they don't: break line of sight and stay hidden to lose them. More heat brings more cars and heavy
+pursuit trucks. You lose if you are wrecked or boxed in.
+
+If something goes wrong the game writes `sunset_native.log` next to where you started it (including where it crashed), and
+shows the failing Direct3D call in a message box. Best race times are saved in `sunset_native_saves.txt`.
+
+**For a 1440p high-refresh display:** the game presents uncapped with tearing allowed when the display supports it (press F4
+for vsync). Press F3 to see the real frame time and GPU time. If it is not fast enough, F5/F6 turn ambient occlusion and
+shadows off, and `--msaa 2` or `--msaa 1` lowers anti-aliasing.
 
 ## Build it
 
@@ -52,7 +72,10 @@ and runs under Wine (with vkd3d) for tests.
 ```
 sunset.exe --size 1920x1080 --msaa 4 --noao --noshadow
 sunset.exe --spawn coast|desert|alpine|south|city|runway   where to start (default coast)
+sunset.exe --escape | --race N | --model super|gt           start straight in a mode, or choose the car
+sunset.exe --fullscreen --vsync                             borderless fullscreen; wait for the display
 sunset.exe --shot out.bmp --drive 5 --cam chase|close|driver|hood|free      save a picture and exit
+sunset.exe --simulate 60 --escape                           run the game logic only, log what the police do
 sunset.exe --check-shaders                                  compile every shader and list errors
 ```
 
@@ -67,7 +90,10 @@ sunset.exe --check-shaders                                  compile every shader
 | `src/world.*` | the world: height, climate, motorway network, ground queries (a port of `src/world.js`, same numbers) |
 | `src/vehicle.*`, `collide.*` | car physics and collisions (a port of `vehicle.js`, same numbers) |
 | `src/city.*` | the buildings and boulevard palms, as instanced boxes whose facades are drawn in the shader |
-| `src/car.*`, `game.*`, `hud.*`, `main.cpp` | the car model, game loop and input, HUD, and the entry point |
+| `src/car.*`, `bond.*`, `shapes.*`, `vehicles.*` | the supercar, the gadget grand tourer, the modelling toolkit (design-curve body lofts, wire wheels), traffic and police vehicles |
+| `src/traffic.*`, `peds.*`, `fx.*` | traffic and parked cars, pedestrians, particles |
+| `src/events.*`, `escape.*` | the races, and the police chase with its weapons |
+| `src/game.*`, `hud.*`, `main.cpp` | the game state, menu and input, HUD, and the entry point |
 | `shaders/*.hlsl` | sky, terrain, water, meshes, shadows, post-processing, HUD |
 
 The world and the vehicle physics were checked against the JavaScript versions: heights, climate, road

@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
   if (checkShaders) {
     struct E { const char* f; const char* e; const char* p; std::vector<std::string> d; };
     const E list[] = { {"sky.hlsl","VSMain","vs_5_0",{}}, {"sky.hlsl","PSMain","ps_5_0",{}}, {"terrain.hlsl","VSMain","vs_5_0",{}}, {"terrain.hlsl","PSMain","ps_5_0",{}}, {"water.hlsl","VSMain","vs_5_0",{}}, {"water.hlsl","PSMain","ps_5_0",{}},
-      {"post.hlsl","VSFull","vs_5_0",{}}, {"post.hlsl","PSBloomFirst","ps_5_0",{}}, {"post.hlsl","PSBloomDown","ps_5_0",{}}, {"post.hlsl","PSBloomUp","ps_5_0",{}}, {"post.hlsl","PSComposite","ps_5_0",{}}, {"post.hlsl","PSAO","ps_5_0",{}}, {"post.hlsl","PSAOBlur","ps_5_0",{}},
+      {"post.hlsl","VSFull","vs_5_0",{}}, {"post.hlsl","PSBloomFirst","ps_5_0",{}}, {"post.hlsl","PSBloomDown","ps_5_0",{}}, {"post.hlsl","PSBloomUp","ps_5_0",{}}, {"post.hlsl","PSComposite","ps_5_0",{}}, {"post.hlsl","PSDof","ps_5_0",{}}, {"post.hlsl","PSAO","ps_5_0",{}}, {"post.hlsl","PSAOBlur","ps_5_0",{}},
       {"mesh.hlsl","VSMain","vs_5_0",{}}, {"mesh.hlsl","VSMain","vs_5_0",{"INSTANCED"}}, {"mesh.hlsl","PSMain","ps_5_0",{}}, {"shadow.hlsl","VSMain","vs_5_0",{}}, {"shadow.hlsl","VSInst","vs_5_0",{}}, {"shadow.hlsl","VSTerrain","vs_5_0",{}}, {"hud.hlsl","VSMain","vs_5_0",{}}, {"hud.hlsl","PSMain","ps_5_0",{}}, {"fx.hlsl","VSMain","vs_5_0",{}}, {"fx.hlsl","PSMain","ps_5_0",{}} };
     SetEnvironmentVariableA("SUNSET_NOFATAL", "1"); int bad = 0;
     for (auto& e : list) {
@@ -113,7 +113,9 @@ int main(int argc, char** argv) {
   if (simSeconds > 0) {   // the game logic only: scripted driving and weapons, with a log of what the police and the world do
     double t = 0; int tick = 0; const double DT = 1.0 / 60.0; PoliceChase& E = G.escape;
     while (t < simSeconds) {
-      InputState d; d.gas = t < 20 ? 0.5 : 1.0; d.brake = (t > 24 && t < 29) ? 1.0 : 0.0; if (d.brake > 0) d.gas = 0; d.steer = 0; d.nitro = t > 30;
+      InputState d; if (raceIdx >= 0) { if (G.state == State::Race && G.nextCp < (int)G.route.cps.size()) { const Checkpoint& cp = G.route.cps[G.nextCp]; double err = wrapAngle(std::atan2(cp.x - G.car.x, cp.z - G.car.z) - G.car.h); d.steer = clampd(-err * 2.5, -1, 1); d.gas = G.car.speed() < 28 ? 1.0 : 0.0; d.brake = G.car.speed() > 33 ? 1.0 : 0.0; }
+        G.update(R, DT, d); t += DT; tick++; if (tick % 240 == 0) logf("t=%5.1f state=%d gate %d/%zu raceT=%.1f car=(%.0f,%.0f) v=%.1f", t, (int)G.state, G.nextCp, G.route.cps.size(), G.raceT, G.car.x, G.car.z, G.car.speed()); if (G.state == State::Finished) { logf("race finished in %.2f s, medal %d (gold %.1f)", G.raceT, G.lastMedal, G.route.medals.gold); break; } continue; }
+      d.gas = t < 20 ? 0.5 : 1.0; d.brake = (t > 24 && t < 29) ? 1.0 : 0.0; if (d.brake > 0) d.gas = 0; d.steer = 0; d.nitro = t > 30;
       d.fire = (t > 3 && t < 6) || (t > 25 && t < 28); d.missile = (tick == 60 * 7) || (tick == 60 * 9); d.bomb = (tick == 60 * 11) || (tick == 60 * 26); d.oil = tick == 60 * 13; d.smoke = tick == 60 * 15; d.shield = tick == 60 * 17;
       G.update(R, DT, d); t += DT; tick++;
       if (tick % 240 == 0) { int alive = 0; double nearD = 1e9; for (auto& c : E.cops) if (!c.wreck) { alive++; nearD = std::min(nearD, std::hypot(c.x - G.car.x, c.z - G.car.z)); }

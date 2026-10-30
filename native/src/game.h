@@ -13,6 +13,7 @@
 #include "fx.h"
 #include "events.h"
 #include "escape.h"
+#include "peds.h"
 #include <map>
 #include <deque>
 
@@ -40,7 +41,7 @@ struct Toast { std::string text; double age = 0; };
 class Game {
 public:
   Vehicle car; CarModel model; BondModel bond; BondState bondState; int carKind = 0;   // 0 supercar, 1 the gadget grand tourer
-  Scenery scenery; City city; VehicleModels vmodels; Traffic traffic; Fx fx; PoliceChase escape; float color[3] = { 0.85f, 0.20f, 0.03f };
+  Scenery scenery; City city; VehicleModels vmodels; Traffic traffic; Peds peds; Fx fx; PoliceChase escape; float color[3] = { 0.85f, 0.20f, 0.03f };
   double clock = 0, trafficAcc = 0; int camMode = 0; bool freeCam = false; double camYaw = 0, orbit = 0, orbitPitch = 0; Vec3 camPos, camLookSmooth; bool camInit = false; double speedKmh = 0; bool braking = false;
   // Modes
   State state = State::Free, menuFrom = State::Free; bool quit = false, showStats = false;

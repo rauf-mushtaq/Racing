@@ -160,7 +160,7 @@ void PoliceChase::collidePlayer(Vehicle& car, const HitFn&) {
       double cv[2] = { cf[0] * c.speed + c.vx, cf[1] * c.speed + c.vz }; double j = applyImpulse(car, ox + nx * c.rad, oz + nz * c.rad, nx, nz, 0.25, 0.2, nullptr, 1 / mt, cv);
       if (j > 0) {
         double dv = j / car.s.mass; c.vx -= nx * j / mt; c.vz -= nz * j / mt; c.speed *= 0.75; c.spin += (rnd() - 0.5) * j / mt * 0.6; if (dv > 2) c.roll += (rnd() - 0.5) * 0.3;
-        double dmg = std::max(0.0, dv - 2.0) * 1.35 * (shieldT > 0 ? 0.2 : 1.0); health -= dmg; damageFlash = std::min(1.0, damageFlash + dmg * 0.04); shake = std::min(1.0, shake + dv * 0.025);
+        double dmg = std::max(0.0, dv - 3.0) * 0.9 * (shieldT > 0 ? 0.2 : 1.0); health -= dmg; damageFlash = std::min(1.0, damageFlash + dmg * 0.04); shake = std::min(1.0, shake + dv * 0.025);
         c.hp -= std::max(0.0, j / mt - 1.5) * 5.0 + std::max(0.0, j / car.s.mass - 1.5) * 1.0;
         Fx* none = nullptr; (void)none;
       }
@@ -168,7 +168,7 @@ void PoliceChase::collidePlayer(Vehicle& car, const HitFn&) {
   }
 }
 void PoliceChase::playerHit(double impulse, double mass) {
-  double dv = impulse / mass; if (dv < 4) return; double dmg = (dv - 4) * 1.1; health -= dmg; damageFlash = std::min(1.0, damageFlash + dmg * 0.03); shake = std::min(1.0, shake + dv * 0.02);
+  double dv = impulse / mass; if (dv < 6) return; double dmg = (dv - 6) * 0.55; health -= dmg; damageFlash = std::min(1.0, damageFlash + dmg * 0.03); shake = std::min(1.0, shake + dv * 0.02);
 }
 
 // --- Explosions and the guns ------------------------------------------------------------------------------------------------------------------

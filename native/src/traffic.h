@@ -7,6 +7,7 @@
 #include "vehicles.h"
 #include "city.h"
 #include "collide.h"
+#include <unordered_map>
 
 struct Pose { double x = 0, z = 0, h = 0; };
 
@@ -48,6 +49,9 @@ private:
   void assignType(TCar& c, double r);
   // Drawing
   struct TypeDraw { D3D12_VERTEX_BUFFER_VIEW paint{}, plain{}; UINT n = 0; };
+  struct Parked { float x, z, yaw; uint8_t type, color; };
+  std::unordered_map<int64_t, std::vector<Parked>> parked;    // cars standing along the kerbs, in 90 m cells
+  TypeDraw parkedDraw[TK_COUNT]; void initParked();
   TypeDraw drawList[TK_COUNT]; TypeDraw sigPole, sigLamp[3]; GpuMesh poleMesh, lampMesh[3]; Buffer dummy;
   void prepareSignals(Gfx& g, const Vec3& cam, double clock);
 };

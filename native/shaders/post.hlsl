@@ -38,6 +38,28 @@ float4 PSBloomUp(V i) : SV_Target {   // blended additively onto the next level 
 }
 float3 ACES(float3 x) { return saturate((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)); }
 float3 toSRGB(float3 c) { float3 lo = c * 12.92, hi = 1.055 * pow(max(c, 0.0), 1.0 / 2.4) - 0.055; return lerp(lo, hi, step(0.0031308, c)); }
+// Depth of field and camera motion blur in one pass: t0 = scene colour, t1 = view distance.
+// p0 = (focus distance in metres, depth-of-field strength, largest blur radius in pixels, shutter scale).
+float2 DiskOff(int k, int n) { float r = sqrt((k + 0.5) / n), a = k * 2.39996; return float2(cos(a), sin(a)) * r; }
+float CocAt(float z, float focus, float strength, float maxR) { float x = max(0.0, abs(1.0 / focus - 1.0 / max(z, 0.3)) - 0.045); return min(x * strength, maxR); }
+float4 PSDof(V i) : SV_Target {
+  float2 uv = i.uv, tx = gScreen.zw; int2 pix = int2(uv * gScreen.xy);
+  float z = gTex1.Load(int3(clamp(pix, 0, int2(gScreen.xy) - 1), 0)).r;
+  float4 w4 = mul(gInvViewProj, float4(uv * float2(2, -2) + float2(-1, 1), 0.5, 1.0)); float3 rd = normalize(w4.xyz / w4.w - gCamPos.xyz);
+  float3 wp = gCamPos.xyz + rd * min(z, 20000.0);
+  float4 pc = mul(gPrevVP, float4(wp, 1.0)); float2 prev = pc.xy / pc.w * float2(0.5, -0.5) + 0.5;
+  float2 vel = (uv - prev) * gP0.w; float vl = length(vel); if (vl > 0.035) vel *= 0.035 / vl;
+  float coc = CocAt(z, gP0.x, gP0.y, gP0.z);
+  if (coc < 0.5 && vl < 0.0007) return gTex0.SampleLevel(sLinearClamp, uv, 0);
+  float3 acc = gTex0.SampleLevel(sLinearClamp, uv, 0).rgb; float wsum = 1.0;
+  [unroll] for (int k = 0; k < 14; k++) {
+    float t = (k + 0.5) / 14.0 - 0.5; float2 off = vel * t + DiskOff(k, 14) * coc * tx;
+    float2 suv = uv + off; float sz = gTex1.SampleLevel(sLinearClamp, suv, 0).r, sc = CocAt(sz, gP0.x, gP0.y, gP0.z);
+    float wgt = (sz >= z - 1.0) ? 1.0 : saturate(sc / max(coc, 0.5));            // a sharp foreground doesn't smear over what is behind it
+    acc += gTex0.SampleLevel(sLinearClamp, suv, 0).rgb * wgt; wsum += wgt;
+  }
+  return float4(acc / wsum, 1.0);
+}
 float4 PSComposite(V i) : SV_Target {
   float2 uv = i.uv, tx = gScreen.zw;
   float2 dir = uv - 0.5; float d = length(dir);

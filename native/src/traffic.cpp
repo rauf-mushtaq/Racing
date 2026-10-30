@@ -5,12 +5,30 @@ static const float PALETTE[12][3] = { {0.91f, 0.91f, 0.91f}, {0.067f, 0.07f, 0.0
 static const int COUNTS[4] = { 0, 30, 56, 96 };
 
 void Traffic::init(Gfx& g, const VehicleModels& vm) {
-  models = &vm;
+  models = &vm; initParked();
   // Traffic signal: a pole with an arm, a head hanging at its end and three lamps on the head's -z face (see the layout in prepareSignals).
   MeshData p; uint32_t k = vcol(0.16f, 0.17f, 0.18f);
   p.cylinder(Vec3(0, 0, 0), Vec3(0, 5.6f, 0), 0.11f, 0.08f, 8, k); p.box(Vec3(0, 5.5f, -0.05f), Vec3(3.4f, 5.62f, 0.05f), k); p.box(Vec3(3.0f, 4.65f, -0.17f), Vec3(3.4f, 5.75f, 0.17f), vcol(0.05f, 0.05f, 0.055f));
   p.box(Vec3(2.95f, 5.45f, -0.22f), Vec3(3.45f, 5.78f, -0.15f), vcol(0.05f, 0.05f, 0.055f)); poleMesh = uploadMesh(g, p);
   for (int i = 0; i < 3; i++) { MeshData l; float y = 5.45f - i * 0.36f; l.box(Vec3(3.07f, y - 0.14f, -0.22f), Vec3(3.33f, y + 0.14f, -0.17f), vcol(1, 1, 1)); lampMesh[i] = uploadMesh(g, l); }
+}
+void Traffic::initParked() {
+  const double CELL = 90.0; auto key = [&](double x, double z) { return (int64_t)(std::floor(x / CELL) + 1000) * 4096 + (int64_t)(std::floor(z / CELL) + 1000); };
+  std::unordered_map<int64_t, std::vector<Circle>> cols; size_t total = 0;
+  for (int axis = 0; axis < 2; axis++) for (int k = -N; k <= N; k++) for (int side = -1; side <= 1; side += 2) {
+    double off = side * (hw(k) - 1.05); int seedBase = k * 131 + side * 17 + axis * 977;
+    for (double t = -CITY_EDGE + 40, slot = 0; t < CITY_EDGE - 40; slot++) {
+      double step = 6.3 + 1.2 * hash3(seedBase, (int)slot, 1); t += step; int j = (int)std::lround(t / SP); if (std::fabs(t - j * SP) < hw(j) + 8.5) continue;
+      if (hash3(seedBase, (int)slot, 2) > (isBlvd(k) ? 0.35 : 0.6)) continue;
+      double r = hash3(seedBase, (int)slot, 3); int type = r < 0.35 ? TK_SALOON : r < 0.6 ? TK_SUV : r < 0.85 ? TK_HATCH : TK_PICKUP;
+      double x = axis == 0 ? k * SP + off + (hash3(seedBase, (int)slot, 4) - 0.5) * 0.25 : t, z = axis == 0 ? t : k * SP + off + (hash3(seedBase, (int)slot, 4) - 0.5) * 0.25;
+      double yaw = (axis == 0 ? (side > 0 ? PI : 0.0) : (side > 0 ? PI / 2 : -PI / 2)) + (hash3(seedBase, (int)slot, 5) - 0.5) * 0.06;
+      Parked p = { (float)x, (float)z, (float)yaw, (uint8_t)type, (uint8_t)(hash3(seedBase, (int)slot, 6) * 11.99) }; int64_t kk = key(x, z); parked[kk].push_back(p); total++;
+      const CarMesh& m = models->traffic[type]; double fx = std::sin(yaw), fz = std::cos(yaw); for (double o : { -m.len * 0.28, m.len * 0.28 }) cols[(int64_t)(std::floor(x / 360.0) + 100) * 1000 + (int64_t)(std::floor(z / 360.0) + 100)].push_back({ (float)(x + fx * o), (float)(z + fz * o), (float)m.rad });
+    }
+  }
+  for (auto& [kk, v] : cols) addColliders(8000000 + kk, v);
+  logf("parked cars: %zu", total);
 }
 void Traffic::assignType(TCar& c, double r) {
   int t = r < 0.07 ? TK_TRUCK : r < 0.1 ? TK_BUS : r < 0.2 ? TK_PICKUP : (int)(rnd() * 3); c.type = t; const CarMesh& m = models->traffic[t]; c.len = m.len; c.mass = m.mass; c.rad = m.rad;
@@ -160,6 +178,13 @@ void Traffic::prepare(Gfx& g, const Pose& player, const Frustum& f, double clock
     TypeDraw& t = drawList[i]; t.n = (UINT)lists[i].paint.size(); if (!t.n) continue;
     t.paint = g.dynVB(lists[i].paint.data(), t.n * (UINT)sizeof(InstanceData), sizeof(InstanceData)); t.plain = g.dynVB(lists[i].plain.data(), t.n * (UINT)sizeof(InstanceData), sizeof(InstanceData));
   }
+  { // Parked cars: the cells within 250 m, the ones in view.
+    const double CELL = 90.0; struct PL { std::vector<InstanceData> v; } pl[TK_COUNT]; int cx0 = (int)std::floor((player.x - 250) / CELL), cx1 = (int)std::floor((player.x + 250) / CELL), cz0 = (int)std::floor((player.z - 250) / CELL), cz1 = (int)std::floor((player.z + 250) / CELL);
+    for (int cz = cz0; cz <= cz1; cz++) for (int cx = cx0; cx <= cx1; cx++) { auto it = parked.find((int64_t)(cx + 1000) * 4096 + (cz + 1000)); if (it == parked.end()) continue;
+      for (const Parked& p : it->second) { double dx = p.x - player.x, dz = p.z - player.z; if (dx * dx + dz * dz > 250.0 * 250.0) continue; if (dx * dx + dz * dz > 30 * 30 && !f.sphereVisible(p.x, 1.0f, p.z, 4.0f)) continue;
+        const float* c = PALETTE[p.color]; pl[p.type].v.push_back({ p.x, 0.0f, p.z, 1.0f, p.yaw, packColor(c[0] * 0.5f, c[1] * 0.5f, c[2] * 0.5f), 0, 0 }); } }
+    for (int i = 0; i < TK_COUNT; i++) { TypeDraw& t = parkedDraw[i]; t.n = (UINT)pl[i].v.size(); if (t.n) t.paint = g.dynVB(pl[i].v.data(), t.n * (UINT)sizeof(InstanceData), sizeof(InstanceData)); }
+  }
   prepareSignals(g, Vec3((float)player.x, 0, (float)player.z), clock);
 }
 void Traffic::prepareSignals(Gfx& g, const Vec3& cam, double clock) {
@@ -184,6 +209,7 @@ void Traffic::draw(Renderer& r, bool shadow) {
     r.drawMeshInst(m.body, paint, t.paint, t.n);
     if (!shadow) { r.drawMeshInst(m.head, head, t.plain, t.n); r.drawMeshInst(m.tail, tail, t.plain, t.n); }
   }
+  for (int i = 0; i < TK_COUNT; i++) { const TypeDraw& t = parkedDraw[i]; if (t.n) r.drawMeshInst(models->traffic[i].body, paint, t.paint, t.n); }
   if (sigPole.n) {
     Material metal; metal.type = 0; metal.rough = 0.5f; metal.metal = 0.5f; r.drawMeshInst(poleMesh, metal, sigPole.paint, sigPole.n);
     if (!shadow) { Material lamp; lamp.type = 4; lamp.emissive = 5.0f; for (int w = 0; w < 3; w++) r.drawMeshInst(lampMesh[w], lamp, sigLamp[w].paint, sigPole.n); }

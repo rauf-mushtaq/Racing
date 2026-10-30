@@ -4,7 +4,7 @@ An open-world street racer made with Three.js. Drive a V12 supercar through a Ca
 
 ## Native version (C++ and HLSL)
 
-A native Windows version of this game, written in C++ with Direct3D 12 and HLSL shaders, is in [`native/`](native/) (a vertical slice: the world, roads, car, physics, shadows, city and HUD; see its README). The web version below stays as it is until the native one has caught up and been tested on real hardware.
+A native Windows version of this game, written in C++ with Direct3D 12 and HLSL shaders, is in [`native/`](native/): the world, a detailed wet city with reflections, traffic, pedestrians, races, and an escape-the-police mode with a gadget car (see its README). It has more than the web version in some ways (the police mode, reflections) and less in others (bunkers, map, sound). The web version below stays as it is until the native one has been tested on real hardware.
 
 ## Play
 

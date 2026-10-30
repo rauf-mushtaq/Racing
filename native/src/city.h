@@ -30,6 +30,6 @@ public:
   void draw(Renderer& r, bool shadow, const Frustum& f, const Vec3& cam);
   int buildings = 0;
 private:
-  struct Chunk { Buffer boxes, palms; UINT nBoxes = 0, nPalms = 0; float x0, z0, x1, z1, maxY; };
-  std::vector<Chunk> chunks; GpuMesh cube; PropSet props;
+  struct Chunk { Buffer boxes, palms, roofs, signs, lamps, trees; UINT nBoxes = 0, nPalms = 0, nRoofs = 0, nSigns = 0, nLamps = 0, nTrees = 0; float x0, z0, x1, z1, maxY; };
+  std::vector<Chunk> chunks; GpuMesh cube, lampPole, lampHead; PropSet props;
 };

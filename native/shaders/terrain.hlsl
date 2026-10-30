@@ -2,32 +2,83 @@
 // The land: grass, sand, snow, dry lakebed and rock blended from the biome weights stored in
 // the vertices, with all the texture detail made procedurally here, so it is as sharp as the
 // screen (no texture to run out of pixels). Inside the city square it draws paved ground.
+Texture2D gRefl : register(t1);                      // the mirrored city, drawn by the reflection pass (half resolution)
 struct VIn { float3 pos : POSITION; float3 nrm : NORMAL; float4 biome : COLOR0; };
 struct V { float4 pos : SV_Position; float3 wpos : TEXCOORD0; float3 nrm : TEXCOORD1; float4 biome : TEXCOORD2; float dist : TEXCOORD3; };
 V VSMain(VIn i) {
   V o; o.wpos = i.pos; o.nrm = i.nrm; o.biome = i.biome; o.pos = mul(gViewProj, float4(i.pos, 1.0)); o.dist = length(i.pos - gCamPos.xyz); return o;
 }
 static const float CITY_EDGE = 2176.0;
-float3 CityGround(float2 p, float fp, out float rough) {
-  float2 k = round(p / 180.0), d = abs(p - k * 180.0);
-  float2 hw = float2((fmod(abs(k.x), 4.0) < 0.5) ? 16.0 : 9.0, (fmod(abs(k.y), 4.0) < 0.5) ? 16.0 : 9.0);
-  float g = fbmAA(p, fp, 3.0), g2 = fbmAA(p + 7.0, fp, 11.0);
-  rough = 0.62;
-  bool onAveX = d.x < hw.x, onAveZ = d.y < hw.y;
-  if (onAveX || onAveZ) {
-    float3 asph = float3(0.085, 0.085, 0.09) * (0.8 + 0.4 * g) * (0.9 + 0.2 * g2);
-    // Lane lines: dashed white centre lines and solid edge lines.
-    float lw = max(0.07, fp * 0.8);
-    float2 across = onAveX && !onAveZ ? float2(d.x, p.y) : float2(d.y, p.x);
-    float dash = step(0.5, frac(across.y / 12.0));
-    float centre = (1.0 - smoothstep(lw, lw * 2.0, abs(across.x))) * dash;
-    float edge = 1.0 - smoothstep(lw, lw * 2.0, abs(abs(across.x) - (onAveX && !onAveZ ? hw.x : hw.y) + 0.5));
-    bool crossing = onAveX && onAveZ;
-    float mark = crossing ? 0.0 : saturate(centre * 0.9 + edge * 0.8);
-    return lerp(asph, float3(0.7, 0.68, 0.62), mark);
+float RoadHW(float k) { return (fmod(abs(k), 4.0) < 0.5) ? 16.0 : 9.0; }
+float RoadMedian(float k) { return (fmod(abs(k), 4.0) < 0.5) ? 2.5 : 0.0; }
+float RoadLane(float k) { return (fmod(abs(k), 4.0) < 0.5) ? 4.0 : 3.8; }
+float Line(float x, float c, float w, float fp) { return 1.0 - smoothstep(w, w + max(fp * 1.2, 0.02), abs(x - c)); }
+// The paved ground of the city: asphalt with worn lanes, markings, crosswalks, stop lines and a median; curbs and paving slabs;
+// bare lots between the buildings. hgt is a relief height for the bump (the curb step), reflK how mirror-like the surface is when wet.
+float3 CityGround(float2 p, float fp, out float rough, out float hgt, out float reflK) {
+  float2 k = round(p / 180.0), rel = p - k * 180.0, d = abs(rel);
+  float2 hw = float2(RoadHW(k.x), RoadHW(k.y));
+  float g = fbmAA(p, fp, 3.0), g2 = fbmAA(p + 7.0, fp, 11.0), g3 = fbmAA(p * 0.5 + 3.0, fp, 0.3), wet = gWeather.x;
+  float far = smoothstep(0.05, 0.6, fp);                                  // fine detail fades as it drops below a pixel
+  rough = 0.8; hgt = 0.0; reflK = 0.0;
+  bool onZR = d.x < hw.x, onXR = d.y < hw.y;                               // on the north-south road, on the east-west road
+  if (onZR || onXR) {
+    bool junction = onZR && onXR;
+    float a = onZR ? rel.x : rel.y, along = onZR ? rel.y : rel.x, hwr = onZR ? hw.x : hw.y, crossHW = onZR ? hw.y : hw.x, mh = RoadMedian(onZR ? k.x : k.y), lw = RoadLane(onZR ? k.x : k.y);
+    if (junction) { a = 0.0; hwr = 16.0; mh = 0.0; lw = 4.0; }
+    float aa = abs(a);
+    float wear = 0.9 + 0.2 * g2;
+    float3 asph = float3(0.10, 0.10, 0.105) * (0.86 + 0.28 * g) * wear * (0.9 + 0.2 * g3);
+    // Tyre tracks and oil in the middle of each lane; patches and cracks.
+    float t = frac((aa - mh) / lw), trk = exp(-pow((abs(t - 0.5) - 0.2) / 0.075, 2.0)), oil = exp(-pow((t - 0.5) / 0.1, 2.0)) * smoothstep(0.55, 0.75, fbmAA(p, fp, 0.35));
+    if (junction) { trk = 0.0; oil = 0.0; }
+    asph *= 1.0 - 0.16 * trk * (1.0 - far) - 0.22 * oil * (1.0 - far);
+    float crk = (1.0 - smoothstep(0.0, 0.016, abs(fbmAA(p, fp, 0.45) - 0.5))) * (1.0 - far) * 0.55; asph *= 1.0 - crk * 0.6;
+    float patch = step(0.62, hash12(floor(p / float2(7.0, 4.0)) + 31.0)) * (1.0 - far); asph *= 1.0 - 0.1 * patch;
+    float white = 0.0, yellow = 0.0, conc = 0.0;
+    if (!junction) {
+      float dash = step(0.55, frac(along / 11.0));
+      if (mh > 0.0) {                                                      // boulevard: raised median, dashed lane lines, solid edge lines
+        yellow += Line(aa, mh + 0.2, 0.07, fp);
+        white += Line(aa, mh + lw, 0.065, fp) * (1.0 - dash) + Line(aa, mh + 2.0 * lw, 0.065, fp) * (1.0 - dash);
+        conc = 1.0 - smoothstep(mh - 0.05, mh + 0.05, aa);
+      } else { yellow += Line(aa, 0.14, 0.055, fp) + Line(aa, -0.0, 0.0, fp); }   // side street: a solid yellow double line
+      white += Line(aa, hwr - 0.45, 0.075, fp);
+      // Crosswalks and stop lines either side of each junction.
+      float ad = abs(onZR ? rel.y : rel.x) - crossHW, crossRel = onZR ? rel.y : rel.x;
+      float cwz = smoothstep(0.9, 1.2, ad) * (1.0 - smoothstep(4.2, 4.5, ad)), zebra = step(frac(aa * 0.9), 0.5) * step(mh + 0.35, aa) * step(aa, hwr - 0.9);
+      white += cwz * zebra;
+      bool rightLane = onZR ? (a * crossRel > 0.0) : (a * crossRel < 0.0);
+      white += Line(ad, 5.6, 0.22, fp) * (rightLane ? 1.0 : 0.0) * step(mh + 0.2, aa) * step(aa, hwr - 0.7);
+    }
+    float wm = 0.72 * (0.8 + 0.2 * g2) * (1.0 - 0.35 * crk);
+    float3 col = lerp(asph, float3(0.74, 0.73, 0.69) * wm, saturate(white));
+    col = lerp(col, float3(0.82, 0.60, 0.10) * wm, saturate(yellow));
+    // The gutter, and the raised concrete median.
+    float gut = smoothstep(hwr - 0.9, hwr - 0.1, aa); col *= 1.0 - 0.35 * gut;
+    float3 median = lerp(float3(0.46, 0.44, 0.40), float3(0.22, 0.30, 0.12), smoothstep(0.45, 0.62, fbmAA(p, fp, 0.9))) * (0.85 + 0.3 * g);
+    col = lerp(col, median, conc * (junction ? 0.0 : 1.0)); hgt = 0.0;
+    rough = lerp(0.52 + 0.22 * g2 - 0.1 * trk, 0.85, conc);
+    float puddle = smoothstep(0.52, 0.66, fbmAA(p, fp, 0.13)) * wet;
+    float wetK = saturate(wet * 0.8 + puddle);
+    col *= 1.0 - wetK * 0.45 * (1.0 - 0.5 * saturate(white + yellow)); rough = lerp(rough, 0.05, wetK * 0.92); reflK = (1.0 - conc) * wetK;
+    return col;
   }
-  rough = 0.85;
-  return float3(0.36, 0.34, 0.31) * (0.8 + 0.4 * g) * (0.9 + 0.2 * g2);   // pavement and the ground the blocks stand on
+  // Off the roads: curb stone, paving slabs, then the lots the buildings stand on.
+  float s = min(d.x - hw.x, d.y - hw.y);
+  float puddle = smoothstep(0.55, 0.7, fbmAA(p, fp, 0.2)) * wet;
+  if (s < 0.2) { rough = 0.7; hgt = 0.0; reflK = wet * 0.1; return float3(0.60, 0.59, 0.56) * (0.9 + 0.2 * g2); }
+  if (s < 5.2) {
+    float2 q = frac(p / 1.6); float jd = min(min(q.x, 1.0 - q.x), min(q.y, 1.0 - q.y)) * 1.6, joint = (1.0 - smoothstep(0.012, 0.012 + fp * 1.2 + 0.01, jd)) * (1.0 - far);
+    float tile = hash12(floor(p / 1.6) + 17.0);
+    float3 slab = float3(0.55, 0.53, 0.50) * (0.84 + 0.3 * g) * (0.93 + 0.14 * tile) * (0.92 + 0.16 * g2);
+    slab *= 1.0 - 0.28 * joint; slab *= 1.0 - 0.18 * smoothstep(0.6, 0.0, s - 0.2);        // grime along the curb
+    slab *= 1.0 - wet * 0.3; rough = lerp(0.82, 0.22, wet * 0.8 * (0.5 + 0.5 * puddle)); hgt = 0.0; reflK = wet * 0.28 * (0.4 + puddle);
+    return slab;
+  }
+  hgt = 0.0; float lot = fbmAA(floor(p / 60.0) * 0.37, 1.0, 1.0); float grassy = smoothstep(0.5, 0.62, lot);
+  float3 concrete = float3(0.40, 0.38, 0.34) * (0.8 + 0.4 * g) * (0.9 + 0.2 * g2), lawn = lerp(float3(0.17, 0.27, 0.08), float3(0.30, 0.30, 0.12), g2) * (0.7 + 0.6 * g);
+  rough = lerp(0.85, 0.95, grassy); reflK = 0.0; return lerp(concrete, lawn, grassy);
 }
 PSOut PSMain(V i) {
   float3 wp = i.wpos; float dist = length(wp - gCamPos.xyz);
@@ -61,7 +112,8 @@ PSOut PSMain(V i) {
   rough = lerp(rough, 0.9, rockW);
   float sheen = 0.35 + bw.z * 1.0 + bw.w * 0.6;
   float hgt = (fine * 0.5 + grit * 0.35 + rip * bw.y * 0.6 + rk * rockW * 2.0) * 0.05;
-  if (max(abs(p.x), abs(p.y)) < CITY_EDGE) { float cr; alb = CityGround(p, fp, cr); rough = cr; sheen = 0.5; hgt = grit * 0.01; }
+  float reflK = 0.0;
+  if (max(abs(p.x), abs(p.y)) < CITY_EDGE) { float cr, ch; alb = CityGround(p, fp, cr, ch, reflK); rough = cr; sheen = lerp(0.5, 1.6, saturate(reflK * 1.2)); hgt = ch; }
   // Fine relief near the camera, caught by the low sun (bump from screen-space derivatives, bounded and guarded).
   float nearF = 1.0 - smoothstep(35.0, 120.0, dist);
   float3 dpx = ddx(wp), dpy = ddy(wp);
@@ -78,6 +130,15 @@ PSOut PSMain(V i) {
   float ndl = saturate(dot(n, gSunDir.xyz));
   float3 col = alb * (gSunColor.rgb * ndl * sh + AmbientSky(n));
   col += SpecularLight(n, v, float3(0.04, 0.04, 0.04), rough, sh) * sheen;
+  if (reflK > 0.01 && gWeather.y > 0.0) {                       // wet ground mirrors the city: the reflection pass seen through this pixel, blurred by roughness, fading with Fresnel
+    float2 suv = i.pos.xy * gScreen.zw; float2 off = (float2(vnoise(p * 1.7), vnoise(p * 1.7 + 9.0)) - 0.5) * 0.0016 * (0.3 + rough * 3.0);
+    float rad = (1.5 + rough * 22.0) * gScreen.z * 2.0; float3 r = 0.0;
+    r += gRefl.SampleLevel(sLinearClamp, suv + off, 0).rgb * 0.4;
+    r += gRefl.SampleLevel(sLinearClamp, suv + off + float2(rad, rad * 0.5), 0).rgb * 0.15 + gRefl.SampleLevel(sLinearClamp, suv + off + float2(-rad, rad * 0.5), 0).rgb * 0.15;
+    r += gRefl.SampleLevel(sLinearClamp, suv + off + float2(rad * 0.5, -rad), 0).rgb * 0.15 + gRefl.SampleLevel(sLinearClamp, suv + off + float2(-rad * 0.5, -rad), 0).rgb * 0.15;
+    float nv = saturate(dot(n, v)), Fr = 0.04 + 0.96 * pow(1.0 - nv, 5.0), w = saturate(reflK * (0.25 + 1.1 * Fr));
+    col = lerp(col, r * (0.55 + 0.45 * Fr), w);
+  }
   col = ApplyFog(col, wp);
   return Out(col, dist);
 }

@@ -35,11 +35,16 @@ void Renderer::init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& qu
   psoBloomFirst = post("PSBloomFirst", DXGI_FORMAT_R16G16B16A16_FLOAT, false); psoBloomDown = post("PSBloomDown", DXGI_FORMAT_R16G16B16A16_FLOAT, false);
   psoBloomUp = post("PSBloomUp", DXGI_FORMAT_R16G16B16A16_FLOAT, true);
   psoAO = post("PSAO", DXGI_FORMAT_R8_UNORM, false); psoAOBlur = post("PSAOBlur", DXGI_FORMAT_R8_UNORM, false);
-  psoComposite = post("PSComposite", ldrFormat, false);
+  psoComposite = post("PSComposite", ldrFormat, false); psoDof = post("PSDof", DXGI_FORMAT_R16G16B16A16_FLOAT, false);
   for (int inst = 0; inst < 2; inst++) for (int two = 0; two < 2; two++) {
     PsoDesc d; d.file = "mesh.hlsl"; d.numRT = 2; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = S; d.layout = inst ? instancedLayout() : meshLayout(); if (inst) d.defines = { "INSTANCED" };
     d.cull = two ? D3D12_CULL_MODE_NONE : D3D12_CULL_MODE_BACK; psoMesh[inst][two] = gfx.makePso(d);
   }
+  for (int inst = 0; inst < 2; inst++) for (int two = 0; two < 2; two++) {   // the reflection pass: one sample, and the winding is mirrored so front faces are culled instead of back
+    PsoDesc d; d.file = "mesh.hlsl"; d.numRT = 2; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = 1; d.layout = inst ? instancedLayout() : meshLayout(); if (inst) d.defines = { "INSTANCED" };
+    d.cull = two ? D3D12_CULL_MODE_NONE : D3D12_CULL_MODE_FRONT; psoMeshR[inst][two] = gfx.makePso(d);
+  }
+  { PsoDesc d; d.file = "sky.hlsl"; d.numRT = 2; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = 1; d.depthWrite = false; d.cull = D3D12_CULL_MODE_NONE; psoSkyR = gfx.makePso(d); }
   auto shadowPso = [&](const char* entry, std::vector<D3D12_INPUT_ELEMENT_DESC> layout) {
     PsoDesc d; d.file = "shadow.hlsl"; d.vsEntry = entry; d.psEntry = nullptr; d.numRT = 0; d.dsv = DXGI_FORMAT_D32_FLOAT; d.samples = 1; d.layout = layout; d.depthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
     d.cull = D3D12_CULL_MODE_NONE; d.depthBias = 1200; d.slopeBias = 2.5f; return gfx.makePso(d);
@@ -55,10 +60,13 @@ void Renderer::init(HWND hwnd, UINT w, UINT h, bool offscreen, const Quality& qu
 
 void Renderer::createTargets() {
   UINT w = W, h = H, S = (UINT)q.msaa;
-  for (Texture* t : { &msColor, &msViewDepth, &msDepth, &color, &viewDepth, &aoRaw, &aoBlur, &ldr }) gfx.releaseTexture(*t);
+  for (Texture* t : { &dofTex, &reflColor, &reflVD, &reflDepth, &msColor, &msViewDepth, &msDepth, &color, &viewDepth, &aoRaw, &aoBlur, &ldr }) gfx.releaseTexture(*t);
   for (auto& b : bloom) gfx.releaseTexture(b);
   gfx.srvRewind(staticSrv);
   float c0[4] = { 0, 0, 0, 0 }, cFar[4] = { 1e6f, 0, 0, 0 }, zero = 0.0f;
+  { UINT rw = std::max(2u, w / 2), rh = std::max(2u, h / 2);                                  // the planar reflection of the city, at half resolution
+    reflColor = gfx.makeTexture(rw, rh, DXGI_FORMAT_R16G16B16A16_FLOAT, 1, true, false, 1, 1, c0); reflVD = gfx.makeTexture(rw, rh, DXGI_FORMAT_R32_FLOAT, 1, true, false, 1, 1, cFar);
+    reflDepth = gfx.makeTexture(rw, rh, DXGI_FORMAT_D32_FLOAT, 1, false, true, 1, 1, &zero, false); gfx.srv2D(mainBlock + 1, reflColor.res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); }
   msColor = gfx.makeTexture(w, h, DXGI_FORMAT_R16G16B16A16_FLOAT, S, true, false, 1, 1, c0);
   msViewDepth = gfx.makeTexture(w, h, DXGI_FORMAT_R32_FLOAT, S, true, false, 1, 1, cFar);
   msDepth = gfx.makeTexture(w, h, DXGI_FORMAT_D32_FLOAT, S, false, true, 1, 1, &zero, false);
@@ -74,6 +82,9 @@ void Renderer::createTargets() {
   blkAO = blkDepth;
   blkAOBlur = block(); gfx.srv2D(blkAOBlur, sceneDepth->res.Get(), DXGI_FORMAT_R32_FLOAT); gfx.srv2D(blkAOBlur + 1, aoRaw.res.Get(), DXGI_FORMAT_R8_UNORM);
   for (int i = 0; i < nBloom; i++) { blkBloom[i] = block(); gfx.srv2D(blkBloom[i], bloom[i].res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); }
+  dofTex = gfx.makeTexture(w, h, DXGI_FORMAT_R16G16B16A16_FLOAT, 1, true, false, 1, 1, c0);
+  blkDof = block(); gfx.srv2D(blkDof, sceneColor->res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); gfx.srv2D(blkDof + 1, sceneDepth->res.Get(), DXGI_FORMAT_R32_FLOAT);
+  blkCompositeDof = block(); gfx.srv2D(blkCompositeDof, dofTex.res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); gfx.srv2D(blkCompositeDof + 1, bloom[0].res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); gfx.srv2D(blkCompositeDof + 2, aoBlur.res.Get(), DXGI_FORMAT_R8_UNORM);
   blkComposite = block(); gfx.srv2D(blkComposite, sceneColor->res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); gfx.srv2D(blkComposite + 1, bloom[0].res.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT); gfx.srv2D(blkComposite + 2, aoBlur.res.Get(), DXGI_FORMAT_R8_UNORM);
 }
 
@@ -94,14 +105,13 @@ void Renderer::fullscreen(Texture& target, ID3D12PipelineState* pso, UINT srvBlo
 }
 
 void Renderer::frame(float dt) {
-  (void)dt;
   gfx.beginFrame(); gfx.gpuStamp(false);
   // --- Camera and frame constants -----------------------------------------------------------------
   float yaw = cam.yaw * (float)PI / 180.0f, pitch = cam.pitch * (float)PI / 180.0f;
   forward = Vec3(std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch));
   view = lookAt(cam.pos, cam.pos + forward, Vec3(0, 1, 0));
   proj = perspectiveRZ(cam.fov * (float)PI / 180.0f, (float)W / (float)H, 0.1f, 30000.0f);
-  viewProj = mul(proj, view); frustum = makeFrustum(viewProj);
+  viewProj = mul(proj, view); frustum = makeFrustum(viewProj); if (!havePrev) { prevViewProj = viewProj; havePrev = true; }
   terrain.update(gfx, cam.pos); if (onBeginFrame) onBeginFrame(gfx, cam.pos);
   FrameCB f = {}; f.viewProj = viewProj; f.view = view;
   { // inverse of the view-projection (needed to turn pixels back into rays)
@@ -113,6 +123,7 @@ void Renderer::frame(float dt) {
     ip.m[0][0] = aspect * t; ip.m[1][1] = t; ip.m[2][3] = -1; ip.m[3][2] = (zf - zn) / (zf * zn); ip.m[3][3] = 1.0f / zf;
     f.invViewProj = mul(iv, ip);
   }
+  f.weather[0] = q.reflections ? wet : 0.0f; f.weather[1] = 1.0f; f.prevViewProj = prevViewProj;
   f.camPos[0] = cam.pos.x; f.camPos[1] = cam.pos.y; f.camPos[2] = cam.pos.z; f.camPos[3] = (float)time;
   f.sunDir[0] = SUN.x; f.sunDir[1] = SUN.y; f.sunDir[2] = SUN.z; f.sunDir[3] = exposure;
   const float k = 4.8f / 3.14159f; f.sunColor[0] = 1.0f * k; f.sunColor[1] = 0.552f * k; f.sunColor[2] = 0.262f * k;
@@ -130,6 +141,7 @@ void Renderer::frame(float dt) {
 
   // --- Shadows -----------------------------------------------------------------------------------------
   if (q.shadows) shadowPass(f);
+  reflectionPass(f);
 
   // --- The scene ----------------------------------------------------------------------------------------
   gfx.barrier(msColor, D3D12_RESOURCE_STATE_RENDER_TARGET); gfx.barrier(msViewDepth, D3D12_RESOURCE_STATE_RENDER_TARGET); gfx.barrier(msDepth, D3D12_RESOURCE_STATE_DEPTH_WRITE);
@@ -179,7 +191,11 @@ void Renderer::frame(float dt) {
     gfx.barrier(bloom[0], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
   }
   // --- Composite -----------------------------------------------------------------------------------------------------------------
-  { float p[4] = { 0, 0, 0, 0 }; fullscreen(ldr, psoComposite.Get(), blkComposite, p, W, H); }
+  if (q.dof) {   // depth of field and camera motion blur, then the composite reads the blurred picture
+    float shutter = clampf(0.5f * (1.0f / 60.0f) / std::max(dt, 1.0f / 400.0f), 0.12f, 1.2f), maxR = 5.0f * (float)H / 1080.0f, strength = 30.0f * (float)H / 1080.0f;
+    float p[4] = { focusDist, strength, maxR, shutter }; fullscreen(dofTex, psoDof.Get(), blkDof, p, W, H); gfx.barrier(dofTex, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    float p2[4] = { 0, 0, 0, 0 }; fullscreen(ldr, psoComposite.Get(), blkCompositeDof, p2, W, H);
+  } else { float p[4] = { 0, 0, 0, 0 }; fullscreen(ldr, psoComposite.Get(), blkComposite, p, W, H); }
   if (drawHud) drawHud(gfx, ldr);
   // --- To the screen (and perhaps a file) ---------------------------------------------------------------------------------------
   bool shot = !shotPath.empty();
@@ -202,7 +218,7 @@ void Renderer::frame(float dt) {
     gfx.cmd->CopyResource(bb, ldr.res.Get());
     std::swap(b.Transition.StateBefore, b.Transition.StateAfter); gfx.cmd->ResourceBarrier(1, &b);
   }
-  statDraws = gfx.draws; statShadowDraws = gfx.shadowDraws; gfx.gpuStamp(true);
+  prevViewProj = viewProj; statDraws = gfx.draws; statShadowDraws = gfx.shadowDraws; gfx.gpuStamp(true);
   gfx.endFrame(true);
   if (shot) { gfx.waitIdle(); saveShot(); shotPath.clear(); }
 }
@@ -239,6 +255,22 @@ void Renderer::computeCascades(FrameCB& f) {
     f.shadowBias[c] = worldBias[c] / range; f.shadowTexel[c] = texel;
   }
 }
+void Renderer::reflectionPass(const FrameCB& f) {
+  const float c0[4] = { 0, 0, 0, 0 }, cFar[4] = { 1e6f, 0, 0, 0 };
+  gfx.barrier(reflColor, D3D12_RESOURCE_STATE_RENDER_TARGET); gfx.barrier(reflVD, D3D12_RESOURCE_STATE_RENDER_TARGET); gfx.barrier(reflDepth, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+  D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = { reflColor.rtv, reflVD.rtv }; gfx.cmd->OMSetRenderTargets(2, rtvs, FALSE, &reflDepth.dsv);
+  gfx.cmd->ClearRenderTargetView(reflColor.rtv, c0, 0, nullptr); gfx.cmd->ClearRenderTargetView(reflVD.rtv, cFar, 0, nullptr); gfx.cmd->ClearDepthStencilView(reflDepth.dsv, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
+  bool nearCity = std::fabs(cam.pos.x) < 2500 && std::fabs(cam.pos.z) < 2500;
+  if (q.reflections && wet > 0.01f && nearCity) {
+    Mat4 M = Mat4::identity(); M.m[1][1] = -1.0f;                                             // mirror the world in the ground plane, y = 0
+    FrameCB rf = f; rf.viewProj = mul(viewProj, M); rf.view = mul(view, M); rf.invViewProj = mul(M, f.invViewProj);
+    gfx.setViewport(reflColor.w, reflColor.h); gfx.bindCommon(gfx.cb(rf)); inReflection = true;
+    if (drawWorld) drawWorld(*this, false, makeFrustum(rf.viewProj));
+    { gfx.cmd->SetPipelineState(psoSkyR.Get()); struct DrawCB { float world[16]; float p[16]; } cb = {}; cb.world[0] = cb.world[5] = cb.world[10] = cb.world[15] = 1; gfx.setDraw(gfx.cb(cb), mainBlock); gfx.cmd->DrawInstanced(3, 1, 0, 0); }
+    inReflection = false;
+  }
+  gfx.barrier(reflColor, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE); gfx.barrier(reflVD, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+}
 void Renderer::shadowPass(const FrameCB& f) {
   gfx.barrier(shadow, D3D12_RESOURCE_STATE_DEPTH_WRITE); UINT d0 = gfx.draws;
   for (int c = 0; c < 4; c++) {
@@ -258,7 +290,7 @@ void Renderer::drawMeshMat(const GpuMesh& m, const Mat4& world, const Material& 
   struct DrawCB { Mat4 world; float p0[4], p1[4], p2[4], p3[4]; } cb = {}; cb.world = world;
   cb.p0[0] = mat.type; cb.p0[1] = mat.rough; cb.p0[2] = mat.metal; cb.p0[3] = mat.emissive; cb.p1[0] = mat.tint[0]; cb.p1[1] = mat.tint[1]; cb.p1[2] = mat.tint[2]; cb.p1[3] = 1; cb.p3[0] = mat.twoSided ? 1.0f : 0.0f;
   if (inShadow) { gfx.cmd->SetPipelineState((inst ? psoShInst : psoShMesh).Get()); gfx.setDraw(gfx.cb(cb), blkNull); }
-  else { gfx.cmd->SetPipelineState(psoMesh[inst ? 1 : 0][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
+  else { gfx.cmd->SetPipelineState((inReflection ? psoMeshR : psoMesh)[inst ? 1 : 0][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
   drawMesh(gfx, m, instances, inst);
 }
 void Renderer::drawMeshInst(const GpuMesh& m, const Material& mat, const D3D12_VERTEX_BUFFER_VIEW& inst, UINT instances) {
@@ -266,7 +298,7 @@ void Renderer::drawMeshInst(const GpuMesh& m, const Material& mat, const D3D12_V
   struct DrawCB { Mat4 world; float p0[4], p1[4], p2[4], p3[4]; } cb = {}; cb.world = Mat4::identity();
   cb.p0[0] = mat.type; cb.p0[1] = mat.rough; cb.p0[2] = mat.metal; cb.p0[3] = mat.emissive; cb.p1[0] = mat.tint[0]; cb.p1[1] = mat.tint[1]; cb.p1[2] = mat.tint[2]; cb.p1[3] = 1; cb.p3[0] = mat.twoSided ? 1.0f : 0.0f;
   if (inShadow) { gfx.cmd->SetPipelineState(psoShInst.Get()); gfx.setDraw(gfx.cb(cb), blkNull); }
-  else { gfx.cmd->SetPipelineState(psoMesh[1][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
+  else { gfx.cmd->SetPipelineState((inReflection ? psoMeshR : psoMesh)[1][mat.twoSided ? 1 : 0].Get()); gfx.setDraw(gfx.cb(cb), mainBlock); }
   drawMeshView(gfx, m, instances, &inst);
 }
 void Renderer::drawParticles(const D3D12_VERTEX_BUFFER_VIEW& v, UINT n) {
