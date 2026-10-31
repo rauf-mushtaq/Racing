@@ -8,7 +8,7 @@ struct VIn {
   float4 ia : INSTA; float yaw : INSTB; float4 ic : INSTC; float2 id : INSTD;
 #endif
 };
-struct V { float4 pos : SV_Position; float3 wpos : TEXCOORD0; float3 nrm : TEXCOORD1; float4 col : TEXCOORD2; float2 uv : TEXCOORD3; float dist : TEXCOORD4; float top : TEXCOORD5; };
+struct V { float4 pos : SV_Position; float3 wpos : TEXCOORD0; float3 nrm : TEXCOORD1; float4 col : TEXCOORD2; float2 uv : TEXCOORD3; float dist : TEXCOORD4; float top : TEXCOORD5; float3 tn : TEXCOORD6; };
 V VSMain(VIn i) {
   V o;
 #ifdef INSTANCED
@@ -16,12 +16,13 @@ V VSMain(VIn i) {
 #else
   float3 wp = mul(gWorld, float4(i.pos, 1.0)).xyz; o.nrm = mul((float3x3)gWorld, i.nrm); o.col = i.col;
 #endif
-  o.wpos = wp; o.pos = mul(gViewProj, float4(wp, 1.0)); o.uv = i.uv; o.dist = length(wp - gCamPos.xyz); o.top = 0.0;
+  o.wpos = wp; o.pos = mul(gViewProj, float4(wp, 1.0)); o.uv = i.uv; o.dist = length(wp - gCamPos.xyz); o.top = 0.0; o.tn = float3(1, 0, 0);
 #ifdef INSTANCED
   if (gP0.x > 5.5) {                                           // buildings: wall coordinates in metres (across, up) for the facade
     float3 dims = float3(i.ia.w, i.ia.w * (i.id.x > 0.0 ? i.id.x : 1.0), i.ia.w * (i.id.y > 0.0 ? i.id.y : 1.0));
     float2 wuv = abs(i.nrm.x) > 0.5 ? float2(i.pos.z * dims.z, i.pos.y * dims.y) : float2(i.pos.x * dims.x, i.pos.y * dims.y);
     o.uv = wuv + float2(i.ia.x * 0.37 + i.ia.z * 0.91, 0.0); o.col = float4(i.col.rgb * i.ic.rgb * 2.0, i.ic.a); o.top = dims.y;
+    o.tn = InstanceNormal(abs(i.nrm.x) > 0.5 ? float3(0, 0, 1) : float3(1, 0, 0), i.yaw);      // which way along the wall the facade's x coordinate runs
   }
 #endif
   return o;
@@ -88,6 +89,37 @@ float3 BrickSurface(float2 uv, float fp, float3 baseCol, out float h) {
   float fade = smoothstep(0.012, 0.07, fp);
   h = -mort * 0.007 * (1.0 - fade);
   return lerp(lerp(brick, float3(0.5, 0.48, 0.45), mort), baseCol * 0.95, fade);
+}
+// A room behind a window, by interior mapping: the view ray is walked into a box the size of the window bay and meets the back wall, a side
+// wall, the floor or the ceiling. cp = where the ray enters, in metres from the bay's lower left corner; d = the ray in the wall's frame
+// (x along the wall, y up, z into the building). Far away it settles to the room's average colour.
+float3 RoomInterior(float2 cp, float3 d, float2 cs, float depth, float r1, float r2, float r3, float style, float litAmt, float dayK, float fade, bool shop) {
+  float dayL = lerp(0.085, 0.19, dayK);
+  float3 wallC = style < 0.34 ? lerp(float3(0.68, 0.68, 0.66), float3(0.55, 0.60, 0.64), r1) : lerp(float3(0.80, 0.75, 0.66), float3(0.60, 0.68, 0.64), r2) * (0.75 + 0.35 * r3);
+  float3 warm = float3(1.0, 0.72, 0.42);
+  float3 avg = wallC * dayL * 0.65 + litAmt * warm * 0.10 + (shop ? float3(0.12, 0.09, 0.06) : 0.0);
+  if (fade > 0.97) return avg;
+  d.z = max(d.z, 0.04);
+  float tx = d.x > 1e-4 ? (cs.x - cp.x) / d.x : (d.x < -1e-4 ? -cp.x / d.x : 1e9), ty = d.y > 1e-4 ? (cs.y - cp.y) / d.y : (d.y < -1e-4 ? -cp.y / d.y : 1e9), tz = depth / d.z;
+  float t = min(min(tx, ty), tz); float3 h = float3(cp, 0.0) + d * t;
+  float3 alb = wallC; float panel = 0.0, lampK = 0.0;
+  if (t == tz) {                                                              // the back wall: a sofa or bed, perhaps a picture
+    float2 bq = float2(h.x / cs.x, h.y / cs.y); float fx = 0.10 + 0.25 * r2, fw = 0.28 + 0.34 * r3;
+    float furn = step(fx, bq.x) * step(bq.x, fx + fw) * step(bq.y, 0.22 + 0.16 * r1);
+    float pic = step(0.58 + 0.1 * r1, bq.x) * step(bq.x, 0.84) * step(0.46, bq.y) * step(bq.y, 0.80) * step(0.4, r1) * (1.0 - furn);
+    alb = lerp(alb, lerp(float3(0.30, 0.20, 0.16), float3(0.16, 0.20, 0.28), r2) * (0.8 + 0.4 * r3), furn);
+    alb = lerp(alb, float3(0.24, 0.30, 0.40) * (0.6 + 0.8 * r3), pic);
+  } else if (t == ty) {
+    if (d.y > 0.0) {                                                            // the ceiling; offices have a grid of light panels, homes a lamp
+      alb = float3(0.86, 0.86, 0.83);
+      if (style < 0.34) { float2 pq = frac(h.xz / 1.2); panel = step(0.12, pq.x) * step(pq.x, 0.88) * step(0.12, pq.y) * step(pq.y, 0.88) * step(r3, 0.5); }
+      else lampK = exp(-length(h.xz - float2(cs.x * 0.5, depth * 0.55)) * 1.1);
+    } else alb = r2 < 0.5 ? float3(0.30, 0.20, 0.13) * (0.8 + 0.4 * vnoise(h.xz * 9.0)) : float3(0.30, 0.30, 0.32);   // the floor: boards or carpet
+  } else alb = wallC * 0.85;                                                    // a side wall
+  float fall = 0.35 + 0.65 * exp(-h.z * 0.28);                                   // daylight dies away with depth into the room
+  float3 light = dayL * fall + panel * 0.26 * lerp(1.0, 0.7, dayK) + litAmt * warm * (0.10 + 0.55 * lampK) * (0.4 + 0.6 * exp(-t * 0.12));
+  if (shop) light += float3(1.0, 0.82, 0.58) * 0.30 * (0.5 + 0.5 * exp(-h.z * 0.15));                // shops keep their lights on
+  return lerp(alb * light + panel * float3(0.2, 0.2, 0.18), avg, saturate(fade * 1.2));
 }
 PSOut PSMain(V i) {
   float dist = length(i.wpos - gCamPos.xyz);                      // exact per pixel (an interpolated vertex distance is wrong across big faces)
@@ -177,18 +209,19 @@ PSOut PSMain(V i) {
     float stain = fbmAA(float2(i.uv.x * 1.8, i.uv.y * 0.09), fpUV, 1.0), grain = fbmAA(i.uv * 9.0, fpUV, 1.0);
     wallCol *= (0.86 + 0.28 * grain) * (0.8 + 0.4 * stain) * lerp(0.62, 1.0, smoothstep(0.0, 3.5, h)) * (1.0 - 0.14 * saturate((1.2 - fromTop) * 0.8));
     wallCol *= 1.0 - 0.22 * (1.0 - fade) * step(0.12, frac(g.y) ) * step(frac(g.y), 0.4) * (1.0 - glassAmt) * (style >= 0.34 ? 1.0 : 0.0) * stain;
-    float3 nW = BumpNormal(n, i.wpos, relief, 1.2 * (1.0 - smoothstep(60.0, 220.0, dist)));
+    float3 nW = BumpNormal(n, i.wpos, relief, 1.2 * (1.0 - smoothstep(60.0, 220.0, dist)) * (1.0 - saturate(fpUV * 30.0)));   // relief finer than a few pixels is left out, so oblique brick never rings
     float3 wallLit = Shade(wallCol, 0.0, roughW, nW, v, sh);
     // --- Windows: what is behind the glass (curtains, blinds, a dark room or a lit one) and a reflection of the street opposite.
     float nv = saturate(dot(n, v)), F = 0.05 + 0.95 * pow(1.0 - nv, 4.0), glassK = style < 0.34 ? 0.62 : 0.42;
     float r1 = hash12(cid * 2.3 + 11.0), r2 = hash12(cid * 3.1 + 29.0), dayK = saturate(gWeather.w);
-    float3 room = float3(0.018, 0.02, 0.024) * (0.6 + 0.8 * r2);                                       // a dim room seen through tinted glass
+    float3 dRay = -v; float3 dRoom = float3(dot(dRay, normalize(i.tn)), dRay.y, dot(dRay, -n));
+    float litAmt = lit * lerp(1.0, 0.08, dayK);                                                          // the lights are on at dusk; by day they hardly show against the glare
+    float3 room = RoomInterior(f * cell, dRoom, cell, 3.6 + 3.0 * hash12(cid * 1.9 + 5.0), r1, r2, hash12(cid * 4.3 + 2.0), style, litAmt, dayK, fade, shop);   // a real room behind the glass
     float3 drape = lerp(float3(0.22, 0.19, 0.15), float3(0.15, 0.17, 0.20), r2) * (0.55 + 0.35 * (0.5 + 0.5 * sin(f.x * 44.0))) * 0.5;
     float cover = r1 < 0.16 ? 1.0 : 0.0; float blinds = (r1 >= 0.16 && r1 < 0.36) ? step(frac(f.y * 11.0), 0.62) * step(f.y, 0.4 + 0.5 * r2) : 0.0;
     room = lerp(room, drape, cover * (1.0 - fade * 0.5)); room = lerp(room, float3(0.34, 0.32, 0.28) * 0.22, blinds * (1.0 - fade * 0.6));
-    float litAmt = lit * lerp(1.0, 0.08, dayK);                                                          // the lights are on at dusk; by day they hardly show against the glare
-    float3 warm = float3(1.0, 0.72, 0.42) * (0.5 + 0.8 * r2) * litAmt * 0.8; room += warm * (1.0 - 0.5 * cover);
-    if (shop) room = lerp(room, float3(0.45, 0.38, 0.28) * (0.10 + 0.30 * r1), 0.8 * glassAmt);       // lit shop interiors
+    float3 warm = float3(1.0, 0.72, 0.42) * (0.5 + 0.8 * r2) * litAmt * 0.8; room += warm * 0.5 * cover;
+    if (shop) room = lerp(room, room + float3(0.45, 0.38, 0.28) * (0.06 + 0.16 * r1), 0.8 * glassAmt);       // lit shop interiors
     // How deep inside its frame the glass sits: darker within a few centimetres of the reveal.
     float4 wr = style < 0.34 ? float4(0.05, 0.95, 0.24, 0.97) : style < 0.67 ? float4(0.2, 0.8, 0.22, 0.8) : float4(0.27, 0.73, 0.3, 0.78);
     float edgeM = shop ? shopEdge : min(min((f.x - wr.x) * cell.x, (wr.y - f.x) * cell.x), min((f.y - wr.z) * cell.y, (wr.w - f.y) * cell.y));

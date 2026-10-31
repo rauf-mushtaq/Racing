@@ -22,6 +22,36 @@ void City::init(Gfx& g) {
     MeshData p; uint32_t k = packColor(0.20f, 0.21f, 0.22f); p.cylinder(Vec3(0, 0, 0), Vec3(0, 8.6f, 0), 0.14f, 0.075f, 8, k);
     p.cylinder(Vec3(0, 8.5f, 0), Vec3(1.2f, 9.05f, 0), 0.06f, 0.055f, 6, k); p.cylinder(Vec3(1.2f, 9.05f, 0), Vec3(2.4f, 8.95f, 0), 0.055f, 0.05f, 6, k); p.box(Vec3(2.05f, 8.82f, -0.17f), Vec3(2.95f, 8.95f, 0.17f), packColor(0.12f, 0.12f, 0.13f)); lampPole = uploadMesh(g, p);
     MeshData h; h.box(Vec3(2.1f, 8.79f, -0.13f), Vec3(2.9f, 8.83f, 0.13f), packColor(1, 1, 1)); lampHead = uploadMesh(g, h); }
+  { // Things that hang on a building. All face +z (out of the wall) with the wall at z = 0, and are turned to the facade they sit on.
+    const uint32_t conc = packColor(0.62f, 0.60f, 0.57f), rail = packColor(0.10f, 0.10f, 0.11f), glassP = packColor(0.30f, 0.38f, 0.42f);
+    MeshData b;   // a balcony: a slab 2.4 m wide, 1.2 m deep, with a glass balustrade, a top rail and posts; the floor is at y = 0
+    b.box(Vec3(-1.2f, -0.16f, 0), Vec3(1.2f, 0.0f, 1.2f), conc); b.box(Vec3(-1.2f, 0.10f, 1.14f), Vec3(1.2f, 0.92f, 1.16f), glassP);
+    b.box(Vec3(-1.2f, 0.92f, 1.11f), Vec3(1.2f, 0.97f, 1.19f), rail); b.box(Vec3(-1.2f, 0.92f, 0.0f), Vec3(-1.14f, 0.97f, 1.19f), rail); b.box(Vec3(1.14f, 0.92f, 0.0f), Vec3(1.2f, 0.97f, 1.19f), rail);
+    b.box(Vec3(-1.20f, 0.10f, 0.0f), Vec3(-1.18f, 0.92f, 1.14f), glassP); b.box(Vec3(1.18f, 0.10f, 0.0f), Vec3(1.20f, 0.92f, 1.14f), glassP);
+    for (int k = 0; k <= 4; k++) { float x = -1.17f + k * 0.585f; b.box(Vec3(x - 0.025f, 0.0f, 1.10f), Vec3(x + 0.025f, 0.93f, 1.19f), rail); }
+    balconyM = uploadMesh(g, b);
+    MeshData a;   // a window air conditioner: a pale box with a grille, standing on the sill
+    a.box(Vec3(-0.30f, 0, 0), Vec3(0.30f, 0.42f, 0.50f), packColor(0.80f, 0.80f, 0.77f)); a.box(Vec3(-0.27f, 0.05f, 0.50f), Vec3(0.27f, 0.37f, 0.52f), packColor(0.50f, 0.51f, 0.52f));
+    for (int k = 0; k < 4; k++) a.box(Vec3(-0.25f, 0.08f + k * 0.07f, 0.52f), Vec3(0.25f, 0.095f + k * 0.07f, 0.535f), packColor(0.12f, 0.12f, 0.13f));
+    a.box(Vec3(-0.34f, -0.02f, 0.0f), Vec3(0.34f, 0.0f, 0.55f), packColor(0.35f, 0.35f, 0.36f)); acM = uploadMesh(g, a);
+    MeshData t;   // a rooftop water tank: a wooden barrel with iron hoops on a steel frame, under a conical lid
+    const uint32_t wood = packColor(0.34f, 0.22f, 0.13f), iron = packColor(0.10f, 0.10f, 0.11f);
+    for (int sx = -1; sx <= 1; sx += 2) for (int sz = -1; sz <= 1; sz += 2) t.box(Vec3(sx * 1.0f - 0.06f, 0, sz * 1.0f - 0.06f), Vec3(sx * 1.0f + 0.06f, 2.0f, sz * 1.0f + 0.06f), iron);
+    t.box(Vec3(-1.05f, 1.2f, -0.03f), Vec3(1.05f, 1.26f, 0.03f), iron); t.box(Vec3(-0.03f, 1.2f, -1.05f), Vec3(0.03f, 1.26f, 1.05f), iron);
+    t.cylinder(Vec3(0, 2.0f, 0), Vec3(0, 4.8f, 0), 1.35f, 1.35f, 18, wood); for (float y : { 2.3f, 3.4f, 4.5f }) t.cylinder(Vec3(0, y, 0), Vec3(0, y + 0.07f, 0), 1.385f, 1.385f, 18, iron, false, false);
+    t.cylinder(Vec3(0, 4.8f, 0), Vec3(0, 5.75f, 0), 1.48f, 0.06f, 18, packColor(0.22f, 0.15f, 0.10f), true, false); tankM = uploadMesh(g, t);
+    for (int mir = 0; mir < 2; mir++) {   // a fire escape landing with its flight of stairs down to the landing below (the flight runs one way, or the other on alternate floors)
+      MeshData e; const float sg = mir ? -1.0f : 1.0f;
+      e.box(Vec3(-1.1f, -0.05f, 0.0f), Vec3(1.1f, 0.0f, 1.0f), iron); for (float z : { 0.97f }) { e.box(Vec3(-1.1f, 0.90f, z), Vec3(1.1f, 0.94f, z + 0.04f), iron); e.box(Vec3(-1.1f, 0.45f, z), Vec3(1.1f, 0.48f, z + 0.03f), iron); }
+      e.box(Vec3(-1.1f, 0.90f, 0.0f), Vec3(-1.06f, 0.94f, 1.0f), iron); e.box(Vec3(1.06f, 0.90f, 0.0f), Vec3(1.1f, 0.94f, 1.0f), iron);
+      for (int k = 0; k <= 5; k++) { float x = -1.08f + k * 0.432f; e.box(Vec3(x - 0.02f, 0.0f, 0.96f), Vec3(x + 0.02f, 0.92f, 1.0f), iron); }
+      const int ST = 13; const float x0 = sg * 1.05f, run = sg * -2.5f, drop = -3.7f;
+      for (int k = 0; k < ST; k++) { float f = (k + 0.5f) / ST, x = x0 + run * f, y = drop * (k + 1.0f) / ST; float xa = x - 0.1f, xb = x + 0.1f; if (xa > xb) std::swap(xa, xb); e.box(Vec3(xa, y - 0.03f, 1.0f), Vec3(xb, y, 1.78f), iron); }
+      for (float z : { 1.0f, 1.76f }) e.cylinder(Vec3(x0, 0.0f, z), Vec3(x0 + run, drop, z), 0.035f, 0.035f, 5, iron);
+      e.cylinder(Vec3(x0, 0.93f, 1.77f), Vec3(x0 + run, drop + 0.93f, 1.77f), 0.025f, 0.025f, 5, iron);
+      (mir ? escBM : escAM) = uploadMesh(g, e);
+    }
+  }
   const int RPC = 4;                                            // blocks per chunk side
   int nc = (2 * N) / RPC; std::vector<std::vector<InstanceData>> bx(nc * nc), pm(nc * nc), rf(nc * nc), sg(nc * nc), lp(nc * nc), tr(nc * nc); std::vector<Box> boxes; std::vector<float> maxY(nc * nc, 0); std::vector<std::vector<Circle>> cols(nc * nc);
   auto roofStuff = [&](int ci, const B& b, double dc) {   // air-conditioning units, a lift house and an aerial on the roof
@@ -38,7 +68,7 @@ void City::init(Gfx& g) {
     bx[ci].push_back(d); maxY[ci] = std::max(maxY[ci], (float)b.h); if (collide) boxes.push_back({ (float)(b.cx - b.w / 2), (float)(b.cz - b.d / 2), (float)(b.cx + b.w / 2), (float)(b.cz + b.d / 2) });
     buildings++;
   };
-  std::vector<std::vector<InstanceData>> ld(nc * nc), pt(nc * nc);   // ledges, cornices, parapets, canopies (boxes); pitched roofs
+  std::vector<std::vector<InstanceData>> ld(nc * nc), pt(nc * nc), bl(nc * nc), ac(nc * nc), ea(nc * nc), eb(nc * nc), tk(nc * nc);   // ledges, cornices, parapets, canopies (boxes); pitched roofs; balconies, air conditioners, fire escapes (two ways), water tanks
   auto slab = [&](int ci, double cx, double y0, double cz, double w, double hgt, double d, float r, float g, float b) { ld[ci].push_back({ (float)cx, (float)y0, (float)cz, (float)w, 0.0f, tintOf(r, g, b, 0.0f), (float)(hgt / w), (float)(d / w) }); };
   // The architecture that is real geometry rather than paint: a cornice under every roof edge, a parapet round the top, belt courses on the
   // brick and stone mid-rise, a cornice over the shopfronts, a canopy over the lobby of a tower.
@@ -51,6 +81,32 @@ void City::init(Gfx& g) {
     if (b.style >= 0.34f && b.style < 0.67f && b.h > 13) for (double y = 10.8; y < b.h - 4.0; y += 10.8) slab(ci, b.cx, y - 0.15, b.cz, b.w + 0.34, 0.3, b.d + 0.34, lr, lg, lb);   // belt courses
     if (groundTier) { if (b.style >= 0.34f) slab(ci, b.cx, 4.7, b.cz, b.w + 0.8, 0.3, b.d + 0.8, lr * 0.95f, lg * 0.95f, lb * 0.95f); else slab(ci, b.cx, 4.5, b.cz, b.w + 2.2, 0.35, b.d + 2.2, 0.28f, 0.28f, 0.3f); }
     (void)hs;
+  };
+  // Things hung on the street face of a building: balconies, window air conditioners, a fire escape, a drainpipe, a water tank on the roof. The window
+  // bays are found from the same offset the facade shader uses, so every balcony sits in front of a window.
+  auto facadeDetail = [&](int ci, const B& b, int face, int hs) {
+    if (b.style < 0.34f || b.h < 8) return;
+    const float cellx = b.style < 0.67f ? 3.0f : 3.4f, celly = b.style < 0.67f ? 3.7f : 3.2f, ox = (float)b.cx * 0.37f + (float)b.cz * 0.91f;
+    const bool xFace = face < 2; const double L = xFace ? b.d : b.w, c0 = xFace ? b.cz : b.cx;
+    const double wpos = face == 0 ? b.cx - b.w / 2 : face == 1 ? b.cx + b.w / 2 : face == 2 ? b.cz - b.d / 2 : b.cz + b.d / 2;
+    const float yaw = face == 0 ? (float)(-PI / 2) : face == 1 ? (float)(PI / 2) : face == 2 ? (float)PI : 0.0f;
+    auto R = [&](int a, int c) { return hash3(hs, a * 131 + c, 41); };
+    const double half = L / 2 - 1.7; int kLo = (int)std::ceil((-half + ox) / cellx - 0.5), kHi = (int)std::floor((half + ox) / cellx - 0.5); const int M = (int)std::floor((b.h - 2.4) / celly);
+    auto put = [&](std::vector<std::vector<InstanceData>>& v, double s, double y, float off, float tintv, float scale) {
+      double x = xFace ? wpos + (face == 0 ? -off : off) : s, z = xFace ? s : wpos + (face == 2 ? -off : off); v[ci].push_back({ (float)x, (float)y, (float)z, scale, yaw, packColor(tintv, tintv, tintv), 0.0f, 0.0f }); };
+    double mode = R(0, 0); const bool wide = b.style < 0.67f, escape = wide && b.h >= 14 && mode >= 0.62 && mode < 0.88, balconies = mode < 0.62 && M >= 2;
+    int escK = kLo + (int)(R(1, 1) * std::max(1, kHi - kLo));
+    for (int k = kLo; k <= kHi; k++) {
+      double s = c0 + (k + 0.5) * cellx - ox; bool hasBalc = false;
+      for (int m = 1; m <= M; m++) {
+        double fy = m * celly;
+        if (escape) { if (k == escK && m >= 1 && m <= M - 1) put((m & 1) ? ea : eb, s, fy + 0.8, 0.0f, 0.5f, 1.0f); }
+        else if (balconies && m >= 2 && R(k + 50, m) < 0.42 && !(M > 7 && m > 7)) { put(bl, s, fy, 0.0f, 0.5f + 0.06f * (float)R(k, m), 1.0f); hasBalc = true; }
+        if (!escape && !(hasBalc && m >= 2) && R(k + 200, m) < 0.07) put(ac, s + (R(k, m + 9) - 0.5) * 0.7, fy + 0.8, 0.02f, 0.5f, 1.0f);
+      }
+    }
+    if (wide && R(3, 3) < 0.8) slab(ci, xFace ? wpos + (face == 0 ? -0.07 : 0.07) : c0 + L / 2 - 0.9, 0.0, xFace ? c0 + L / 2 - 0.9 : wpos + (face == 2 ? -0.07 : 0.07), 0.14, b.h - 0.6, 0.14, 0.16f, 0.17f, 0.17f);   // a drainpipe
+    if (wide && b.h < 60 && b.w > 8 && R(7, 7) < 0.55) tk[ci].push_back({ (float)(b.cx + (R(8, 1) - 0.5) * (b.w - 6)), (float)b.h, (float)(b.cz + (R(8, 2) - 0.5) * (b.d - 6)), 0.8f + 0.45f * (float)R(8, 3), (float)(R(8, 4) * PI), packColor(0.5f, 0.5f, 0.5f), 0.0f, 0.0f });
   };
   for (int j = -N; j < N; j++) for (int i = -N; i < N; i++) {
     int ci = ((j + N) / RPC) * nc + (i + N) / RPC;
@@ -85,7 +141,9 @@ void City::init(Gfx& g) {
           double ow = alongZ ? w + 1.0 : d + 1.0, od = alongZ ? d + 1.0 : w + 1.0, rh = 0.3 * std::min(w, d) + 0.8;
           pt[ci].push_back({ (float)cx, (float)h, (float)cz, (float)ow, alongZ ? 0.0f : (float)(PI / 2), tintOf(rc[0], rc[1], rc[2], 0.0f), (float)(rh / ow), (float)(od / ow) });
           slab(ci, cx + (rnd(a, b, s + 31) - 0.5) * w * 0.5, h, cz + (rnd(a, b, s + 32) - 0.5) * d * 0.4, 0.9, rh + 1.3, 0.9, 0.42f, 0.22f, 0.17f);
-        } else { trim(ci, b1, true, true, s); roofStuff(ci, b1, dc); }
+          { double dxL = (cx - w / 2) - x0, dxR = x1 - (cx + w / 2), dzL = (cz - d / 2) - z0, dzR = z1 - (cz + d / 2), m = std::min(std::min(dxL, dxR), std::min(dzL, dzR)); int face = m == dxL ? 0 : m == dxR ? 1 : m == dzL ? 2 : 3; facadeDetail(ci, b1, face, s); }
+        } else { trim(ci, b1, true, true, s); roofStuff(ci, b1, dc);
+          { double dxL = (cx - w / 2) - x0, dxR = x1 - (cx + w / 2), dzL = (cz - d / 2) - z0, dzR = z1 - (cz + d / 2), m = std::min(std::min(dxL, dxR), std::min(dzL, dzR)); int face = m == dxL ? 0 : m == dxR ? 1 : m == dzL ? 2 : 3; if (dc < 9) facadeDetail(ci, b1, face, s); } }
       }
       if (h < 130 && dc < 9 && rnd(a, b, s + 11) < 0.45) {   // a vertical neon blade sign on the facade that faces the street
         double dxL = (cx - w / 2) - x0, dxR = x1 - (cx + w / 2), dzL = (cz - d / 2) - z0, dzR = z1 - (cz + d / 2), m = std::min(std::min(dxL, dxR), std::min(dzL, dzR));
@@ -128,14 +186,14 @@ void City::init(Gfx& g) {
     if (!bx[ci].empty()) { ch.boxes = g.makeBuffer(bx[ci].data(), (UINT)(bx[ci].size() * sizeof(InstanceData)), sizeof(InstanceData), (UINT)bx[ci].size()); ch.nBoxes = (UINT)bx[ci].size(); }
     if (!pm[ci].empty()) { ch.palms = g.makeBuffer(pm[ci].data(), (UINT)(pm[ci].size() * sizeof(InstanceData)), sizeof(InstanceData), (UINT)pm[ci].size()); ch.nPalms = (UINT)pm[ci].size(); }
     auto up = [&](std::vector<InstanceData>& v, Buffer& b, UINT& n) { if (v.empty()) return; b = g.makeBuffer(v.data(), (UINT)(v.size() * sizeof(InstanceData)), sizeof(InstanceData), (UINT)v.size()); n = (UINT)v.size(); };
-    up(rf[ci], ch.roofs, ch.nRoofs); up(ld[ci], ch.ledges, ch.nLedges); up(pt[ci], ch.pitched, ch.nPitched); up(sg[ci], ch.signs, ch.nSigns); up(lp[ci], ch.lamps, ch.nLamps); up(tr[ci], ch.trees, ch.nTrees);
+    up(bl[ci], ch.balc, ch.nBalc); up(ac[ci], ch.acs, ch.nAcs); up(ea[ci], ch.escA, ch.nEscA); up(eb[ci], ch.escB, ch.nEscB); up(tk[ci], ch.tanks, ch.nTanks); up(rf[ci], ch.roofs, ch.nRoofs); up(ld[ci], ch.ledges, ch.nLedges); up(pt[ci], ch.pitched, ch.nPitched); up(sg[ci], ch.signs, ch.nSigns); up(lp[ci], ch.lamps, ch.nLamps); up(tr[ci], ch.trees, ch.nTrees);
     chunks.push_back(std::move(ch));
   }
-  { size_t nl = 0, nt = 0, nr = 0, ns = 0; for (auto& c : chunks) { nl += c.nLamps; nt += c.nTrees; nr += c.nRoofs; ns += c.nSigns; } logf("city: %d buildings in %d chunks, %zu lamps, %zu trees, %zu roof items, %zu signs", buildings, (int)chunks.size(), nl, nt, nr, ns); }
+  { size_t nl = 0, nt = 0, nr = 0, ns = 0, nb = 0, na = 0, ne = 0, nk = 0; for (auto& c : chunks) { nl += c.nLamps; nt += c.nTrees; nr += c.nRoofs; ns += c.nSigns; nb += c.nBalc; na += c.nAcs; ne += c.nEscA + c.nEscB; nk += c.nTanks; } logf("city: %d buildings in %d chunks, %zu lamps, %zu trees, %zu roof items, %zu signs, %zu balconies, %zu air conditioners, %zu fire escape floors, %zu water tanks", buildings, (int)chunks.size(), nl, nt, nr, ns, nb, na, ne, nk); }
 }
 
 void City::draw(Renderer& r, bool shadow, const Frustum& f, const Vec3& cam) {
-  Mat4 I = Mat4::identity(); Material bld; bld.type = 6; Material foliage; foliage.type = 5; foliage.twoSided = true; Material ledgeM; ledgeM.type = 0; ledgeM.rough = 0.85f; Material tileM; tileM.type = 0; tileM.rough = 0.9f; tileM.twoSided = true;
+  Mat4 I = Mat4::identity(); Material bld; bld.type = 6; Material foliage; foliage.type = 5; foliage.twoSided = true; Material ledgeM; ledgeM.type = 0; ledgeM.rough = 0.85f; Material ironM; ironM.type = 0; ironM.rough = 0.6f; ironM.metal = 0.25f; ironM.twoSided = true; Material tileM; tileM.type = 0; tileM.rough = 0.9f; tileM.twoSided = true;
   Material roof; roof.type = 0; roof.rough = 0.6f; roof.metal = 0.35f; Material neon; neon.type = 4; neon.emissive = 3.2f; Material metal; metal.type = 0; metal.rough = 0.45f; metal.metal = 0.6f; Material lampLight; lampLight.type = 4; lampLight.emissive = 3.0f; lampLight.tint[0] = 1.0f; lampLight.tint[1] = 0.78f; lampLight.tint[2] = 0.5f;
   for (auto& c : chunks) {
     if (!f.boxVisible(c.x0, -2, c.z0, c.x1, c.maxY, c.z1)) continue;
@@ -144,6 +202,11 @@ void City::draw(Renderer& r, bool shadow, const Frustum& f, const Vec3& cam) {
     if (c.nRoofs) r.drawMeshMat(cube, I, roof, &c.roofs, c.nRoofs);
     if (c.nLedges) r.drawMeshMat(cube, I, ledgeM, &c.ledges, c.nLedges);
     if (c.nPitched) r.drawMeshMat(wedge, I, tileM, &c.pitched, c.nPitched);
+    if (c.nBalc) r.drawMeshMat(balconyM, I, ledgeM, &c.balc, c.nBalc);
+    if (c.nAcs && !shadow) r.drawMeshMat(acM, I, ledgeM, &c.acs, c.nAcs);
+    if (c.nEscA) r.drawMeshMat(escAM, I, ironM, &c.escA, c.nEscA);
+    if (c.nEscB) r.drawMeshMat(escBM, I, ironM, &c.escB, c.nEscB);
+    if (c.nTanks) r.drawMeshMat(tankM, I, ledgeM, &c.tanks, c.nTanks);
     if (c.nSigns && !shadow) r.drawMeshMat(cube, I, neon, &c.signs, c.nSigns);
     if (c.nLamps) { r.drawMeshMat(lampPole, I, metal, &c.lamps, c.nLamps); if (!shadow) r.drawMeshMat(lampHead, I, lampLight, &c.lamps, c.nLamps); }
     if (c.nTrees && (!shadow || (std::fabs(c.x0 + 360 - cam.x) < 600 && std::fabs(c.z0 + 360 - cam.z) < 600))) { float cdx = c.x0 + 360 - cam.x, cdz = c.z0 + 360 - cam.z; bool nearC = cdx * cdx + cdz * cdz < (shadow ? 260.0f * 260.0f : 420.0f * 420.0f); r.drawMeshMat(nearC ? props.mesh[P_TREE] : props.treeFar, I, foliage, &c.trees, c.nTrees); }

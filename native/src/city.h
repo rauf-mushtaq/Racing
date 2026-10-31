@@ -30,6 +30,6 @@ public:
   void draw(Renderer& r, bool shadow, const Frustum& f, const Vec3& cam);
   int buildings = 0;
 private:
-  struct Chunk { Buffer boxes, palms, roofs, signs, lamps, trees, ledges, pitched; UINT nBoxes = 0, nPalms = 0, nRoofs = 0, nSigns = 0, nLamps = 0, nTrees = 0, nLedges = 0, nPitched = 0; float x0, z0, x1, z1, maxY; };
-  std::vector<Chunk> chunks; GpuMesh cube, wedge, lampPole, lampHead; PropSet props;   // wedge: a gable roof on a unit footprint
+  struct Chunk { Buffer boxes, palms, roofs, signs, lamps, trees, ledges, pitched, balc, acs, escA, escB, tanks; UINT nBoxes = 0, nPalms = 0, nRoofs = 0, nSigns = 0, nLamps = 0, nTrees = 0, nLedges = 0, nPitched = 0, nBalc = 0, nAcs = 0, nEscA = 0, nEscB = 0, nTanks = 0; float x0, z0, x1, z1, maxY; };
+  std::vector<Chunk> chunks; GpuMesh cube, wedge, lampPole, lampHead, balconyM, acM, tankM, escAM, escBM; PropSet props;   // wedge: a gable roof on a unit footprint
 };
