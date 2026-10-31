@@ -109,6 +109,7 @@ private:
   ComPtr<ID3D12DescriptorHeap> rtvHeap, dsvHeap, srvHeap, sampHeap; UINT rtvInc = 0, dsvInc = 0, srvInc = 0, rtvUsed = 0, dsvUsed = 0, srvUsed = 0;
   ComPtr<ID3D12Resource> ring; UINT8* ringPtr = nullptr; UINT ringSize = 24u << 20, ringOff = 0;
   std::deque<std::pair<UINT64, ComPtr<ID3D12Resource>>> garbage;
+  ComPtr<ID3D12Resource> stagePool; UINT8* stagePtr = nullptr; UINT stageOff = 0, stageCap = 0;   // one big upload buffer that meshes and buffers are staged through (instead of one upload resource each)
   std::map<std::string, ComPtr<ID3DBlob>> shaderCache;
   ComPtr<ID3D12QueryHeap> qHeap; ComPtr<ID3D12Resource> qRead; UINT64* qPtr = nullptr; UINT64 tsFreq = 0; bool stamped[FRAMES] = {};
   void collect();

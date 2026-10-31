@@ -63,7 +63,7 @@ static std::string findAssets() {
 
 int main(int argc, char** argv) {
   std::string shotPath, spawn = "coast", camName, shaderFilter; UINT W = 1600, H = 900; int msaa = 4, frames = 4;
-  int modelKind = 0, raceIdx = -1, menuPage = -1; bool gunsOut = false, startEscape = false, startFull = false, vsyncOn = false; double simSeconds = 0, autoExit = 0; bool offscreen = false, aoOff = false, shadowOff = false, checkShaders = false, freeCam = false; double ax = 0, az = 0, driveS = 0, steerV = 0, carX = 0, carZ = 0, carH = 0; bool hasCar = false;
+  int modelKind = 0, raceIdx = -1, menuPage = -1; bool gunsOut = false, startEscape = false, startFull = false, vsyncOn = false; double simSeconds = 0, autoExit = 0, showYaw = 2.5; bool offscreen = false, aoOff = false, shadowOff = false, checkShaders = false, freeCam = false; double ax = 0, az = 0, driveS = 0, steerV = 0, carX = 0, carZ = 0, carH = 0; bool hasCar = false;
   bool selfTestWheel = false, fakeWheel = false, wizardShot = false; int showcaseN = -1; float dayArg = 1.0f; float ah = 3, yaw = 90, pitch = -4, tod = 0, color[3] = { 0.50f, 0.012f, 0.02f }; bool hasAt = false, hasOrbit = false; double orbYaw = 0, orbDist = 7, orbH = 1.6;
   bool testRun = false; for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--shot") || !strcmp(argv[i], "--simulate") || !strcmp(argv[i], "--check-shaders") || !strcmp(argv[i], "--selftest-wheel")) testRun = true;
   Settings saved; if (!testRun) saved.load();                    // what the player chose last time (the command line below still wins; test runs ignore it)
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
     else if (a == "--at") { hasAt = true; sscanf(next().c_str(), "%lf,%lf", &ax, &az); } else if (a == "--yaw") yaw = (float)atof(next().c_str()); else if (a == "--pitch") pitch = (float)atof(next().c_str());
     else if (a == "--height") ah = (float)atof(next().c_str()); else if (a == "--time") tod = (float)atof(next().c_str()); else if (a == "--day") dayArg = (float)atof(next().c_str());
     else if (a == "--car") { hasCar = true; sscanf(next().c_str(), "%lf,%lf,%lf", &carX, &carZ, &carH); } else if (a == "--color") sscanf(next().c_str(), "%f,%f,%f", &color[0], &color[1], &color[2]);
-    else if (a == "--showcase") showcaseN = atoi(next().c_str()); else if (a == "--orbit") { hasOrbit = true; sscanf(next().c_str(), "%lf,%lf,%lf", &orbYaw, &orbDist, &orbH); }
+    else if (a == "--showcase") showcaseN = atoi(next().c_str()); else if (a == "--showyaw") showYaw = atof(next().c_str()) * PI / 180.0; else if (a == "--orbit") { hasOrbit = true; sscanf(next().c_str(), "%lf,%lf,%lf", &orbYaw, &orbDist, &orbH); }
     else if (a == "--seconds") autoExit = atof(next().c_str()); else if (a == "--model") { std::string m = next(); modelKind = (m == "bond" || m == "gt") ? 1 : 0; } else if (a == "--guns") gunsOut = true;
     else if (a == "--escape") startEscape = true; else if (a == "--race") raceIdx = atoi(next().c_str()); else if (a == "--fullscreen") startFull = true; else if (a == "--vsync") vsyncOn = true; else if (a == "--simulate") simSeconds = atof(next().c_str()); else if (a == "--menu") menuPage = atoi(next().c_str());
     else if (a == "--selftest-wheel") selfTestWheel = true; else if (a == "--fakewheel") fakeWheel = true; else if (a == "--wizard") wizardShot = true; else if (a == "--check-shaders") { checkShaders = true; if (i + 1 < argc && argv[i + 1][0] != '-') shaderFilter = next(); }
@@ -126,8 +126,8 @@ int main(int argc, char** argv) {
   }
   if (showcaseN >= 0) {   // a model on the ground 9 m ahead of the car, seen from the front three-quarter
     G.showcase = showcaseN; double fx = std::sin(G.car.h), fz = std::cos(G.car.h); G.showAt = Vec3((float)(G.car.x + fx * 9), 0, (float)(G.car.z + fz * 9));
-    float dist = showcaseN == 8 ? 4.2f : 6.5f; Vec3 c(G.showAt.x, (float)heightAt(G.showAt.x, G.showAt.z) + (showcaseN == 8 ? 1.0f : 0.8f), G.showAt.z);
-    Vec3 pos = c + Vec3((float)(std::sin(G.car.h + 2.5) * dist), showcaseN == 8 ? 0.6f : 1.4f, (float)(std::cos(G.car.h + 2.5) * dist)); Vec3 f = normalize(c - pos);
+    float dist = showcaseN == 8 ? 4.2f : showcaseN == 5 ? 15.0f : showcaseN == 4 ? 11.5f : showcaseN == 3 ? 8.0f : 6.5f; Vec3 c(G.showAt.x, (float)heightAt(G.showAt.x, G.showAt.z) + (showcaseN == 8 ? 1.0f : showcaseN >= 4 ? 1.6f : 0.8f), G.showAt.z);
+    Vec3 pos = c + Vec3((float)(std::sin(G.car.h + showYaw) * dist), showcaseN == 8 ? 0.6f : 1.4f, (float)(std::cos(G.car.h + showYaw) * dist)); Vec3 f = normalize(c - pos);
     R.cam.pos = pos; R.cam.yaw = (float)(std::atan2(f.x, -f.z) * 180 / PI); R.cam.pitch = (float)(std::asin(f.y) * 180 / PI); R.cam.fov = 40; freeCam = true;
   }
   if (menuPage >= 0) { G.menuFrom = State::Free; G.openMenu(); if (menuPage > 0) G.runMenuActionPublic(menuPage); }

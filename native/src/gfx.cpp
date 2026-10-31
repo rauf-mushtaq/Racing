@@ -135,6 +135,7 @@ void Gfx::gpuStamp(bool end) {
 void Gfx::endFrame(bool present) {
   HR(cmd->Close()); ID3D12CommandList* l[] = { cmd.Get() }; queue->ExecuteCommandLists(1, l);
   if (present && hasSwap) { HRESULT hr = vsync ? swap->Present(1, 0) : swap->Present(0, tearing ? DXGI_PRESENT_ALLOW_TEARING : 0); if (FAILED(hr)) logf("Present failed 0x%08lx", (unsigned long)hr); }
+  if (stagePool) { release(stagePool); stagePool.Reset(); stagePtr = nullptr; stageOff = stageCap = 0; }   // the uploads recorded in this list are done with the staging buffer once it has run
   fenceVal++; HR(queue->Signal(fence.Get(), fenceVal)); frameFence[frameIdx] = fenceVal;
 }
 void Gfx::waitIdle() {
@@ -156,12 +157,17 @@ Buffer Gfx::makeBuffer(const void* data, UINT size, UINT stride, UINT count) {
   D3D12_HEAP_PROPERTIES def = { D3D12_HEAP_TYPE_DEFAULT }, up = { D3D12_HEAP_TYPE_UPLOAD };
   D3D12_RESOURCE_DESC rd = {}; rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; rd.Width = size ? size : 4; rd.Height = 1; rd.DepthOrArraySize = 1; rd.MipLevels = 1; rd.SampleDesc.Count = 1; rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
   HR(dev->CreateCommittedResource(&def, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&b.res)));
-  ComPtr<ID3D12Resource> stage; HR(dev->CreateCommittedResource(&up, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&stage)));
-  void* p = nullptr; D3D12_RANGE none = { 0, 0 }; HR(stage->Map(0, &none, &p)); std::memcpy(p, data, size); stage->Unmap(0, nullptr);
-  cmd->CopyBufferRegion(b.res.Get(), 0, stage.Get(), 0, size);
+  if (size) {                                                                           // staged through a shared upload buffer: tens of thousands of separate ones are slow, and some drivers run out of them
+    const UINT need = (size + 15u) & ~15u;
+    if (!stagePool || stageOff + need > stageCap) {
+      if (stagePool) release(stagePool);
+      stageCap = std::max(need, 32u << 20); stageOff = 0; D3D12_RESOURCE_DESC sd = rd; sd.Width = stageCap;
+      HR(dev->CreateCommittedResource(&up, D3D12_HEAP_FLAG_NONE, &sd, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&stagePool))); void* mp = nullptr; D3D12_RANGE none = { 0, 0 }; HR(stagePool->Map(0, &none, &mp)); stagePtr = (UINT8*)mp;
+    }
+    std::memcpy(stagePtr + stageOff, data, size); cmd->CopyBufferRegion(b.res.Get(), 0, stagePool.Get(), stageOff, size); stageOff += need;
+  }
   D3D12_RESOURCE_BARRIER br = {}; br.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; br.Transition.pResource = b.res.Get(); br.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
   br.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST; br.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ; cmd->ResourceBarrier(1, &br);
-  release(stage);
   return b;
 }
 

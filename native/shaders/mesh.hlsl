@@ -136,8 +136,9 @@ PSOut PSMain(V i) {
     float3 base = i.col.rgb * gP1.rgb * (0.965 + 0.07 * flake);
     float nv = saturate(dot(n, v)), F = 0.04 + 0.96 * pow(1.0 - nv, 5.0);
     col = Shade(base, 0.16 + 0.6 * gP0.z, 0.30 - 0.1 * gP0.z + 0.08 * flake, n, v, sh);      // gP0.z is extra metal: 0 for ordinary paint, high for a metallic silver                               // the base coat: mostly coloured diffuse with a tinted sheen
-    float3 rc = reflect(-v, n);
+    float3 rc = reflect(-v, n); float glassK = 1.0 - smoothstep(0.015, 0.06, dot(i.col.rgb, float3(0.333, 0.333, 0.333)));   // body parts coloured near black are the glass
     col += EnvReflect(rc, i.wpos) * (0.035 + 0.55 * F) * (0.7 + 0.3 * saturate(nv * 2.0));      // the clear coat mirrors the street around the car
+    col += EnvReflect(rc, i.wpos) * glassK * (0.10 + 0.75 * F);                                  // glass reflects far more of it
     float3 hh = normalize(gSunDir.xyz + v); col += gSunColor.rgb * pow(saturate(dot(n, hh)), 900.0) * 9.0 * sh;   // a tight sun highlight
   } else if (type < 2.5) {                                     // road
     float fp = fpUV; float rough, relief;
