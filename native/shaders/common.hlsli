@@ -271,6 +271,24 @@ float3 SpecularLight(float3 n, float3 v, float3 f0, float rough, float shadow) {
   return sunSpec + skyRefl;
 }
 
+// Wind: the whole plant leans downwind, more the higher the point (a trunk bends, it does not slide), in slow swells with gusts; leaves and fronds
+// flutter on top of that. wp = the vertex in the world, baseP = where the plant stands, uv = the vertex's uv (leaf cards live at x in [4,5], fronds in [2,3], bark from 6).
+float3 WindDisplace(float3 wp, float3 baseP, float2 uv) {
+  float h = max(wp.y - baseP.y, 0.0), t = gCamPos.w, ph = dot(baseP.xz, float2(0.13, 0.09));
+  float gust = 0.55 + 0.45 * sin(t * 0.31 + ph * 0.7);
+  float swell = (sin(t * 0.9 + ph) + 0.55 * sin(t * 1.7 + ph * 1.9)) * gust + 0.25 * gust;      // mostly downwind, swinging back a little
+  float2 dir = float2(0.83, 0.56);
+  float3 d = float3(dir.x, 0.0, dir.y) * swell * h * h * 0.0032;
+  d.y -= abs(swell) * h * h * 0.0006;                                                           // a leaning stem drops a little
+  bool leaf = uv.x > 1.5 && uv.x < 5.5;
+  if (leaf) {
+    float f = sin(t * 5.3 + dot(wp.xz, float2(2.1, 1.7)) + ph * 5.0), f2 = sin(t * 8.9 + wp.y * 3.1 + dot(wp.xz, float2(-1.3, 2.4)));
+    float amp = (0.022 + 0.03 * gust) * saturate(h * 0.2);
+    d += float3(dir.x * 0.7 + 0.3, 0.45 * f2, dir.y * 0.7 - 0.2) * (f * amp) + float3(0.0, f2 * amp * 0.5, 0.0);
+  }
+  return d;
+}
+
 // World position of a model vertex for an instance: xyz + scale (width), yaw, and optional height and depth ratios (id.x, id.y; 0 = same as the width).
 float3 InstanceWorld(float3 p, float4 ia, float yaw, float2 id) {
   float sy = ia.w * (id.x > 0.0 ? id.x : 1.0), sz = ia.w * (id.y > 0.0 ? id.y : 1.0); float c = cos(yaw), s = sin(yaw);

@@ -10,7 +10,7 @@ float4 VSTerrain(TIn i) : SV_Position { return mul(gViewProj, float4(i.pos, 1.0)
 
 // Foliage casts shadows with the same holes as the leaves and fronds.
 struct FOut { float4 pos : SV_Position; float3 wp : TEXCOORD0; float2 uv : TEXCOORD1; };
-FOut VSInstFoliage(IIn i) { FOut o; float3 wp = InstanceWorld(i.pos, i.ia, i.yaw, i.id); o.pos = mul(gViewProj, float4(wp, 1.0)); o.wp = wp; o.uv = i.uv; return o; }
+FOut VSInstFoliage(IIn i) { FOut o; float3 wp = InstanceWorld(i.pos, i.ia, i.yaw, i.id); wp += WindDisplace(wp, i.ia.xyz, i.uv); o.pos = mul(gViewProj, float4(wp, 1.0)); o.wp = wp; o.uv = i.uv; return o; }
 void PSFoliage(FOut i) {
   if (i.uv.x > 5.5) return;                                                        // bark
   if (i.uv.x > 3.5) { if (LeafKeepAmt(i.uv) < 0.5) discard; return; }              // a leaf of a canopy

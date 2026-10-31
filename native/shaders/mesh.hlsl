@@ -13,6 +13,7 @@ V VSMain(VIn i) {
   V o;
 #ifdef INSTANCED
   float3 wp = InstanceWorld(i.pos, i.ia, i.yaw, i.id); o.nrm = InstanceNormal(i.nrm, i.yaw); o.col = i.col * i.ic * 2.0;   // instance tints are stored halved, so 0.5 is neutral
+  if (gP0.x > 4.5 && gP0.x < 5.5) wp += WindDisplace(wp, i.ia.xyz, i.uv);                                                  // trees and palms sway
 #else
   float3 wp = mul(gWorld, float4(i.pos, 1.0)).xyz; o.nrm = mul((float3x3)gWorld, i.nrm); o.col = i.col;
 #endif
