@@ -286,7 +286,7 @@ void VehicleModels::build(Gfx& g) {
   swapIn(TK_SUV, buildSuv(g)); swapIn(TK_PICKUP, buildVan(g)); swapIn(TK_TRUCK, buildTruck(g)); swapIn(TK_BUS, buildBus(g));   // modelled part by part (see above)
   Spec cr = saloon; cr.top = C({ { -2.375f, 0.95f }, { -2.0f, 1.0f }, { -1.4f, 1.02f }, { -0.9f, 1.42f }, { 0.4f, 1.45f }, { 1.0f, 1.0f }, { 2.0f, 0.9f }, { 2.375f, 0.74f } });
   cruiser = buildCar(g, cr, true, 1.45f);
-  swat = buildCar(g, suv, true, 1.76f);
+  { CarMesh old = buildCar(g, suv, true, 1.76f); swat = buildSuv(g); swat.bar = old.bar; swat.lampL = old.lampL; swat.lampR = old.lampR; swat.barY = old.barY; releaseMesh(g, old.body); releaseMesh(g, old.head); releaseMesh(g, old.tail); releaseMesh(g, old.wheels); }   // the pursuit truck: the new SUV body with the old light bar
   // Real models, when their baked files are there: the saloon and the police cruiser become the concept car (lighter, merged, simplified versions).
   auto useAsset = [&](CarMesh& m, const char* file) -> bool {
     CarAsset a; if (!a.load(g, g.assetDir + "/cars/" + file)) return false;

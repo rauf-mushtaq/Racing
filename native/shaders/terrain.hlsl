@@ -13,6 +13,38 @@ float RoadHW(float k) { return (fmod(abs(k), 4.0) < 0.5) ? 16.0 : 9.0; }
 float RoadMedian(float k) { return (fmod(abs(k), 4.0) < 0.5) ? 2.5 : 0.0; }
 float RoadLane(float k) { return (fmod(abs(k), 4.0) < 0.5) ? 4.0 : 3.8; }
 float Line(float x, float c, float w, float fp) { return 1.0 - smoothstep(w, w + max(fp * 1.2, 0.02), abs(x - c)); }
+// The lots the buildings stand on, in 60 m squares: a car park with painted bays, a yard of big paving slabs, a lawn with worn paths, or a gravel yard.
+float3 LotGround(float2 p, float fp, float g, float g2, out float rough, out float hgt) {
+  float2 cell = floor(p / 60.0), q = p - cell * 60.0; float h0 = hash12(cell + 71.0);
+  float edge = Thin(min(min(q.x, 60.0 - q.x), min(q.y, 60.0 - q.y)), 0.14, fp);                           // a low kerb round every lot
+  float3 col; rough = 0.85; hgt = 0.13;
+  if (h0 < 0.32) {                                                                                        // a car park
+    float2 stn = AsphaltStones(p, fp); col = float3(0.15, 0.148, 0.145) * (0.85 + 0.3 * g) * stn.x; hgt += stn.y; rough = 0.8;
+    float ry = frac(p.y / 17.5) * 17.5, bayRow = (ry < 5.5 || ry > 12.0) ? 1.0 : 0.0, bx = frac(p.x / 2.6) * 2.6;
+    float line = Thin(min(bx, 2.6 - bx), 0.055, fp) * bayRow, endL = max(Thin(abs(ry - 5.5), 0.06, fp), Thin(abs(ry - 12.0), 0.06, fp));
+    float wearP = smoothstep(0.5, 0.85, fbmAA(p + 5.0, fp, 2.0)), paint = saturate(line + endL) * (1.0 - 0.6 * wearP);
+    float2 bay = float2(floor(p.x / 2.6), floor(p.y / 17.5)); float2 oc = float2(1.3, ry < 8.75 ? 2.7 : 14.8); float od = length(float2(bx, ry) - oc);
+    float oil = exp(-od * od / 0.22) * step(0.45, hash12(bay + 13.0)) * (1.0 - smoothstep(0.03, 0.2, fp));
+    float crack = (fp < 0.05) ? Thin(CellEdge(p, 0.55), 0.004, fp) * smoothstep(0.55, 0.8, fbmAA(p, fp, 0.3)) : 0.0;
+    col = lerp(col, float3(0.70, 0.70, 0.66) * 0.75, paint); col *= (1.0 - 0.35 * oil) * (1.0 - 0.55 * crack); rough = lerp(rough, 0.6, paint) - 0.3 * oil; hgt += paint * 0.0013 - crack * 0.002;
+  } else if (h0 < 0.55) {                                                                                 // paving slabs
+    float2 sq = frac(p / 3.0) * 3.0, sid = floor(p / 3.0); float joint = Thin(min(min(sq.x, 3.0 - sq.x), min(sq.y, 3.0 - sq.y)), 0.014, fp);
+    col = float3(0.25, 0.24, 0.225) * (0.80 + 0.36 * hash12(sid + 9.0)) * (0.86 + 0.28 * g) * (0.9 + 0.2 * fbmAA(p, fp, 30.0));
+    float crack = (fp < 0.05) ? Thin(CellEdge(p + 4.0, 0.9), 0.004, fp) * smoothstep(0.58, 0.8, fbmAA(p, fp, 0.35)) : 0.0;
+    float stain = smoothstep(0.6, 0.85, fbmAA(p, fp, 0.9)); col *= (1.0 - 0.4 * joint) * (1.0 - 0.5 * crack) * (1.0 - 0.25 * stain);
+    float weeds = (joint + crack) * step(0.8, vnoise(p * 2.7)) * (1.0 - smoothstep(0.03, 0.12, fp)); col = lerp(col, float3(0.12, 0.2, 0.05), weeds * 0.8);   // weeds in the joints
+    hgt += -joint * 0.003; rough = 0.82;
+  } else if (h0 < 0.82) {                                                                                 // a lawn with bare earth where people walk
+    float dirt = smoothstep(0.60, 0.72, fbmAA(p, fp, 0.14)), blades = fbmAA(p, fp, 55.0), clover = smoothstep(0.62, 0.8, fbmAA(p + 9.0, fp, 1.2));
+    float3 grass = lerp(float3(0.10, 0.19, 0.05), float3(0.28, 0.27, 0.10), g2) * (0.7 + 0.6 * g) * (0.8 + 0.4 * blades); grass = lerp(grass, float3(0.08, 0.20, 0.07), clover * 0.5);
+    col = lerp(grass, float3(0.30, 0.23, 0.15) * (0.8 + 0.4 * blades), dirt); rough = 0.95; hgt += (blades - 0.5) * 0.006 * (1.0 - smoothstep(0.01, 0.05, fp));
+  } else {                                                                                                // a gravel yard with tyre ruts
+    float2 stn = AsphaltStones(p * 0.4, fp * 0.4); col = float3(0.37, 0.34, 0.29) * (0.8 + 0.4 * g) * (0.8 + 0.4 * stn.x); hgt += stn.y * 3.0;
+    float rut = exp(-pow((abs(frac(p.x / 2.2) - 0.5) - 0.2) / 0.07, 2.0)) * smoothstep(0.4, 0.7, fbmAA(p, fp, 0.2)); col *= 1.0 - 0.3 * rut; rough = 0.92 - 0.2 * rut;
+  }
+  return col * (1.0 - 0.28 * edge);
+}
+
 // The paved ground of the city: asphalt with worn lanes, markings, crosswalks, stop lines and a median; curbs and paving slabs;
 // bare lots between the buildings. hgt is a relief height for the bump (the curb step), reflK how mirror-like the surface is when wet.
 float3 CityGround(float2 p, float fp, out float rough, out float hgt, out float reflK) {
@@ -132,9 +164,7 @@ float3 CityGround(float2 p, float fp, out float rough, out float hgt, out float 
     slab *= 1.0 - wet * 0.3; rough = lerp(0.82, 0.22, wet * 0.8 * (0.5 + 0.5 * puddle)); hgt = 0.13 - 0.0025 * joint; reflK = wet * 0.28 * (0.4 + puddle);
     return slab;
   }
-  hgt = 0.13; float lot = fbmAA(floor(p / 60.0) * 0.37, 1.0, 1.0); float grassy = smoothstep(0.5, 0.62, lot);
-  float3 concrete = float3(0.30, 0.285, 0.26) * (0.8 + 0.4 * g) * (0.9 + 0.2 * g2), lawn = lerp(float3(0.17, 0.27, 0.08), float3(0.30, 0.30, 0.12), g2) * (0.7 + 0.6 * g);
-  rough = lerp(0.85, 0.95, grassy); reflK = 0.0; return lerp(concrete, lawn, grassy);
+  reflK = 0.0; return LotGround(p, fp, g, g2, rough, hgt);
 }
 PSOut PSMain(V i) {
   float3 wp = i.wpos; float dist = length(wp - gCamPos.xyz);

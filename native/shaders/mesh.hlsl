@@ -8,7 +8,7 @@ struct VIn {
   float4 ia : INSTA; float yaw : INSTB; float4 ic : INSTC; float2 id : INSTD;
 #endif
 };
-struct V { float4 pos : SV_Position; float3 wpos : TEXCOORD0; float3 nrm : TEXCOORD1; float4 col : TEXCOORD2; float2 uv : TEXCOORD3; float dist : TEXCOORD4; float top : TEXCOORD5; float3 tn : TEXCOORD6; };
+struct V { float4 pos : SV_Position; float3 wpos : TEXCOORD0; float3 nrm : TEXCOORD1; float4 col : TEXCOORD2; float2 uv : TEXCOORD3; float dist : TEXCOORD4; float top : TEXCOORD5; float3 tn : TEXCOORD6; float var : TEXCOORD7; };
 V VSMain(VIn i) {
   V o;
 #ifdef INSTANCED
@@ -17,12 +17,13 @@ V VSMain(VIn i) {
 #else
   float3 wp = mul(gWorld, float4(i.pos, 1.0)).xyz; o.nrm = mul((float3x3)gWorld, i.nrm); o.col = i.col;
 #endif
-  o.wpos = wp; o.pos = mul(gViewProj, float4(wp, 1.0)); o.uv = i.uv; o.dist = length(wp - gCamPos.xyz); o.top = 0.0; o.tn = float3(1, 0, 0);
+  o.wpos = wp; o.pos = mul(gViewProj, float4(wp, 1.0)); o.uv = i.uv; o.dist = length(wp - gCamPos.xyz); o.top = 0.0; o.tn = float3(1, 0, 0); o.var = 0.0;
 #ifdef INSTANCED
   if (gP0.x > 5.5) {                                           // buildings: wall coordinates in metres (across, up) for the facade
     float3 dims = float3(i.ia.w, i.ia.w * (i.id.x > 0.0 ? i.id.x : 1.0), i.ia.w * (i.id.y > 0.0 ? i.id.y : 1.0));
     float2 wuv = abs(i.nrm.x) > 0.5 ? float2(i.pos.z * dims.z, i.pos.y * dims.y) : float2(i.pos.x * dims.x, i.pos.y * dims.y);
     o.uv = wuv + float2(i.ia.x * 0.37 + i.ia.z * 0.91, 0.0); o.col = float4(i.col.rgb * i.ic.rgb * 2.0, i.ic.a); o.top = dims.y;
+    o.var = hash12(floor(i.ia.xz) * 0.37 + 5.0);                                                      // which material this building is clad in
     o.tn = InstanceNormal(abs(i.nrm.x) > 0.5 ? float3(0, 0, 1) : float3(1, 0, 0), i.yaw);      // which way along the wall the facade's x coordinate runs
   }
 #endif
@@ -90,6 +91,42 @@ float3 BrickSurface(float2 uv, float fp, float3 baseCol, out float h) {
   float fade = smoothstep(0.012, 0.07, fp);
   h = -mort * 0.007 * (1.0 - fade);
   return lerp(lerp(brick, float3(0.5, 0.48, 0.45), mort), baseCol * 0.95, fade);
+}
+// --- More wall materials ----------------------------------------------------------------------------------------------------------
+// Cut stone in running bond: blocks 0.9 m by 0.36 m, hairline joints, every block its own tone, a little chipping. h = relief (the joints are recessed).
+float3 StoneSurface(float2 uv, float fp, float3 baseCol, out float h) {
+  float2 sz = float2(0.9, 0.36); float row = floor(uv.y / sz.y); float2 q = float2(uv.x / sz.x + 0.5 * frac(row * 0.5), uv.y / sz.y);
+  float2 f = frac(q), id = floor(q), e = min(f, 1.0 - f) * sz; float de = min(e.x, e.y);
+  float joint = 1.0 - smoothstep(0.003, 0.003 + max(fp * 1.1, 0.0015), de), rnd = hash12(id + row * 0.13), rnd2 = hash12(id * 1.7 + 5.0), fade = smoothstep(0.02, 0.12, fp);
+  float grain = 0.88 + 0.24 * fbmAA(uv, fp, 22.0), edge = 1.0 - 0.18 * (1.0 - smoothstep(0.0, 0.03, de));
+  float3 blk = baseCol * (0.82 + 0.32 * rnd) * lerp(float3(1, 1, 1), float3(1.06, 0.98, 0.9), rnd2 * 0.6) * grain * edge;
+  h = (-joint * 0.007 + (rnd - 0.5) * 0.004) * (1.0 - fade);
+  return lerp(lerp(blk, float3(0.34, 0.33, 0.31), joint), baseCol * 0.95, fade);
+}
+// Precast concrete panels 1.8 m by 1.85 m: dark joints, a sandy surface, tie-bolt holes, every panel slightly different.
+float3 PrecastSurface(float2 uv, float fp, float3 baseCol, out float h) {
+  float2 pz = float2(1.8, 1.85), q = uv / pz, f = frac(q), id = floor(q), e = min(f, 1.0 - f) * pz; float de = min(e.x, e.y);
+  float joint = 1.0 - smoothstep(0.006, 0.006 + max(fp * 1.1, 0.002), de), fade = smoothstep(0.02, 0.1, fp), rnd = hash12(id + 3.0);
+  float2 hp = frac(uv / 0.9 + 0.5) - 0.5; float hole = (1.0 - smoothstep(0.0, 0.018 + fp * 0.8, length(hp * 0.9) - 0.018)) * (1.0 - fade);
+  float3 c = baseCol * (0.86 + 0.24 * rnd) * (0.9 + 0.2 * fbmAA(uv, fp, 45.0)) * (1.0 - 0.45 * hole);
+  h = (-joint * 0.008 - hole * 0.004) * (1.0 - fade);
+  return lerp(lerp(c, c * 0.35, joint), baseCol * 0.95, fade);
+}
+// Render (stucco): a fine grainy coat, uneven in tone, with hairline cracks and the odd damp stain.
+float3 StuccoSurface(float2 uv, float fp, float3 baseCol, out float h) {
+  float g = fbmAA(uv, fp, 55.0), b = fbmAA(uv + 7.0, fp, 1.3), fade = smoothstep(0.02, 0.12, fp);
+  float crack = (fp < 0.04) ? Thin(CellEdge(uv + 3.0, 1.3), 0.0035, fp) * smoothstep(0.55, 0.8, fbmAA(uv, fp, 0.5)) : 0.0;
+  float3 c = baseCol * (0.9 + 0.2 * g) * (0.88 + 0.24 * b) * (1.0 - 0.5 * crack);
+  h = (g - 0.5) * 0.004 * (1.0 - fade) - crack * 0.002;
+  return c;
+}
+// Metal cladding: ribbed sheets 0.45 m wide with standing seams, a horizontal joint every 2.4 m, each sheet a slightly different shade, streaked where water runs.
+float3 PanelSurface(float2 uv, float fp, float3 baseCol, out float h, out float rough) {
+  float x = uv.x / 0.45, f = frac(x), id = floor(x), seam = 1.0 - smoothstep(0.0, 0.02 + fp / 0.45, min(f, 1.0 - f)), fade = smoothstep(0.01, 0.05, fp);
+  float rib = sin(uv.x / 0.075 * 6.2831853) * (1.0 - fade), hj = 1.0 - smoothstep(0.004, 0.004 + max(fp, 0.0015), abs(frac(uv.y / 2.4 + 0.5) - 0.5) * 2.4);
+  float tone = 0.9 + 0.18 * hash12(float2(id, floor(uv.y / 2.4))), streak = 0.9 + 0.2 * fbmAA(float2(uv.x * 4.0, uv.y * 0.12), fp, 1.0);
+  h = rib * 0.006 - seam * 0.004 - hj * 0.003; rough = 0.34 + 0.1 * (1.0 - fade) * rib * 0.0 + 0.2 * fade;
+  return baseCol * tone * streak * (1.0 - 0.35 * seam) * (1.0 - 0.3 * hj) * (1.0 + 0.1 * rib);
 }
 // A room behind a window, by interior mapping: the view ray is walked into a box the size of the window bay and meets the back wall, a side
 // wall, the floor or the ceiling. cp = where the ray enters, in metres from the bay's lower left corner; d = the ray in the wall's frame
@@ -173,7 +210,7 @@ PSOut PSMain(V i) {
       roughW = 0.8;
     } else {                                                      // houses and low-rise: small windows, plain walls with horizontal siding lines
       float inW = step(0.27, f.x) * step(f.x, 0.73) * step(0.3, f.y) * step(f.y, 0.78); glassAmt = inW * wall * step(2.0, h);
-      wallCol *= 1.0 - 0.08 * step(0.5, frac(h * 2.4)) * (1.0 - fade); roughW = 0.75;
+      wallCol *= 1.0 - 0.08 * step(0.5, frac(h * 2.4)) * (1.0 - fade) * step(i.var, 0.4); roughW = 0.75;
     }
     glassAmt = lerp(glassAmt, 0.0, 0.0) * step(2.0, h + (style < 0.34 ? 3.0 : 0.0));
     float shopEdge = 9.0;
@@ -203,16 +240,28 @@ PSOut PSMain(V i) {
     lit = step(0.78, rnd) * (style < 0.34 ? 0.8 : 1.0);
     // --- Surface character: brick or panelled concrete, recessed glass, dirt, and the relief that catches the low sun.
     float relief = -0.09 * glassAmt;                                                       // glass sits back from the wall
-    float3 baseW = wallCol; float bh = 0.0;
-    if (style >= 0.34 && style < 0.67 && glassAmt < 0.5 && !shop) { float3 b = BrickSurface(i.uv, fpUV, wallCol, bh); wallCol = lerp(wallCol, b, 0.85 * wall); relief += bh * wall; }
-    else if (style >= 0.67 && glassAmt < 0.5 && !shop) { float sid = frac(h * 2.4); relief += -0.012 * smoothstep(0.0, 0.18, sid) * (1.0 - smoothstep(0.18, 0.4, sid)) * (1.0 - fade) * wall; }   // lapped siding
-    else if (style < 0.34) { relief += 0.025 * spand * wall; float seam = 1.0 - smoothstep(0.0, 0.02 + fpUV, abs(frac(i.uv.x / 1.5) - 0.5) * 3.0 - 1.45); relief -= 0.01 * seam * spand; }
+    float3 baseW = wallCol; float bh = 0.0, metalW = 0.0; float vr = i.var;                 // vr picks what this building is clad in
+    if (style >= 0.34 && style < 0.67 && glassAmt < 0.5 && !shop) {
+      float3 b;
+      if (vr < 0.42) b = BrickSurface(i.uv, fpUV, wallCol, bh);
+      else if (vr < 0.68) b = StoneSurface(i.uv, fpUV, lerp(wallCol, float3(0.74, 0.69, 0.60), 0.55), bh);
+      else if (vr < 0.90) b = PrecastSurface(i.uv, fpUV, lerp(wallCol, float3(0.62, 0.62, 0.60), 0.6), bh);
+      else { b = PanelSurface(i.uv, fpUV, lerp(wallCol, float3(0.46, 0.51, 0.56), 0.6), bh, roughW); metalW = 0.55; }
+      wallCol = lerp(wallCol, b, 0.9 * wall); relief += bh * wall;
+    }
+    else if (style >= 0.67 && glassAmt < 0.5 && !shop) {
+      if (vr < 0.4) { float sid = frac(h * 2.4); relief += -0.012 * smoothstep(0.0, 0.18, sid) * (1.0 - smoothstep(0.18, 0.4, sid)) * (1.0 - fade) * wall; }   // lapped siding
+      else if (vr < 0.72) { float3 b = StuccoSurface(i.uv, fpUV, lerp(wallCol, float3(0.86, 0.80, 0.70), 0.5), bh); wallCol = lerp(wallCol, b, wall); relief += bh * wall; }   // render
+      else { float3 b = BrickSurface(i.uv, fpUV, wallCol, bh); wallCol = lerp(wallCol, b, 0.85 * wall); relief += bh * wall; }
+    }
+    else if (style < 0.34) { if (vr > 0.66 && glassAmt < 0.5) { float3 b = StoneSurface(i.uv, fpUV, float3(0.70, 0.66, 0.58), bh); wallCol = lerp(wallCol, b, 0.9 * wall); relief += bh * wall; }   // a stone-clad tower: pale piers and spandrels between the glass
+      relief += 0.025 * spand * wall; float seam = 1.0 - smoothstep(0.0, 0.02 + fpUV, abs(frac(i.uv.x / 1.5) - 0.5) * 3.0 - 1.45); relief -= 0.01 * seam * spand; }
     // Concrete grain, weathering streaks running down from sills and ledges, and a darker base where the street splashes up.
     float stain = fbmAA(float2(i.uv.x * 1.8, i.uv.y * 0.09), fpUV, 1.0), grain = fbmAA(i.uv * 9.0, fpUV, 1.0);
     wallCol *= (0.86 + 0.28 * grain) * (0.8 + 0.4 * stain) * lerp(0.62, 1.0, smoothstep(0.0, 3.5, h)) * (1.0 - 0.14 * saturate((1.2 - fromTop) * 0.8));
     wallCol *= 1.0 - 0.22 * (1.0 - fade) * step(0.12, frac(g.y) ) * step(frac(g.y), 0.4) * (1.0 - glassAmt) * (style >= 0.34 ? 1.0 : 0.0) * stain;
     float3 nW = BumpNormal(n, i.wpos, relief, 1.2 * (1.0 - smoothstep(60.0, 220.0, dist)) * (1.0 - saturate(fpUV * 30.0)));   // relief finer than a few pixels is left out, so oblique brick never rings
-    float3 wallLit = Shade(wallCol, 0.0, roughW, nW, v, sh);
+    float3 wallLit = Shade(wallCol, metalW, roughW, nW, v, sh);
     // --- Windows: what is behind the glass (curtains, blinds, a dark room or a lit one) and a reflection of the street opposite.
     float nv = saturate(dot(n, v)), F = 0.05 + 0.95 * pow(1.0 - nv, 4.0), glassK = style < 0.34 ? 0.62 : 0.42;
     float r1 = hash12(cid * 2.3 + 11.0), r2 = hash12(cid * 3.1 + 29.0), dayK = saturate(gWeather.w);
