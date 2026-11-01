@@ -12,6 +12,7 @@ const defaults = {
   steerAssist: true,
   sens: 1,
   sound: true, volume: 0.8,
+  music: true,          // the player's own song during the police chase (see chasemusic.js)
   traffic: 'normal',    // off | light | normal | heavy
   camera: 0,
   touchSteer: 'buttons', // buttons | tilt

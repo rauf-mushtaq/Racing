@@ -30,6 +30,7 @@ import { HUD } from './hud.js';
 import { Input } from './input.js';
 import { Driver } from './driver.js';
 import { AudioEngine } from './audio.js';
+import { ChaseMusic } from './chasemusic.js';
 import { EVENTS, buildRoute, Gates, inCheckpoint } from './events.js';
 import { installAtmosphere } from './atmos.js';
 import { AOPass } from './ao.js';
@@ -153,6 +154,8 @@ const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
 const audio = new AudioEngine();
+const chaseMusic = new ChaseMusic(audio); chaseMusic.load();   // the player's own song for the chase, if they have chosen one (see chasemusic.js)
+function applyVolume() { audio.setVolume(settings.volume, settings.sound); chaseMusic.setVolume(settings.volume, settings.sound && settings.music); }
 const START = { x: laneOffset(0, 1), z: 3 * SP - 60, h: Math.PI };
 
 async function build() {
@@ -291,6 +294,7 @@ function setState(s) {
   document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
   if (s !== 'race' && s !== 'countdown' && s !== 'map') { hud && hud.race(null); if (s !== 'free' && hud) hud.nav(null); }
   if (hud) hud.resize();
+  if (s === 'chaseEnd') chaseMusic.stop(); else chaseMusic.set(!!game.chaseOn && (s === 'free' || s === 'countdown'));   // chase music: heard while driving in a chase, paused in menus, faded out at the end
 }
 
 // --- The police chase ---------------------------------------------------------------------------------------------------
@@ -308,12 +312,12 @@ function startChase() {
   traffic.setDensity(settings.traffic === 'off' ? 'light' : settings.traffic, car);
   for (const c of traffic.cars) traffic.spawn(c, car, 40, 500, true);
   driver.reset(); game.gprev = {};
-  police.start(car, traffic);
+  police.start(car, traffic); applyVolume(); if (settings.music) chaseMusic.start();
   setState('free'); hud.toast('THE POLICE ARE ON YOU', 2.2); audio.beep(880, 0.12); setTimeout(() => audio.beep(660, 0.2), 140);
 }
 function endChase() {
   if (!game.chaseOn && carMesh === heroMesh) return;
-  game.chaseOn = false; police.stop(); audio.siren(0, 0); swapCar('hero'); hud.chase(null);
+  game.chaseOn = false; police.stop(); chaseMusic.stop(); audio.siren(0, 0); swapCar('hero'); hud.chase(null);
 }
 function chaseResult() {
   const P = police, t = P.time, won = P.result === 'escaped';
@@ -453,8 +457,8 @@ $('cam-btn').addEventListener('click', e => { e.stopPropagation(); nextCamera();
 input.on('reset', () => { if ((game.state === 'free' || game.state === 'race') && !game.chaseOn) respawnOnRoad(); });
 input.on('shiftUp', () => { if (!car.auto) car.shift(1); });
 input.on('shiftDown', () => { if (!car.auto) car.shift(-1); });
-input.on('mute', () => { settings.sound = !settings.sound; save(); audio.setVolume(settings.volume, settings.sound); hud.toast(settings.sound ? 'SOUND ON' : 'SOUND OFF', 1); });
-input.on('any', () => { audio.init(); audio.setVolume(settings.volume, settings.sound); });
+input.on('mute', () => { settings.sound = !settings.sound; save(); applyVolume(); hud.toast(settings.sound ? 'SOUND ON' : 'SOUND OFF', 1); });
+input.on('any', () => { audio.init(); applyVolume(); });
 input.on('wheel', () => { if (!settings.wheel || !settings.wheel.gas) hud.toast('Wheel connected: set up pedals in Settings', 3.5); });
 input.bindTouch($('touch'));
 document.addEventListener('pointerdown', () => input.emit('any'), { passive: true });
@@ -491,6 +495,27 @@ function eventsPanel() {
   panel.querySelectorAll('[data-ev]').forEach(b => b.addEventListener('click', () => { hidePanel(); startEvent(EVENTS[+b.dataset.ev]); }));
 }
 
+// The chase music row: the song's name, and buttons to pick a file from the device or forget it (shown in the chase panel and in the settings).
+function musicRowHtml() {
+  return `<div class="row"><label>Your chase song<br><span class="hint" id="cm-state"></span></label><div class="seg"><button id="cm-pick">Choose a song</button><button id="cm-clear">Remove</button></div>
+    <input type="file" id="cm-file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" style="display:none"></div>`;
+}
+function musicRowInit() {
+  const state = $('cm-state'); if (!state) return;
+  const show = (msg) => {
+    state.textContent = msg || (chaseMusic.failed ? 'This browser cannot play that file' : chaseMusic.has ? chaseMusic.name + (chaseMusic.kept ? '' : ' (this session only)') : 'None chosen: pick the song file you own (the James Bond theme, for example)');
+    $('cm-clear').style.display = chaseMusic.has ? '' : 'none';
+  };
+  chaseMusic.onChange = () => show();
+  show();
+  $('cm-pick').addEventListener('click', () => $('cm-file').click());
+  $('cm-file').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return;
+    show('Loading…'); const err = await chaseMusic.choose(f); show(err || undefined);
+    if (!err) hud.toast('Chase music set: ' + chaseMusic.name, 2.2);
+  });
+  $('cm-clear').addEventListener('click', async () => { await chaseMusic.remove(); show(); });
+}
 function chasePanel() {
   const best = settings.chaseBest != null ? `Your fastest escape: <b>${fmtTime(settings.chaseBest)}</b>` : 'You have not got away yet.';
   showPanel(`<h2>POLICE CHASE</h2>
@@ -501,7 +526,10 @@ function chasePanel() {
       <kbd>I / 5</kbd><span>Smoke screen (cops can't see through it)</span><kbd>H / 6</kbd><span>Armour shield</span>
     </div>
     <p class="hint" style="margin-top:12px">On a tablet the gadget buttons appear on the right. Ammo slowly refills. Nitro (NOS) and the handbrake work as always.</p>
+    ${musicRowHtml()}
+    <p class="hint" style="margin:6px 0 12px">Your song plays during the chase. It stays on this device: the game does not include or upload it.</p>
     <button class="big" id="chase-go">START THE CHASE</button>`);
+  musicRowInit();
   $('chase-go').addEventListener('click', () => { hidePanel(); startChase(); });
 }
 
@@ -532,6 +560,7 @@ const SETTINGS = [
   { key: 'traffic', label: 'Traffic', opts: [['off', 'Off'], ['light', 'Light'], ['normal', 'Normal'], ['heavy', 'Heavy']] },
   { key: 'touchSteer', label: 'Touch steering', opts: [['buttons', 'Buttons'], ['tilt', 'Tilt']] },
   { key: 'sound', label: 'Sound', opts: [[true, 'On'], [false, 'Off']] },
+  { key: 'music', label: 'Chase music', opts: [[true, 'On'], [false, 'Off']] },
   { key: 'volume', label: 'Volume', opts: [[0.3, '30%'], [0.55, '55%'], [0.8, '80%'], [1, '100%']] },
 ];
 function settingsPanel(el) {
@@ -541,15 +570,17 @@ function settingsPanel(el) {
   const w = settings.wheel || {};
   el.innerHTML = `<h2>SETTINGS</h2>${rows}
     <div class="row"><label>Steering wheel & pedals<br><span class="hint" id="wheel-state">${w.gas ? 'Set up' : 'Not set up'}</span></label><div class="seg"><button id="wheel-setup">Set up</button><button id="wheel-clear">Clear</button></div></div>
+    ${musicRowHtml()}
     <div class="row"><label>Fullscreen <span class="hint">(F)</span></label><div class="seg"><button id="fs-toggle">Toggle</button></div></div>`;
   el.classList.remove('hidden');
+  musicRowInit();
   el.querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', async () => {
     const key = b.dataset.s, v = JSON.parse(b.dataset.v), spec = SETTINGS.find(s => s.key === key);
     if (key === 'touchSteer' && v === 'tilt') { const ok = await input.enableTilt(); if (!ok) { hud.toast('Tilt is not available', 2); return; } }
     settings[key] = v; save();
     el.querySelectorAll(`[data-s="${key}"]`).forEach(x => x.classList.toggle('on', x === b));
     if (spec.reload) { location.reload(); return; }
-    applyAids(); audio.setVolume(settings.volume, settings.sound); $('fps').classList.toggle('hidden', !settings.fps);
+    applyAids(); applyVolume(); $('fps').classList.toggle('hidden', !settings.fps);
     if (key === 'traffic') traffic.setDensity(settings.traffic, car);
     document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
   }));
