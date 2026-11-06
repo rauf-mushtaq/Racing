@@ -352,10 +352,11 @@ export class PoliceChase {
     // Who can see you?
     let any = false; this.nearest = 1e9;
     for (const c of this.cops) {
-      c.seeT -= dt; if (c.seeT <= 0) { c.seeT = 0.1 + rnd() * 0.05; c.sees = !c.wreck && this.canSee(c.x, c.z, p.x, p.z, p.sight || 230); }     // (on foot you are seen from less far, and less still crouching)
+      c.seeT -= dt; if (c.seeT <= 0) { c.seeT = 0.1 + rnd() * 0.05; c.sees = !c.wreck && this.canSee(c.x, c.z, p.x, p.z, p.sight || 200); }     // (on foot you are seen from less far, and less still crouching)
       if (c.wreck) c.sees = false;
       if (c.sees) any = true; if (!c.wreck) this.nearest = Math.min(this.nearest, Math.hypot(c.x - p.x, c.z - p.z));
     }
+    if (this.time < 6) any = true;                                                   // the first few seconds: the radio has told them just where you are
     this.spotted = any; if (any) { this.lastSeenX = p.x; this.lastSeenZ = p.z; }
     this.spotCool -= dt;
     if (this.spotted !== this.wasSpotted) { if (this.spotCool <= 0 && this.time > 4) { this.messages.push(this.spotted ? 'SPOTTED' : 'OUT OF SIGHT - STAY HIDDEN'); this.spotCool = 3; } this.wasSpotted = this.spotted; }

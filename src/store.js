@@ -13,6 +13,7 @@ const defaults = {
   sens: 1,
   sound: true, volume: 0.8,
   music: true,          // the player's own song during the police chase (see chasemusic.js)
+  crowd: 1,             // how many pedestrians (0 none, 0.5 few, 1 normal)
   rain: false,          // rain and wet roads (live; works at any time of day)
   traffic: 'normal',    // off | light | normal | heavy
   camera: 0,

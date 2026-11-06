@@ -198,7 +198,7 @@ async function build() {
   rain = new Rain(scene);
   worldFx = new Particles(scene); debris = new Debris(scene, city.props, worldFx); debris.onClang = (k, v) => audio.clang(v);
   gates = new Gates(scene);
-  peds = new Peds(scene, Q.peds, Q.shadows); peds.setCount(Q.peds); peds.onHit = (p, sp) => { audio.thump(0.35); crime(0.6, 'ped'); };
+  peds = new Peds(scene, Q.peds, Q.shadows); peds.setCount(Math.round(Q.peds * (settings.crowd ?? 1))); peds.onHit = (p, sp) => { audio.thump(0.35); crime(0.6, 'ped'); };
   walker = new Walker(scene, settings.outfit); walker.onStep = (v, kind) => audio.step(v, kind); footCam = new FootCamera();
   hud = new HUD();
   car.reset(START.x, START.z, START.h);
@@ -667,7 +667,7 @@ function garagePanel() {
   }));
   // The character stands beside the car while you choose.
   const hx = Math.cos(car.h), hz = -Math.sin(car.h);
-  walker.place(car.x - hx * 2.6 + Math.sin(car.h) * 0.6, car.z - hz * 2.6 + Math.cos(car.h) * 0.6, car.h + 0.9);
+  walker.place(car.x + 1.45, car.z + 3.1, 1.15);             // (in front of the car as the Garage camera sees it, a little to the left, looking at the camera)
 }
 
 const SETTINGS = [
@@ -685,6 +685,7 @@ const SETTINGS = [
   { key: 'traffic', label: 'Traffic', opts: [['off', 'Off'], ['light', 'Light'], ['normal', 'Normal'], ['heavy', 'Heavy']] },
   { key: 'touchSteer', label: 'Touch steering', opts: [['buttons', 'Buttons'], ['tilt', 'Tilt']] },
   { key: 'rain', label: 'Rain', opts: [[false, 'Off'], [true, 'On']] },
+  { key: 'crowd', label: 'People on the streets', opts: [[0, 'None'], [0.5, 'Few'], [1, 'Normal']] },
   { key: 'sound', label: 'Sound', opts: [[true, 'On'], [false, 'Off']] },
   { key: 'music', label: 'Chase music', opts: [[true, 'On'], [false, 'Off']] },
   { key: 'volume', label: 'Volume', opts: [[0.3, '30%'], [0.55, '55%'], [0.8, '80%'], [1, '100%']] },
@@ -706,7 +707,7 @@ function settingsPanel(el) {
     settings[key] = v; save();
     el.querySelectorAll(`[data-s="${key}"]`).forEach(x => x.classList.toggle('on', x === b));
     if (spec.reload) { location.reload(); return; }
-    applyAids(); applyVolume(); applyWeather(); $('fps').classList.toggle('hidden', !settings.fps);
+    applyAids(); applyVolume(); applyWeather(); if (key === 'crowd') peds.setCount(Math.round(Q.peds * settings.crowd)); $('fps').classList.toggle('hidden', !settings.fps);
     if (key === 'traffic') traffic.setDensity(settings.traffic, car);
     document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
   }));
@@ -881,9 +882,10 @@ function updateCamera(dt, pose) {
   if (game.state === 'menu') {
     game.menuT += dt;
     const a = pose.h + Math.PI + 0.9 + Math.sin(game.menuT * 0.12) * 0.9;
-    const d = game.garage ? 5.6 : 7.4;
-    camPos.set(pose.x + Math.sin(a) * d, carY + (game.garage ? 1.3 : 1.7), pose.z + Math.cos(a) * d);
-    camLook.set(pose.x + (game.garage ? 0 : f[0] * 2.5), carY + 0.65, pose.z + (game.garage ? 0 : f[1] * 2.5));
+    const person = game.garage && walker.active, d = game.garage ? (person ? 7.2 : 5.6) : 7.4;
+    const mx = person ? (pose.x + walker.x) / 2 : pose.x, mz = person ? (pose.z + walker.z) / 2 : pose.z;
+    camPos.set(mx + Math.sin(a) * d, carY + (game.garage ? 1.5 : 1.7), mz + Math.cos(a) * d);
+    camLook.set(mx + (game.garage ? 0 : f[0] * 2.5) + (game.garage ? Math.cos(a) * 1.7 : 0), carY + (person ? 0.85 : 0.65), mz + (game.garage ? 0 : f[1] * 2.5) - (game.garage ? Math.sin(a) * 1.7 : 0));      // (in the Garage the subject is nudged left, clear of the panel)
     camera.position.copy(camPos); camera.lookAt(camLook); camInit = false;
   } else if (game.camMode <= 1) {
     // Wide chase (the default: higher and further back, so you see more of the
