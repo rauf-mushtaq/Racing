@@ -30,12 +30,12 @@ export class AudioEngine {
         const g = ctx.createGain(); g.gain.value = 0; src.connect(flt); flt.connect(g); g.connect(comp); src.start();
         return { flt, g };
       };
-      const tyre = noise('bandpass', 1100, 6), wind = noise('lowpass', 500, 0.7), intake = noise('bandpass', 400, 1.2), nitro = noise('highpass', 2500, 0.7), city = noise('lowpass', 230, 0.6);
+      const tyre = noise('bandpass', 1100, 6), wind = noise('lowpass', 500, 0.7), intake = noise('bandpass', 400, 1.2), nitro = noise('highpass', 2500, 0.7), city = noise('lowpass', 230, 0.6), rainN = noise('highpass', 3200, 0.45);
       // The siren: a two-tone, through a band-pass so it sounds like a horn in the street rather than a test tone.
       const sirenO = ctx.createOscillator(); sirenO.type = 'sawtooth'; sirenO.frequency.value = 650;
       const sirenF = ctx.createBiquadFilter(); sirenF.type = 'bandpass'; sirenF.frequency.value = 1100; sirenF.Q.value = 0.9;
       const sirenG = ctx.createGain(); sirenG.gain.value = 0; sirenO.connect(sirenF); sirenF.connect(sirenG); sirenG.connect(comp); sirenO.start();
-      Object.assign(this, { ctx, master, eGain, eFilt, oscs, tyre, wind, intake, nitro, city, buf, comp, sirenO, sirenG });
+      Object.assign(this, { ctx, master, eGain, eFilt, oscs, tyre, wind, intake, nitro, city, rainN, buf, comp, sirenO, sirenG });
     } catch (e) { this.ctx = null; }
   }
   setVolume(v, enabled) {
@@ -61,6 +61,7 @@ export class AudioEngine {
   }
   // The low murmur of the city (traffic far off), louder when you are on foot.
   hum(v) { if (this.ctx) this.city.g.gain.setTargetAtTime(v, this.ctx.currentTime, 0.4); }
+  rain(v) { if (this.ctx) this.rainN.g.gain.setTargetAtTime(v, this.ctx.currentTime, 0.5); }
   // The police siren at a distance-based level (0 silent to 1 right behind you).
   siren(level, clock) {
     if (!this.ctx) return;

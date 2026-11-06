@@ -40,6 +40,7 @@ import { Debris } from './breakables.js';
 import { Particles } from './particles.js';
 import { Peds } from './peds.js';
 import { Headlights } from './lights.js';
+import { Rain } from './rain.js';
 import { OUTFITS } from './person.js';
 
 const loadMsg = t => { $('load-msg').textContent = t; };
@@ -156,7 +157,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null;
+let grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -194,6 +195,7 @@ async function build() {
   police.onCrash = j => { const k = Math.min(1, j / 25000); audio.thump(0.2 + k); game.shake = Math.max(game.shake, k * 0.6); };
   fx = new FX(scene);
   if (TOD.lampsOn) { beams = new Headlights(scene); traffic.beams = beams; police.beams = beams; }
+  rain = new Rain(scene);
   worldFx = new Particles(scene); debris = new Debris(scene, city.props, worldFx); debris.onClang = (k, v) => audio.clang(v);
   gates = new Gates(scene);
   peds = new Peds(scene, Q.peds, Q.shadows); peds.setCount(Q.peds); peds.onHit = (p, sp) => { audio.thump(0.35); crime(0.6, 'ped'); };
@@ -205,6 +207,7 @@ async function build() {
   setupProbe();
   if (Q.csm) setupCSM();
   if (!TOD.lampsOn) addFlare();
+  applyWeather();
   resize();
   loadMsg('Warming up…'); await nextFrame();
   renderer.compile(scene, camera);
@@ -276,6 +279,18 @@ function addFlare() {
   game.flare = g;
 }
 
+// Rain (a setting that takes effect at once): streaks falling past the camera, wet shiny roads and pavements, thicker haze, the sound of it.
+function applyWeather() {
+  const on = !!settings.rain;
+  if (rain) rain.visible = on;
+  if (city && city.mat) {
+    const a = city.mat.asphalt, w = city.mat.walk, wet = on || !!TOD.wet;
+    a.roughness = wet ? 0.4 : 0.66; a.envMapIntensity = wet ? 2.0 : 1.1; a.normalScale.setScalar(wet ? 0.4 : 0.8);
+    w.roughness = wet ? 0.6 : 0.92; w.envMapIntensity = wet ? 1.5 : 1;
+  }
+  if (scene.fog) scene.fog.density = TOD.fogDensity * (on ? 1.7 : 1);
+  audio.rain(on ? 0.05 : 0);
+}
 function applyAids() {
   car.abs = settings.abs; car.tcs = settings.tcs; car.esp = settings.esp; car.auto = game.chaseOn ? true : settings.auto; car.steerAssist = settings.steerAssist;
 }
@@ -553,7 +568,7 @@ input.on('reset', () => { if ((game.state === 'free' || game.state === 'race') &
 input.on('shiftUp', () => { if (game.onFoot) input.emit('use'); else if (!car.auto) car.shift(1); });
 input.on('shiftDown', () => { if (!car.auto) car.shift(-1); });
 input.on('mute', () => { settings.sound = !settings.sound; save(); applyVolume(); hud.toast(settings.sound ? 'SOUND ON' : 'SOUND OFF', 1); });
-input.on('any', () => { audio.init(); applyVolume(); chaseMusic.unlock(); });
+input.on('any', () => { audio.init(); applyVolume(); chaseMusic.unlock(); audio.rain(settings.rain ? 0.05 : 0); });
 input.on('wheel', () => { if (!settings.wheel || !settings.wheel.gas) hud.toast('Wheel connected: set up pedals in Settings', 3.5); });
 input.bindTouch($('touch'));
 canvas.addEventListener('click', () => { if (game.onFoot && game.state === 'free' && !LOW_POWER && input.lastDevice !== 'touch' && !document.pointerLockElement && canvas.requestPointerLock) { try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* not allowed */ } } });
@@ -669,6 +684,7 @@ const SETTINGS = [
   { key: 'sens', label: 'Wheel / stick sensitivity', opts: [[0.6, '60%'], [0.8, '80%'], [1, '100%'], [1.25, '125%'], [1.5, '150%']] },
   { key: 'traffic', label: 'Traffic', opts: [['off', 'Off'], ['light', 'Light'], ['normal', 'Normal'], ['heavy', 'Heavy']] },
   { key: 'touchSteer', label: 'Touch steering', opts: [['buttons', 'Buttons'], ['tilt', 'Tilt']] },
+  { key: 'rain', label: 'Rain', opts: [[false, 'Off'], [true, 'On']] },
   { key: 'sound', label: 'Sound', opts: [[true, 'On'], [false, 'Off']] },
   { key: 'music', label: 'Chase music', opts: [[true, 'On'], [false, 'Off']] },
   { key: 'volume', label: 'Volume', opts: [[0.3, '30%'], [0.55, '55%'], [0.8, '80%'], [1, '100%']] },
@@ -690,7 +706,7 @@ function settingsPanel(el) {
     settings[key] = v; save();
     el.querySelectorAll(`[data-s="${key}"]`).forEach(x => x.classList.toggle('on', x === b));
     if (spec.reload) { location.reload(); return; }
-    applyAids(); applyVolume(); $('fps').classList.toggle('hidden', !settings.fps);
+    applyAids(); applyVolume(); applyWeather(); $('fps').classList.toggle('hidden', !settings.fps);
     if (key === 'traffic') traffic.setDensity(settings.traffic, car);
     document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
   }));
@@ -1086,6 +1102,7 @@ function tick(dt) {
   if (st !== 'menu' || game.garage) peds.render(camera, st === 'paused' || st === 'map' ? 0 : dt);
   if (game.chaseOn && st !== 'paused' && st !== 'map') police.draw(game.clock || 0, car, dt, carMesh, camera, renderer);
   if (beams) beams.end();
+  if (rain && rain.visible) rain.update(performance.now() / 1000, camera, !!TOD.night);
   if (st !== 'paused' && st !== 'map') debris.update(dt);
   worldFx.update(st === 'paused' || st === 'map' ? 0 : dt, camera, renderer);
   sky.dome.position.set(camera.position.x, 0, camera.position.z);
