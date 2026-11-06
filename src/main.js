@@ -10,8 +10,9 @@ import { $, clamp, damp, lerp, wrapAngle, LOW_POWER, fmtTime } from './util.js';
 import { settings, save } from './store.js';
 import { setAnisotropy, setTexScale, glowTex } from './textures.js';
 import { Q } from './quality.js';
+import { WIND } from './props.js';
 import { buildSky, placeSun, SUN_DIR, LIGHT_DIR } from './sky.js';
-import { City, SP, N, EDGE, laneOffset, queryColliders, signalState } from './city.js';
+import { City, SP, N, EDGE, laneOffset, queryColliders, signalState, breakProp } from './city.js';
 import { groundAt, ROADS, BUNKERS, AIRFIELD } from './world.js';
 import { buildTerrain } from './terrain.js';
 import { initRoads } from './roads.js';
@@ -34,6 +35,12 @@ import { ChaseMusic } from './chasemusic.js';
 import { EVENTS, buildRoute, Gates, inCheckpoint } from './events.js';
 import { installAtmosphere } from './atmos.js';
 import { AOPass } from './ao.js';
+import { Walker, FootCamera } from './walker.js';
+import { Debris } from './breakables.js';
+import { Particles } from './particles.js';
+import { Peds } from './peds.js';
+import { Headlights } from './lights.js';
+import { OUTFITS } from './person.js';
 
 const loadMsg = t => { $('load-msg').textContent = t; };
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -125,7 +132,7 @@ if (quality !== 'low') {
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
   if (Q.ao) { aoPass = new AOPass(camera, { radius: 2.0, gain: 3.2 }); composer.addPass(aoPass); }
-  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), (TOD.lampsOn ? 0.42 : 0.22) * Q.bloom, 0.55, TOD.lampsOn ? 0.92 : 1.6);
+  bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), (TOD.night ? 0.62 : TOD.lampsOn ? 0.42 : 0.22) * Q.bloom, 0.55, TOD.night ? 0.8 : TOD.lampsOn ? 0.92 : 1.6);
   composer.addPass(bloom);
   grade = new ShaderPass(GradeShader); composer.addPass(grade);
   if (aoPass) { grade.uniforms.tAO.value = aoPass.texture; grade.uniforms.uAO.value = 0.9; }
@@ -149,7 +156,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null;
+let grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -181,12 +188,16 @@ async function build() {
   // The police chase's grand tourer and its pursuers are built up front (hidden), so their materials are in the scene for the
   // shadows and reflections and their shaders compile now rather than in the middle of a chase.
   gtMesh = makeGT(); gtMesh.visible = false; scene.add(gtMesh);
-  police = new PoliceChase(scene);
-  police.onBoom = (x, z, power) => audio.boom(power * clamp(1.1 - Math.hypot(x - car.x, z - car.z) / 380, 0.12, 1));
+  police = new PoliceChase(scene); police.beams = null;
+  police.onBoom = (x, z, power) => { peds.scare(x, z, 70, 7); audio.boom(power * clamp(1.1 - Math.hypot(x - car.x, z - car.z) / 380, 0.12, 1)); };
   police.onGun = () => audio.gun(); police.onMissile = () => audio.whoosh(); police.onBeep = f => audio.beep(f, 0.12, 0.22);
   police.onCrash = j => { const k = Math.min(1, j / 25000); audio.thump(0.2 + k); game.shake = Math.max(game.shake, k * 0.6); };
   fx = new FX(scene);
+  if (TOD.lampsOn) { beams = new Headlights(scene); traffic.beams = beams; police.beams = beams; }
+  worldFx = new Particles(scene); debris = new Debris(scene, city.props, worldFx); debris.onClang = (k, v) => audio.clang(v);
   gates = new Gates(scene);
+  peds = new Peds(scene, Q.peds, Q.shadows); peds.setCount(Q.peds); peds.onHit = (p, sp) => { audio.thump(0.35); crime(0.6, 'ped'); };
+  walker = new Walker(scene, settings.outfit); walker.onStep = (v, kind) => audio.step(v, kind); footCam = new FootCamera();
   hud = new HUD();
   car.reset(START.x, START.z, START.h);
   traffic.setDensity(settings.traffic, car);
@@ -272,7 +283,7 @@ function applyAids() {
 // ---------------------------------------------------------------------------
 // Game state
 // ---------------------------------------------------------------------------
-const game = { state: 'loading', prev: null, route: null, waypoint: null, next: 0, t: 0, cdT: 0, camMode: settings.cam ?? 0, shake: 0, menuT: 0, garage: false, splits: [] };
+const game = { onFoot: false, state: 'loading', prev: null, route: null, waypoint: null, next: 0, t: 0, cdT: 0, camMode: settings.cam ?? 0, shake: 0, menuT: 0, garage: false, splits: [] };
 let carY = 0.0, camYaw = START.h, pitch = 0, roll = 0, pitchV = 0, rollV = 0;
 
 function setState(s) {
@@ -288,8 +299,13 @@ function setState(s) {
   $('bigmap').classList.toggle('hidden', s !== 'map');
   $('fps').classList.toggle('hidden', !settings.fps);
   const touch = (input.lastDevice === 'touch' || (LOW_POWER && input.lastDevice === 'keyboard')) && driving;
+  const foot = !!game.onFoot && s === 'free';
   $('touch').classList.toggle('hidden', !touch);
   document.body.classList.toggle('touchmode', touch);
+  document.body.classList.toggle('onfoot', foot); document.body.classList.toggle('footmode', touch && foot);
+  document.body.classList.toggle('nogad', !game.gadgets);
+  input.footMode = foot; if (!(touch && foot) && input.endStick) input.endStick();
+  if (!foot && document.pointerLockElement) { game.lockOff = true; try { document.exitPointerLock(); } catch (e) { /* ignore */ } }
   $('cam-name').textContent = CAMS[game.camMode] || '';
   document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
   if (s !== 'race' && s !== 'countdown' && s !== 'map') { hud && hud.race(null); if (s !== 'free' && hud) hud.nav(null); }
@@ -304,9 +320,68 @@ function swapCar(kind) {
   if (carMesh !== next) { carMesh.visible = false; carMesh = next; carMesh.visible = true; car.setSpec(kind === 'gt' ? GT_SPEC : SPEC); }
   game.head = null; applyAids();
 }
+// --- Walking, and getting in and out of the car -------------------------------------------------------------------------------
+const PARKED_INPUT = () => ({ steer: 0, gas: 0, brake: 0.6, handbrake: true, nitro: false, analog: true, sens: 1, device: 'keyboard' });
+const tmpQ = [];
+function nearCar() {
+  const fx = Math.sin(car.h), fz = Math.cos(car.h), dx = walker.x - car.x, dz = walker.z - car.z, t = clamp(dx * fx + dz * fz, -1.7, 1.7);
+  return Math.hypot(dx - fx * t, dz - fz * t) < 2.5 && Math.abs(walker.y - carY) < 1.5;
+}
+// Where the character steps out: beside a door, on the pavement if there is one and nothing is in the way.
+function exitSpot() {
+  const r = [-Math.cos(car.h), Math.sin(car.h)]; let best = null, bs = -1e9;
+  for (const side of [1, -1]) for (const d of [2.1, 3.0]) {
+    const x = car.x + r[0] * side * d, z = car.z + r[1] * side * d; queryColliders(x, z, 1.2, tmpQ);
+    const blocked = tmpQ.some(o => o.type === 'box' ? (x > o.x0 - 0.45 && x < o.x1 + 0.45 && z > o.z0 - 0.45 && z < o.z1 + 0.45) : Math.hypot(x - o.x, z - o.z) < o.r + 0.5);
+    const sc = (blocked ? -100 : 0) + (groundAt(x, z).y > 0.05 ? 10 : 0) + (side > 0 ? 1 : 0) - d;
+    if (sc > bs) { bs = sc; best = { x, z, side }; }
+  }
+  return best;
+}
+// The camera glides from where it was to where the new view puts it (getting in or out of the car).
+const blend = { t: 1, dur: 0.7, pos: new THREE.Vector3(), quat: new THREE.Quaternion(), fov: 60 };
+function beginBlend(dur = 0.7) { blend.t = 0; blend.dur = dur; blend.pos.copy(camera.position); blend.quat.copy(camera.quaternion); blend.fov = camera.fov; }
+function enterCar() {
+  if (!game.onFoot || game.state !== 'free' || !nearCar()) return false;
+  beginBlend(); game.onFoot = false; walker.show(false); audio.door(); audio.init();
+  camYaw = car.h; camInit = false; game.head = null; setState('free'); applyVolume();
+  return true;
+}
+function leaveCar() {
+  if (game.onFoot || game.state !== 'free') return false;
+  if (car.speed > 7) { hud.toast('SLOW DOWN FIRST', 1.1); return false; }
+  const sp = exitSpot(); beginBlend();
+  walker.place(sp.x, sp.z, car.h); footCam.reset(car.h); audio.door();
+  game.onFoot = true; game.head = null; setState('free');
+  return true;
+}
+input.on('use', () => { if (game.state !== 'free') return; if (game.onFoot) { if (!enterCar()) hud.toast('GET CLOSER TO THE CAR', 1.0); } else leaveCar(); });
+// Circles for the walker to bump into: your own car, the traffic and the parked cars near it.
+const _obs = [], _pool = Array.from({ length: 80 }, () => ({ x: 0, z: 0, r: 1 }));
+function obstacles(x, z) {
+  _obs.length = 0; let n = 0;
+  const circ = (cx, cz, r) => { if (n < _pool.length) { const o = _pool[n++]; o.x = cx; o.z = cz; o.r = r; _obs.push(o); } };
+  const addCar = (c, len, rad) => { const dx = c.x - x, dz = c.z - z; if (dx * dx + dz * dz > 100) return; const f = [Math.sin(c.h), Math.cos(c.h)], q = len * 0.5 - rad; for (const o of [-q, 0, q]) circ(c.x + f[0] * o, c.z + f[1] * o, rad); };
+  addCar(car, 4.6, 0.95);
+  for (const t of traffic.cars) if (t.active && t.pts) addCar(t, t.len || 4.6, t.rad || 0.95);
+  for (const p of city.parkedList()) addCar(p, 4.5, 0.95);
+  peds.near(x, z, circ);
+  return _obs;
+}
+function footUpdate(dt, raw) {
+  const f = raw.foot; walker.update(dt, f, footCam.yaw, obstacles);
+  walker.sight = walker.crouching ? 55 : walker.speed > 5 ? 150 : 100;
+  for (const t of traffic.cars) {                                       // a car that hits you knocks you down
+    if (!t.active || !t.pts || t.mode === 'wreck') continue; const dx = walker.x - t.x, dz = walker.z - t.z; if (dx * dx + dz * dz > 36) continue;
+    const v = traffic.velocityOf(t), sp = Math.hypot(v[0], v[1]); if (sp < 3.5) continue;
+    const fx = Math.sin(t.h), fz = Math.cos(t.h), a = clamp(dx * fx + dz * fz, -t.len / 2, t.len / 2), d = Math.hypot(dx - fx * a, dz - fz * a);
+    if (d < (t.rad || 0.95) + 0.3) { walker.knockDown(v[0] * 0.9 + (dx - fx * a) * 2, v[1] * 0.9 + (dz - fz * a) * 2); audio.thump(0.5); game.shake = Math.max(game.shake, 0.3); }
+  }
+}
+
 function startChase() {
   game.route = null; game.waypoint = null; gates.clear(); hud.race(null); hud.nav(null);
-  game.chaseOn = true; swapCar('gt');
+  game.chaseOn = true; game.gadgets = true; game.wanted = false; game.onFoot = false; walker.show(false); swapCar('gt');
   resetCar(START.x, START.z, START.h);
   city.loadNow(START.x, START.z, 1); terrain.loadNow(START.x, START.z, 1); if (grass) grass.now(START.x, START.z);
   traffic.setDensity(settings.traffic === 'off' ? 'light' : settings.traffic, car);
@@ -317,15 +392,27 @@ function startChase() {
 }
 function endChase() {
   if (!game.chaseOn && carMesh === heroMesh) return;
-  game.chaseOn = false; police.stop(); chaseMusic.stop(); audio.siren(0, 0); swapCar('hero'); hud.chase(null);
+  game.chaseOn = false; game.gadgets = false; game.wanted = false; police.stop(); chaseMusic.stop(); audio.siren(0, 0); swapCar('hero'); hud.chase(null);
+}
+// Free roam: back on your feet beside the parked car, a long way from where you were (the same spot every time you start).
+function placeOnFoot() {
+  resetCar(laneOffset(0, 2), START.z, START.h);
+  game.onFoot = true; walker.place(laneOffset(0, 2) + 5.6, START.z + 1.5, -Math.PI / 2 - 0.5); footCam.reset(-Math.PI / 2 - 0.3); beginBlend(1.0);
+}
+function resumeFreeRoam() {
+  endChase(); game.noWanted = (game.clock || 0) + 12; placeOnFoot(); setState('free'); hud.toast('BACK ON THE STREETS: walk to your car and press F', 3);
 }
 function chaseResult() {
   const P = police, t = P.time, won = P.result === 'escaped';
+  if (game.wanted && won) {                                                    // got away from a free-roam wanted level: carry on
+    hud.toast('YOU LOST THEM', 2.6); audio.beep(880, 0.2); setTimeout(() => audio.beep(1320, 0.3), 160); game.noWanted = (game.clock || 0) + 12; endChase(); setState('free'); return;
+  }
+  document.querySelector('[data-ce="retry"]').textContent = game.wanted ? 'BACK TO THE STREETS' : 'PLAY AGAIN';
   let newBest = false;
   if (won && (settings.chaseBest == null || t < settings.chaseBest)) { settings.chaseBest = t; save(); newBest = true; }
   $('ce-title').textContent = won ? 'YOU GOT AWAY' : P.result === 'busted' ? 'BUSTED' : 'WRECKED';
   $('ce-title').style.color = won ? '#7ff0a6' : '#ff6a5a';
-  $('ce-sub').textContent = won ? 'You lost them in the backstreets.' : P.result === 'busted' ? 'Boxed in and stopped: the police have you.' : 'The grand tourer is a burning wreck.';
+  $('ce-sub').textContent = won ? 'You stayed out of sight for a whole minute: they gave up.' : P.result === 'busted' ? (walker.active && game.onFoot ? 'Caught on foot: the police have you.' : 'Boxed in and stopped: the police have you.') : (game.gadgets ? 'The grand tourer is a burning wreck.' : 'Your car is a burning wreck.');
   const row = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`;
   $('ce-table').innerHTML = row('Time', fmtTime(t)) + row('Heat reached', '★'.repeat(P.maxStars)) + row('Police cars wrecked', P.kills) + row('Bystander cars wrecked', P.civilians) + row('Armour left', Math.round(P.health) + '%') +
     (settings.chaseBest != null ? row(newBest ? 'New best escape!' : 'Best escape', fmtTime(settings.chaseBest)) : '');
@@ -338,7 +425,9 @@ function chaseUpdate(dt, raw) {
   const inp = { fire: !!g.fire, missile: !!g.missile && !pv.missile, bomb: !!g.bomb && !pv.bomb, oil: !!g.oil && !pv.oil, smoke: !!g.smoke && !pv.smoke, shield: !!g.shield && !pv.shield };
   game.gprev = { ...g };
   police.clock = game.clock;
-  police.update(dt, car, traffic, game.state === 'free' ? inp : {});
+  const T = game.onFoot ? walker : car;                                      // who they are after
+  police.update(dt, T, traffic, game.state === 'free' && game.gadgets && !game.onFoot ? inp : {});
+  if (game.onFoot && walker.active && game.state === 'free') police.collideWalker(walker);
   for (const m of police.consumeMessages()) hud.toast(m, 1.9);
   game.shake = Math.max(game.shake, police.shake * 0.7);
   const level = police.result === 'running' ? clamp(1 - police.nearest / 300, 0, 1) ** 1.4 : 0;
@@ -352,12 +441,15 @@ function resetCar(x, z, h) {
 
 function startFree() {
   endChase(); game.route = null; gates.clear();
-  if (game.state === 'menu') resetCar(car.x, car.z, car.h);
-  setState('free'); hud.toast('FREE ROAM', 1.6);
+  if (game.state === 'menu') {
+    // Free roam starts on foot: the car is parked at the kerb and you are on the pavement beside it.
+    placeOnFoot();
+    setState('free'); hud.toast('FREE ROAM: walk to your car and press F', 3.4);
+  } else { setState('free'); hud.toast('FREE ROAM', 1.6); }
 }
 
 function startEvent(ev) {
-  endChase();
+  endChase(); game.onFoot = false; walker.show(false);
   const route = buildRoute(ev);
   game.route = route; game.next = 0; game.t = 0; game.cdT = 3.4; game.lastBeep = 4; game.splits = [];
   gates.build(route);
@@ -425,7 +517,9 @@ function toggleMap() {
   if (!['free', 'race', 'countdown'].includes(game.state)) return;
   game.prev = game.state; setState('map'); drawBigMap();
 }
-function drawBigMap() { hud.drawBigMap($('bigmap-c'), car, game.route, game.waypoint, settings.found); }
+const _mf = { x: 0, z: 0, h: 0 };
+function mapFocus() { if (!game.onFoot) return car; _mf.x = walker.x; _mf.z = walker.z; _mf.h = footCam.yaw; return _mf; }
+function drawBigMap() { const m = mapFocus(); hud.drawBigMap($('bigmap-c'), m, game.route, game.waypoint, settings.found); }
 input.on('map', toggleMap);
 $('map-btn').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
 $('bm-close').addEventListener('click', toggleMap);
@@ -449,18 +543,25 @@ input.on('back', () => { if (game.state === 'paused' || game.state === 'map') to
 const CAMS = ['WIDE CHASE', 'CLOSE CHASE', 'DRIVER VIEW', 'HOOD CAMERA', 'BUMPER CAMERA'];
 function nextCamera() {
   if (game.state === 'menu') return;
+  if (game.onFoot) { footCam.idle = 9; footCam.yaw = walker.h; hud.toast('CAMERA BEHIND YOU', 0.9); return; }
   game.camMode = (game.camMode + 1) % CAMS.length; settings.cam = game.camMode; save();
   hud.toast(CAMS[game.camMode], 1.2); $('cam-name').textContent = CAMS[game.camMode];
 }
 input.on('camera', nextCamera);
 $('cam-btn').addEventListener('click', e => { e.stopPropagation(); nextCamera(); });
-input.on('reset', () => { if ((game.state === 'free' || game.state === 'race') && !game.chaseOn) respawnOnRoad(); });
-input.on('shiftUp', () => { if (!car.auto) car.shift(1); });
+input.on('reset', () => { if ((game.state === 'free' || game.state === 'race') && !game.chaseOn && !game.onFoot) respawnOnRoad(); });
+input.on('shiftUp', () => { if (game.onFoot) input.emit('use'); else if (!car.auto) car.shift(1); });
 input.on('shiftDown', () => { if (!car.auto) car.shift(-1); });
 input.on('mute', () => { settings.sound = !settings.sound; save(); applyVolume(); hud.toast(settings.sound ? 'SOUND ON' : 'SOUND OFF', 1); });
-input.on('any', () => { audio.init(); applyVolume(); });
+input.on('any', () => { audio.init(); applyVolume(); chaseMusic.unlock(); });
 input.on('wheel', () => { if (!settings.wheel || !settings.wheel.gas) hud.toast('Wheel connected: set up pedals in Settings', 3.5); });
 input.bindTouch($('touch'));
+canvas.addEventListener('click', () => { if (game.onFoot && game.state === 'free' && !LOW_POWER && input.lastDevice !== 'touch' && !document.pointerLockElement && canvas.requestPointerLock) { try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* not allowed */ } } });
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement) { game.lockOff = false; return; }
+  if (game.lockOff) { game.lockOff = false; return; }
+  if (game.state === 'free' && game.onFoot) togglePause();          // Esc was used to let go of the mouse: that is a pause too
+});
 document.addEventListener('pointerdown', () => input.emit('any'), { passive: true });
 document.addEventListener('visibilitychange', () => { if (document.hidden) { audio.suspend(); if (['free', 'race', 'countdown'].includes(game.state)) togglePause(); } });
 
@@ -473,7 +574,7 @@ function hidePanel() { panel.classList.add('hidden'); }
 
 for (const b of document.querySelectorAll('[data-m]')) b.addEventListener('click', () => {
   document.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('sel', x === b));
-  game.garage = false;
+  game.garage = false; if (game.state === 'menu' && walker) walker.show(false);
   const m = b.dataset.m;
   if (m === 'free') { hidePanel(); startFree(); }
   else if (m === 'events') eventsPanel();
@@ -519,7 +620,7 @@ function musicRowInit() {
 function chasePanel() {
   const best = settings.chaseBest != null ? `Your fastest escape: <b>${fmtTime(settings.chaseBest)}</b>` : 'You have not got away yet.';
   showPanel(`<h2>POLICE CHASE</h2>
-    <p class="hint">The police want you, and you are driving a silver 1960s-style grand tourer with a few extras from the workshop. Get out of sight and stay hidden to lose them. The longer they see you the hotter it gets: more cruisers, then heavy pursuit trucks. Get wrecked, or boxed in and stopped, and it is over. ${best}</p>
+    <p class="hint">The police want you, and there are a lot of them. You are driving a silver 1960s-style grand tourer with a few extras from the workshop. To get away you must stay out of sight for a whole minute: being seen starts the minute again. The longer they see you the hotter it gets: more cruisers, then heavy pursuit trucks. You can even jump out and hide on foot (F; crouch with Z). Get wrecked, or boxed in and stopped, and it is over. ${best}</p>
     <div class="keys">
       <kbd>J / 1</kbd><span>Machine guns (hold; they overheat)</span><kbd>K / 2</kbd><span>Homing missile (locks on ahead)</span>
       <kbd>L / 3</kbd><span>Drop a proximity bomb</span><kbd>O / 4</kbd><span>Oil slick</span>
@@ -538,15 +639,24 @@ function garagePanel() {
   const sw = Object.entries(PAINTS).map(([k, p]) => `<button class="sw ${settings.color === k ? 'on' : ''}" data-c="${k}"><i style="background:#${p.color.toString(16).padStart(6, '0')}"></i>${p.name}</button>`).join('');
   showPanel(`<h2>VENTO SV</h2><p class="hint">A made-up mid-engined V12 supercar.</p>
     <div class="spec"><div><b>6.5 L</b>V12</div><div><b>690 Nm</b>torque</div><div><b>AWD</b>drive</div><div><b>340</b>km/h</div></div>
-    <div class="swatches">${sw}</div>`);
+    <div class="swatches">${sw}</div>
+    <h2 style="margin-top:20px">YOUR CHARACTER</h2><p class="hint">What you wear when you are on foot. Press F beside the car to get in or out.</p>
+    <div class="swatches">${Object.entries(OUTFITS).map(([k, o]) => `<button class="sw ${settings.outfit === k ? 'on' : ''}" data-o="${k}"><i style="background:linear-gradient(180deg,#${o.jacket.toString(16).padStart(6, '0')} 0 55%,#${o.pants.toString(16).padStart(6, '0')} 55% 100%)"></i>${o.name}</button>`).join('')}</div>`);
   panel.querySelectorAll('[data-c]').forEach(b => b.addEventListener('click', () => {
     settings.color = b.dataset.c; save(); setPaint(heroMesh, settings.color);
     panel.querySelectorAll('[data-c]').forEach(x => x.classList.toggle('on', x === b));
   }));
+  panel.querySelectorAll('[data-o]').forEach(b => b.addEventListener('click', () => {
+    settings.outfit = b.dataset.o; save(); walker.setOutfit(settings.outfit);
+    panel.querySelectorAll('[data-o]').forEach(x => x.classList.toggle('on', x === b));
+  }));
+  // The character stands beside the car while you choose.
+  const hx = Math.cos(car.h), hz = -Math.sin(car.h);
+  walker.place(car.x - hx * 2.6 + Math.sin(car.h) * 0.6, car.z - hz * 2.6 + Math.cos(car.h) * 0.6, car.h + 0.9);
 }
 
 const SETTINGS = [
-  { key: 'tod', label: 'Time of day', opts: [['golden', 'Golden hour'], ['day', 'Midday'], ['sunset', 'Sunset']], reload: true },
+  { key: 'tod', label: 'Time of day', opts: [['golden', 'Golden hour'], ['day', 'Midday'], ['sunset', 'Sunset'], ['night', 'Night']], reload: true },
   { key: 'quality', label: 'Graphics', opts: [['ultra', 'Ultra'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']], reload: true },
   { key: 'renderScale', label: 'Render scale', opts: [[0.75, '75%'], [1, '100%'], [1.25, '125%'], [1.5, '150%']], reload: true },
   { key: 'fps', label: 'FPS counter', opts: [[true, 'On'], [false, 'Off']] },
@@ -571,7 +681,7 @@ function settingsPanel(el) {
   el.innerHTML = `<h2>SETTINGS</h2>${rows}
     <div class="row"><label>Steering wheel & pedals<br><span class="hint" id="wheel-state">${w.gas ? 'Set up' : 'Not set up'}</span></label><div class="seg"><button id="wheel-setup">Set up</button><button id="wheel-clear">Clear</button></div></div>
     ${musicRowHtml()}
-    <div class="row"><label>Fullscreen <span class="hint">(F)</span></label><div class="seg"><button id="fs-toggle">Toggle</button></div></div>`;
+    <div class="row"><label>Fullscreen <span class="hint">(Shift+F)</span></label><div class="seg"><button id="fs-toggle">Toggle</button></div></div>`;
   el.classList.remove('hidden');
   musicRowInit();
   el.querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', async () => {
@@ -605,22 +715,25 @@ function wheelSetup() {
 function controlsPanel() {
   showPanel(`<h2>CONTROLS</h2>
   <div class="keys">
+    <kbd>F</kbd><span>Get in or out of the car (beside it, or when stopped)</span>
+    <kbd>W A S D</kbd><span>On foot: walk. <kbd>Shift</kbd> sprint, <kbd>Space</kbd> jump, <kbd>Z</kbd> or <kbd>Ctrl</kbd> crouch (harder to spot)</span>
+    <kbd>Mouse</kbd><span>On foot: click the game to look around with the mouse (Esc lets go), or <kbd>J</kbd> <kbd>L</kbd> <kbd>I</kbd> <kbd>K</kbd> turn the camera</span>
     <kbd>W / ↑</kbd><span>Throttle</span><kbd>S / ↓</kbd><span>Brake, and reverse when stopped</span>
     <kbd>A D / ← →</kbd><span>Steer</span><kbd>Space</kbd><span>Handbrake (drift)</span>
     <kbd>Shift / N</kbd><span>Nitro (refills as you drive)</span><kbd>Q / E</kbd><span>Shift down / up (manual gearbox)</span>
     <kbd>C</kbd><span>Change camera</span><kbd>R</kbd><span>Back on the road</span><kbd>Esc / P</kbd><span>Pause</span><kbd>U</kbd><span>Sound on/off</span>
-    <kbd>Tab / M</kbd><span>City map (click it to set a waypoint)</span><kbd>F</kbd><span>Fullscreen</span>
+    <kbd>Tab / M</kbd><span>City map (click it to set a waypoint)</span><kbd>Shift+F</kbd><span>Fullscreen</span>
     <kbd>Mouse drag</kbd><span>Look around the car (right or left button)</span><kbd>Mouse wheel</kbd><span>Zoom the chase camera</span><kbd>B</kbd><span>Look behind</span>
   </div>
   <p class="hint" style="margin-top:14px"><b>Gamepad:</b> left stick steers, RT throttle, LT brake, A handbrake, X nitro, LB/RB shift, Y camera, Start pause.</p>
   <p class="hint"><b>Steering wheel:</b> plug it in, press a pedal, then go to Settings → Set up, and follow the prompts (turn right, throttle, brake, paddles). Turn the steering assist off for the purest feel.</p>
-  <p class="hint"><b>Touch:</b> ◀ ▶ steer (or tilt, in Settings), GAS and BRAKE on the right, DRIFT and NOS above them.</p>`);
+  <p class="hint"><b>Touch:</b> ◀ ▶ steer (or tilt, in Settings), GAS and BRAKE on the right, DRIFT and NOS above them. On foot: drag on the left half of the screen to walk, drag on the right half to look, and use JUMP, RUN, CROUCH and GET IN / GET OUT.</p>`);
 }
 
 document.querySelectorAll('[data-p]').forEach(b => b.addEventListener('click', () => {
   const p = b.dataset.p;
   if (p === 'resume') togglePause();
-  else if (p === 'restart') { $('pause-panel').classList.add('hidden'); if (game.route) startEvent(game.route.ev); else if (game.chaseOn) startChase(); else { respawnOnRoad(); setState('free'); } }
+  else if (p === 'restart') { $('pause-panel').classList.add('hidden'); if (game.route) startEvent(game.route.ev); else if (game.chaseOn) startChase(); else if (game.onFoot) { const sp = exitSpot(); walker.place(sp.x, sp.z, car.h); footCam.reset(car.h); setState('free'); } else { respawnOnRoad(); setState('free'); } }
   else if (p === 'settings') settingsPanel($('pause-panel'));
   else if (p === 'quit') { $('pause-panel').classList.add('hidden'); toMenu(); }
 }));
@@ -630,9 +743,9 @@ document.querySelectorAll('[data-f]').forEach(b => b.addEventListener('click', (
   else if (f === 'next') startEvent(EVENTS[(i + 1) % EVENTS.length]);
   else toMenu();
 }));
-document.querySelectorAll('[data-ce]').forEach(b => b.addEventListener('click', () => { if (b.dataset.ce === 'retry') startChase(); else toMenu(); }));
+document.querySelectorAll('[data-ce]').forEach(b => b.addEventListener('click', () => { if (b.dataset.ce === 'retry') { if (game.wanted) resumeFreeRoam(); else startChase(); } else toMenu(); }));
 function toMenu() {
-  endChase(); game.route = null; gates.clear();
+  endChase(); game.route = null; gates.clear(); game.onFoot = false; if (walker) walker.show(false);
   resetCar(START.x, START.z, START.h);
   setState('menu'); hidePanel();
   document.querySelectorAll('[data-m]').forEach(x => x.classList.remove('sel'));
@@ -648,19 +761,49 @@ const NO_INPUT = { steer: 0, gas: 0, brake: 0, handbrake: false, nitro: false, a
 function onHit(j, px, pz) {
   if (j < 900) return;
   const s = Math.min(1, j / 25000);
-  if (game.chaseOn) police.playerHit(j, car.s.mass);
+  if (game.chaseOn && !game.onFoot) police.playerHit(j, car.s.mass);
   audio.thump(0.2 + s);
   game.shake = Math.max(game.shake, s * 0.6);
   for (const p of input.pads()) if (p.vibrationActuator) p.vibrationActuator.playEffect('dual-rumble', { duration: 120 + s * 200, strongMagnitude: s, weakMagnitude: s * 0.6 }).catch(() => {});
 }
 
+// Street furniture gives way if you hit it hard enough (lamp posts and poles need a proper crash); smashing things is a crime.
+function onBreak(c, j, px, pz) {
+  const kind = c.brk.kind, dv = j / car.s.mass;
+  if (dv < (kind === 'lamp' || kind === 'pole' ? 3.2 : 1.4)) return false;
+  const b = breakProp(c); if (!b) return false;
+  const v = car.worldVel(); debris.spawn(kind, c.x, c.z, b.yaw, v[0] * 0.9, v[1] * 0.9);
+  audio.thump(0.3 + Math.min(0.5, dv * 0.05)); game.shake = Math.max(game.shake, 0.15 + Math.min(0.3, dv * 0.03));
+  crime(0.3, 'break'); return true;
+}
+function onCar(t, j) { if (j / car.s.mass > 2.0) crime(0.5, 'car'); }
+
 function physics(dt, inp) {
   car.step(dt, inp, groundAt);
   car.onGrass = car.wheels[0].kind !== 'asphalt' && car.wheels[0].kind !== 'concrete';
-  collideStatic(car, onHit);
+  collideStatic(car, onHit, onBreak);
   collideTerrain(car, onHit);
-  collideTraffic(car, traffic, onHit);
-  if (game.chaseOn) police.collidePlayer(car);
+  collideTraffic(car, traffic, onHit, onCar);
+  collideTraffic(car, traffic.parkedWorld(car), onHit, onCar);
+  if (!game.onFoot) peds.hitByCar(car);
+  if (game.chaseOn && !game.onFoot) police.collidePlayer(car);
+}
+
+// --- Trouble: hit a car or smash something and the police come -----------------------------------------------------------------
+function crime(amount, kind) {
+  if (game.state !== 'free' || game.route || game.onFoot) return;
+  peds.scare(car.x, car.z, 40, 6);                                               // everyone nearby runs
+  if (game.chaseOn) { police.addHeat(amount); return; }
+  if ((game.clock || 0) < (game.noWanted || 0)) return;                       // just got away: a few seconds of grace
+  startWanted(kind);
+}
+function startWanted(kind) {
+  game.chaseOn = true; game.wanted = true; game.gadgets = false; applyAids();
+  police.start(car, traffic, { heat: 1.2, near: 4 });
+  driver.gprev = {}; game.gprev = {};
+  applyVolume(); if (settings.music) chaseMusic.start();
+  setState('free');
+  hud.toast((kind === 'break' ? 'YOU SMASHED SOMETHING' : kind === 'ped' ? 'YOU KNOCKED SOMEONE DOWN' : 'YOU HIT A CAR') + ': POLICE ON THE WAY', 2.6); audio.beep(880, 0.12); setTimeout(() => audio.beep(660, 0.2), 140);
 }
 
 // ---------------------------------------------------------------------------
@@ -681,6 +824,7 @@ function updateCarMesh(dt, alpha) {
   carY = car.baseY ?? groundAt(car.x, car.z).y;
   carMesh.position.set(x, carY, z);
   carMesh.rotation.y = h;
+  if (beams && carMesh.visible && !game.onFoot && game.state !== 'menu') beams.add(x + Math.sin(h) * 1.6, carY + 0.05, z + Math.cos(h) * 1.6, h, 26, 8.5);
   // The body rides on the simulated suspension.
   pitch = car.pitch; roll = car.roll;
   const ud = carMesh.userData;
@@ -694,7 +838,7 @@ function updateCarMesh(dt, alpha) {
     w.steer.position.y = w.baseY + (wi.contact ? wi.ground - carY : hang);
     w.spin.rotation.x = wi.ang;
   }
-  if (game.camMode === 2 && game.state !== 'menu') {
+  if (game.camMode === 2 && game.state !== 'menu' && !game.onFoot) {
     const gear = car.gear === -1 ? 'R' : car.speed < 0.3 && car.throttle < 0.05 && car.gear === 1 ? 'N' : String(car.gear);
     ud.cockpit.update({ wheelAngle: car.steer * 9, rpm: car.rpm, redline: car.s.redline, kmh: car.speed * 3.6, mph: car.speed * 2.23694, gear, units: settings.units, abs: car.abs, esp: car.esp, tcs: car.tcs }, dt);
   }
@@ -708,6 +852,12 @@ function updateCarMesh(dt, alpha) {
 }
 
 function updateCamera(dt, pose) {
+  if (game.onFoot && game.state !== 'menu') {
+    const f = game.foot || {}, still = game.state === 'paused' || game.state === 'map';
+    footCam.update(dt, camera, walker, { dyaw: still ? 0 : f.dyaw || 0, dpitch: still ? 0 : f.dpitch || 0, zoom: f.zoom || 1 }, { my: f.my || 0 });
+    if (game.shake > 0.001) { camera.position.x += (Math.random() - 0.5) * game.shake * 0.3; camera.position.y += (Math.random() - 0.5) * game.shake * 0.3; game.shake *= Math.exp(-dt * 7); }
+    camInit = false; applyBlend(dt); return;
+  }
   const spd = car.speed;
   const f = [Math.sin(pose.h), Math.cos(pose.h)];
   const lookBack = input.keys.has('KeyB');
@@ -788,6 +938,12 @@ function updateCamera(dt, pose) {
   // A light buzz at very high speed.
   if (spd > 60 && game.camMode <= 1) camera.position.y += (Math.random() - 0.5) * 0.012 * (spd - 60) / 30;
   camera.fov = damp(camera.fov, fov, 4, dt); camera.updateProjectionMatrix();
+  applyBlend(dt);
+}
+function applyBlend(dt) {
+  if (blend.t >= 1) return;
+  blend.t = Math.min(1, blend.t + dt / blend.dur); const k = blend.t * blend.t * (3 - 2 * blend.t);
+  camera.position.lerpVectors(blend.pos, camera.position, k); camera.quaternion.slerpQuaternions(blend.quat, camera.quaternion, k); camera.fov = lerp(blend.fov, camera.fov, k); camera.updateProjectionMatrix();
 }
 
 function wheelFx(pose) {
@@ -811,16 +967,24 @@ function wheelFx(pose) {
 function checkDiscoveries() {
   const found = settings.found;
   const spots = [...BUNKERS.map(b => ({ id: b.id, name: b.name, x: b.cx - 30, z: b.cz, r: 80 })), { id: 'airfield', name: AIRFIELD.name, x: AIRFIELD.x, z: 3350, r: 520 }];
-  for (const p of spots) if (!found.includes(p.id) && (car.x - p.x) ** 2 + (car.z - p.z) ** 2 < p.r * p.r) {
+  const Fx = game.onFoot ? walker : car;
+  for (const p of spots) if (!found.includes(p.id) && (Fx.x - p.x) ** 2 + (Fx.z - p.z) ** 2 < p.r * p.r) {
     found.push(p.id); save(); hud.toast(`DISCOVERED: ${p.name.toUpperCase()}`, 3.2); audio.beep(660, 0.12); setTimeout(() => audio.beep(990, 0.2), 140);
   }
 }
 
 // The arrow to the waypoint in free roam; it clears when you get there.
+// "F  GET IN" beside the car, "F  GET OUT" when stopped in it.
+function updatePrompt() {
+  let txt = '';
+  if (game.state === 'free') { if (game.onFoot) { if (nearCar()) txt = 'GET IN'; } else if (car.speed < 5) txt = 'GET OUT'; }
+  const el = $('prompt'); el.classList.toggle('hidden', !txt); if (txt && $('prompt-txt').textContent !== txt) $('prompt-txt').textContent = txt;
+  const tb = $('t-use'); tb.classList.toggle('show', !!txt); if (txt && tb.textContent !== txt) tb.textContent = txt;
+}
 function waypointUpdate() {
   const w = game.waypoint;
   if (!w) { hud.nav(null); return; }
-  const dx = w.x - car.x, dz = w.z - car.z, dist = Math.hypot(dx, dz);
+  const Fx = game.onFoot ? walker : car, dx = w.x - Fx.x, dz = w.z - Fx.z, dist = Math.hypot(dx, dz);
   if (dist < 25) { game.waypoint = null; hud.nav(null); hud.toast('YOU HAVE ARRIVED', 2); return; }
   const camH = Math.atan2(camLook.x - camera.position.x, camLook.z - camera.position.z);
   hud.nav({ arrow: wrapAngle(camH - Math.atan2(dx, dz)), dist, waypoint: true });
@@ -870,10 +1034,14 @@ function tick(dt) {
   renderer.info.reset();
   frameAvg = lerp(frameAvg, dt * 1000, 0.05);
 
+  WIND.value = (performance.now() / 1000) % 3600;
   const raw = driver.shape(input.read(dt), dt, car.speed);
   const st = game.state;
   const driving = st === 'free' || st === 'race';
-  let inp = driving ? raw : NO_INPUT;
+  const foot = !!game.onFoot && st === 'free';
+  const F = foot ? walker : car;                           // who the world follows
+  game.foot = raw.foot;
+  let inp = driving ? (foot ? PARKED_INPUT() : raw) : NO_INPUT;
   if (st === 'countdown') inp = { ...NO_INPUT, gas: raw.gas };
   if (st !== 'paused' && st !== 'map') {
     acc += dt;
@@ -892,25 +1060,35 @@ function tick(dt) {
     game.clock = (game.clock || 0) + dt;
     const sig = signalState(game.clock);
     if (sig.Z !== game.sigZ || sig.X !== game.sigX) { game.sigZ = sig.Z; game.sigX = sig.X; city.setSignals(sig); }
-    traffic.update(dt, car, sig);
+    traffic.extra = foot ? [car] : null;
+    if (foot) footUpdate(dt, raw);
+    traffic.update(dt, F, sig);
+    peds.update(dt, F, camera, sig);
+    if (!foot && car.speed > 13 && (game.scareT = (game.scareT || 0) - dt) <= 0) { game.scareT = 0.35; peds.scare(car.x + Math.sin(car.h) * 9, car.z + Math.cos(car.h) * 9, 9, 3); }
     if (game.chaseOn) chaseUpdate(dt, raw);
     if (st === 'race' || st === 'countdown') raceUpdate(dt);
     else if (st === 'free' && !game.chaseOn) waypointUpdate();
     if ((st === 'free' && !game.chaseOn) || st === 'race') checkDiscoveries();
+    updatePrompt();
   }
-  city.update(car.x, car.z, st === 'paused' || st === 'map' ? 2 : 3.5);
-  terrain.update(dt, car.x, car.z, st === 'paused' || st === 'map' ? 1.5 : 3);
-  structures.update(car.x, car.z);
+  city.update(F.x, F.z, st === 'paused' || st === 'map' ? 2 : 3.5);
+  terrain.update(dt, F.x, F.z, st === 'paused' || st === 'map' ? 1.5 : 3);
+  structures.update(F.x, F.z);
   const alpha = st === 'paused' || st === 'map' ? 1 : acc / STEP;
+  if (beams) beams.begin();
   const pose = updateCarMesh(dt, alpha);
   if (st !== 'paused' && st !== 'map') { wheelFx(pose); fx.update(dt); }
   camera.updateMatrixWorld(); camFrustum.setFromProjectionMatrix(projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-  traffic.render(car, camFrustum);
+  traffic.render(F, camFrustum);
   if (grass) grass.update(performance.now() / 1000, camera.position.x, camera.position.z);
   updateCamera(dt, pose);
+  if (st !== 'menu' || game.garage) peds.render(camera, st === 'paused' || st === 'map' ? 0 : dt);
   if (game.chaseOn && st !== 'paused' && st !== 'map') police.draw(game.clock || 0, car, dt, carMesh, camera, renderer);
+  if (beams) beams.end();
+  if (st !== 'paused' && st !== 'map') debris.update(dt);
+  worldFx.update(st === 'paused' || st === 'map' ? 0 : dt, camera, renderer);
   sky.dome.position.set(camera.position.x, 0, camera.position.z);
-  placeSun(sky.sun, tmpV.set(pose.x, 0, pose.z));
+  placeSun(sky.sun, tmpV.set(foot ? walker.x : pose.x, 0, foot ? walker.z : pose.z));
   if (csm) csm.update();
   if (game.flare) game.flare.position.copy(SUN_DIR).multiplyScalar(3800).add(camera.position);
   if (grade) {
@@ -921,9 +1099,12 @@ function tick(dt) {
     grade.uniforms.uTime.value = (performance.now() / 1000) % 100;
   }
   updateProbe(pose);
-  audio.update(car, st === 'free' || st === 'race' || st === 'countdown' || st === 'finish' || st === 'chaseEnd');
-  if (st === 'free' || st === 'race' || st === 'countdown') hud.drawDial(car, settings.units, { abs: car.abs, esp: car.esp, tcs: car.tcs });
-  if (st === 'free' || st === 'race' || st === 'countdown') hud.drawMap(car, traffic, game.route, game.next, game.waypoint, game.chaseOn ? police : null);
+  audio.hum(st === 'menu' || st === 'loading' ? 0.012 : foot ? 0.05 : 0.018);
+  audio.update(car, (st === 'free' && !foot) || st === 'race' || st === 'countdown' || st === 'finish' || st === 'chaseEnd');
+  if (st === 'free' || st === 'race' || st === 'countdown') {
+    if (!foot) hud.drawDial(car, settings.units, { abs: car.abs, esp: car.esp, tcs: car.tcs });
+    hud.drawMap(mapFocus(), traffic, game.route, game.next, game.waypoint, game.chaseOn ? police : null);
+  }
   if (game.chaseOn) hud.chase(st === 'paused' || st === 'map' ? null : police, game.clock || 0);
   if (settings.fps && (game.fpsT = (game.fpsT || 0) + dt) > 0.5) { game.fpsT = 0; $('fps').textContent = `${Math.round(1000 / frameAvg)} FPS · ${renderer.domElement.width}×${renderer.domElement.height} · ${quality}`; }
 
@@ -936,6 +1117,7 @@ function tick(dt) {
     else if (frameAvg < 14.5 && resScale < 1) { resScale = Math.min(1, resScale * 1.08); resize(); }
   }
 
+  if (window.__noRender) return;                                  // (automated tests step the game without drawing)
   if (composer) {
     const blur = clamp((car.speed - 35) / 55, 0, 1) * 0.8 + (car.nitroOn ? 0.5 : 0);
     grade.uniforms.uBlur.value = game.camMode <= 1 && st !== 'menu' ? blur : 0;
@@ -967,4 +1149,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-window.__game = { simulate, driver, input, tick, game, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+window.__game = { simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

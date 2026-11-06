@@ -166,6 +166,30 @@ function hedge() {
   return g;
 }
 
+// Wind: the crowns of trees, palm fronds and bushes sway. Each instance has its own phase (from where it stands), bending grows with
+// height above the foot of the plant, and leaves and fronds flutter a little on top. `uWind` is the time, set once a frame by main.js.
+export const WIND = { value: 0 };
+function windify(mat, amp, H, flutter) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.uniforms.uWind = WIND;
+    sh.vertexShader = 'uniform float uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      #ifdef USE_INSTANCING
+        vec2 wph = instanceMatrix[3].xz * 0.37;
+      #else
+        vec2 wph = vec2(0.0);
+      #endif
+      float wh = clamp(position.y / ${H.toFixed(1)}, 0.0, 1.4), wk = wh * wh * ${amp.toFixed(3)};
+      float gust = 0.65 + 0.35 * sin(uWind * 0.31 + wph.x * 0.2);
+      transformed.x += (sin(uWind * 1.35 + wph.x) + 0.45 * sin(uWind * 2.9 + wph.y)) * wk * gust;
+      transformed.z += (cos(uWind * 1.15 + wph.y) + 0.4 * sin(uWind * 2.3 + wph.x)) * wk * 0.7 * gust;
+      ${flutter ? `transformed += vec3(sin(uWind * 6.3 + position.x * 7.0 + position.y * 5.0), sin(uWind * 5.1 + position.z * 6.0), cos(uWind * 5.7 + position.y * 8.0)) * wh * ${flutter.toFixed(3)} * gust;` : ''}`);
+  };
+  mat.customProgramCacheKey = () => 'wind' + amp + H + flutter;
+  return mat;
+}
+
 export function makeProps() {
   const a2c = Q.msaa > 0;
   const tree = leafTree(Q.treeDetail), pl = palm(Q.treeDetail);
@@ -213,5 +237,6 @@ export function makeProps() {
     billFrame: new THREE.MeshStandardMaterial({ color: 0x222226, roughness: 0.6, metalness: 0.4 }),
     billFace: new THREE.MeshStandardMaterial({ map: billTex, emissiveMap: billTex, emissive: 0xffffff, emissiveIntensity: TOD.lampsOn ? 0.9 : 0.35, roughness: 0.6 }),
   };
+  windify(mat.treeCore, 0.2, 8, 0); windify(mat.treeCards, 0.2, 8, 0.05); windify(mat.palmTrunk, 0.42, 12, 0); windify(mat.palmFronds, 0.42, 12, 0.07); windify(mat.pine, 0.13, 10, 0.02);
   return { geo, mat };
 }

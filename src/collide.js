@@ -30,7 +30,15 @@ export function applyImpulse(car, px, pz, nx, nz, e, mu, hit, otherMassInv = 0, 
   return j;
 }
 
-export function collideStatic(car, onHit) {
+// The impulse a hit at this point would give, without applying it.
+export function peekImpulse(car, px, pz, nx, nz) {
+  const m = car.s.mass, I = car.I, [Vx, Vz] = car.worldVel(), Om = -car.w, rx = px - car.x, rz = pz - car.z;
+  const vn = (Vx + Om * rz) * nx + (Vz - Om * rx) * nz; if (vn >= 0) return 0;
+  const rn = rz * nx - rx * nz; return -(1.25) * vn / (1 / m + rn * rn / I);
+}
+
+// onBreak(collider, impulse, x, z) is told when the car hits something breakable; it returns true if it broke (the car then ploughs on).
+export function collideStatic(car, onHit, onBreak) {
   const f = car.fwd;
   for (let pass = 0; pass < 2; pass++) for (const off of CIRCLES) {
     const cx = car.x + f[0] * off, cz = car.z + f[1] * off;
@@ -52,6 +60,10 @@ export function collideStatic(car, onHit) {
         const dx = cx - c.x, dz = cz - c.z, dist = Math.hypot(dx, dz), r = RAD + c.r;
         if (dist >= r || dist < 1e-5) continue;
         nx = dx / dist; nz = dz / dist; pen = r - dist; px = c.x + nx * c.r; pz = c.z + nz * c.r;
+      }
+      if (c.brk && onBreak && pass === 0 && !c.brk.broken) {                     // street furniture: if you are going fast enough it gives way
+        const j = peekImpulse(car, px, pz, nx, nz);
+        if (j > 0 && onBreak(c, j, px, pz)) { applyImpulse(car, px, pz, nx, nz, 0.1, 0.1, null, 1 / 60); continue; }
       }
       car.x += nx * pen; car.z += nz * pen;
       applyImpulse(car, px, pz, nx, nz, 0.25, 0.25, pass === 0 ? onHit : null);
@@ -95,7 +107,7 @@ export function collideTerrain(car, onHit) {
 }
 
 // Traffic cars are pairs of circles; they get knocked aside when hit.
-export function collideTraffic(car, traffic, onHit) {
+export function collideTraffic(car, traffic, onHit, onCar) {
   const f = car.fwd;
   for (const t of traffic.cars) {
     if (!t.active) continue;
@@ -117,7 +129,7 @@ export function collideTraffic(car, traffic, onHit) {
         t.x -= nx * pen * (1 - share); t.z -= nz * pen * (1 - share);
         const tv = traffic.velocityOf(t);
         const j = applyImpulse(car, ox + nx * tr, oz + nz * tr, nx, nz, 0.2, 0.2, onHit, 1 / mt, tv);
-        if (j > 0) traffic.knock(t, tv[0] - nx * j / mt, tv[1] - nz * j / mt, (Math.random() - 0.5) * j / (mt * 2));
+        if (j > 0) { traffic.knock(t, tv[0] - nx * j / mt, tv[1] - nz * j / mt, (Math.random() - 0.5) * j / (mt * 2)); if (onCar) onCar(t, j); }
       }
     }
   }

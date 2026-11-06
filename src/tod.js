@@ -46,6 +46,22 @@ const PRESETS = {
     split: 1, rays: 0.4, grain: 0.02, flare: [2.2, 1.6, 1.2], cloudTint: [2.4, 2.4, 2.5],
     haze: { height: 0.0026, k2: 0.00024, forward: 1.4, focus: 4, glow: 0.7, sunFog: [2.2, 1.0, 0.7], cool: [0.85, 0.85, 1.1] },
   },
+  // Night: a moon and stars, lit windows, neon signs, street lamps pooling light on wet roads, headlights.
+  night: {
+    night: true, wet: true,
+    sun: [0.3, -0.16, -0.94], light: [-0.45, 0.62, -0.64],
+    sky: { turbidity: 8, rayleigh: 0.6, mie: 0.002, mieG: 0.8 },
+    exposure: 0.95,
+    fog: 0x0c1428, fogDensity: 0.0011,
+    hemiSky: 0x2f4580, hemiGround: 0x1c1822, hemiI: 1.2,
+    sunColor: 0x9db6ff, sunI: 1.6,
+    windows: 2.0, signs: 3.0, lampsOn: true,
+    ridges: [['#1b2540', '#0c1122'], ['#141c30', '#090d1a'], ['#10141f', '#080b13']], ridgeScale: 0.6,
+    plume: false, envGround: 0x16151c,
+    grade: { sat: 1.1, contrast: 1.1, warm: -0.01 }, road: 0xcfcfe0,
+    split: 0.85, rays: 0, grain: 0.035, flare: [0, 0, 0], cloudTint: [0.2, 0.26, 0.44],
+    haze: { height: 0.0026, k2: 0.0003, forward: 0, focus: 5, glow: 0.35, sunFog: [0.5, 0.3, 0.55], cool: [0.7, 0.85, 1.25] },
+  },
 };
 
 export const TOD_NAME = PRESETS[settings.tod] ? settings.tod : 'golden';

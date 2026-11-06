@@ -157,9 +157,16 @@ export class HUD {
     if (!this.cg) this.cg = { stars: [...document.querySelectorAll('#c-stars i')], gads: [...document.querySelectorAll('[data-g]')].map(el => ({ el, g: el.dataset.g, cnt: el.querySelector('.cnt') })), status: $('c-status'), health: $('c-health'), hide: $('c-hide'), sirens: $('sirens'), dmg: $('dmg') };
     const C = this.cg, st = P.stars, blink = ((clock * 4) % 1) < 0.5;
     C.stars.forEach((el, i) => { el.className = i < st ? (P.spotted && blink ? 'on hot' : 'on') : ''; });
-    const txt = P.bustT > 0.4 ? 'BEING ARRESTED' : P.spotted ? 'SPOTTED' : P.hidden > 0.5 ? `HIDING ${Math.max(1, Math.ceil(P.hiddenNeeded - P.hidden))}` : 'SEARCHING FOR YOU';
+    const txt = P.bustT > 0.4 ? 'BEING ARRESTED' : P.spotted ? 'SPOTTED' : P.hidden > 0.5 ? 'OUT OF SIGHT' : 'SEARCHING FOR YOU';
     if (C.status.textContent !== txt) C.status.textContent = txt;
     C.status.className = P.bustT > 0.4 ? 'bust' : P.spotted ? 'seen' : 'hid';
+    // The minute: red and full while they can see you, counting down in green while you are hidden.
+    if (!C.timer) { C.timer = $('c-timer'); C.time = $('c-time'); C.timeL = $('c-time-l'); }
+    const left = Math.max(0, P.hiddenNeeded - P.hidden), sec = Math.ceil(left - 0.001), tt = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    C.timer.classList.remove('hidden'); C.timer.className = P.spotted ? 'seen' : 'hid';
+    if (C.time.textContent !== tt) C.time.textContent = tt;
+    const tl = P.spotted ? 'SPOTTED: HIDE FOR A WHOLE MINUTE' : P.hidden > 0.5 ? 'UNSEEN: KEEP OUT OF SIGHT' : 'STAY OUT OF SIGHT FOR 1:00';
+    if (C.timeL.textContent !== tl) C.timeL.textContent = tl;
     C.health.style.width = `${clamp(P.health, 0, 100)}%`; C.health.className = P.health < 35 ? 'low' : '';
     C.hide.style.width = `${clamp(P.hidden / P.hiddenNeeded, 0, 1) * 100}%`;
     for (const { el, g, cnt } of C.gads) {

@@ -40,10 +40,12 @@ export function buildSky(scene, renderer, quality) {
   const rnd = mulberry32(4);
   if (TOD.lampsOn) {
     // A few warm city lights along the horizon give the paint some sparkle.
-    const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 3.6, 1.8) });
-    for (let i = 0; i < 40; i++) {
-      const a = rnd() * Math.PI * 2, d = 60 + rnd() * 25;
-      const m = new THREE.Mesh(new THREE.SphereGeometry(0.35, 6, 4), lampMat);
+    const warm = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 3.6, 1.8) });
+    // At night there are neon signs and shopfronts as well, in many colours, for the wet roads and the paint to catch.
+    const neon = [warm, new THREE.MeshBasicMaterial({ color: new THREE.Color(0.8, 4.2, 6) }), new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 0.8, 3.4) }), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.2, 6, 2.0) }), new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 5, 6) })];
+    for (let i = 0; i < (TOD.night ? 110 : 40); i++) {
+      const a = rnd() * Math.PI * 2, d = 60 + rnd() * 25, lampMat = TOD.night ? neon[(rnd() * rnd() * neon.length) | 0] : warm;
+      const m = new THREE.Mesh(new THREE.SphereGeometry(TOD.night ? 0.3 + rnd() * 0.5 : 0.35, 6, 4), lampMat);
       m.position.set(Math.sin(a) * d, -0.6 + rnd() * 1.2, Math.cos(a) * d); envScene.add(m);
     }
   } else {
@@ -75,6 +77,7 @@ export function buildSky(scene, renderer, quality) {
   scene.add(sun); scene.add(sun.target);
 
   buildMountains(dome);
+  if (TOD.night) buildNight(dome);
   buildClouds(dome);
   return { sky, sun, hemi, dome };
 }
@@ -86,6 +89,40 @@ export function placeSun(sun, p) {
   const texel = 120 / sun.shadow.mapSize.x, snap = v => Math.round(v / texel) * texel;
   sun.target.position.copy(right).multiplyScalar(snap(p.dot(right))).addScaledVector(up, snap(p.dot(up))).addScaledVector(LIGHT_DIR, p.dot(LIGHT_DIR));
   sun.position.copy(sun.target.position).addScaledVector(LIGHT_DIR, 180);
+}
+
+// A night sky: a dark gradient with a glow of city light at the horizon, a field of stars (a few bright) and a moon with a halo.
+function buildNight(scene) {
+  const rnd = mulberry32(31);
+  const grad = new THREE.Mesh(new THREE.SphereGeometry(8800, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `varying vec3 vP; void main(){ vec3 d = normalize(vP); float e = clamp(d.y, 0.0, 1.0);
+      vec3 top = vec3(0.004, 0.009, 0.03), mid = vec3(0.016, 0.03, 0.085), hor = vec3(0.075, 0.07, 0.14);
+      vec3 c = mix(hor, mid, smoothstep(0.0, 0.22, e)); c = mix(c, top, smoothstep(0.18, 0.95, e));
+      float glow = exp(-e * 9.0) * 0.55; c += vec3(0.16, 0.085, 0.07) * glow * (0.55 + 0.45 * sin(atan(d.x, d.z) * 3.0 + 1.0));
+      gl_FragColor = vec4(c, 1.0); }`,
+  }));
+  grad.renderOrder = -9.5; grad.frustumCulled = false; scene.add(grad);
+  const n = 1500, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const az = rnd() * Math.PI * 2, y = 0.04 + 0.96 * Math.pow(rnd(), 0.8), r = Math.sqrt(1 - y * y), b = 0.12 + Math.pow(rnd(), 4) * 0.9, tint = rnd();
+    pos.set([Math.sin(az) * r * 8700, y * 8700, Math.cos(az) * r * 8700], i * 3);
+    col.set([b * (0.8 + 0.3 * tint), b * (0.85 + 0.1 * tint), b * (1.1 - 0.3 * tint)], i * 3);
+  }
+  const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); sg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const stars = new THREE.Points(sg, new THREE.PointsMaterial({ size: 2.2, sizeAttenuation: false, vertexColors: true, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+  stars.renderOrder = -9; stars.frustumCulled = false; scene.add(stars);
+  // The moon, in the direction the moonlight comes from.
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+  const body = g.createRadialGradient(118, 112, 10, 128, 128, 120); body.addColorStop(0, '#fffdf4'); body.addColorStop(0.7, '#e8e6dc'); body.addColorStop(1, '#bdbdb4');
+  g.fillStyle = body; g.beginPath(); g.arc(128, 128, 118, 0, 7); g.fill();
+  g.globalCompositeOperation = 'source-atop';
+  for (let i = 0; i < 26; i++) { const x = 30 + rnd() * 196, y = 30 + rnd() * 196, rr = 6 + rnd() * 26; g.fillStyle = `rgba(110,112,120,${0.06 + rnd() * 0.16})`; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill(); }
+  const mt = new THREE.CanvasTexture(c); mt.colorSpace = THREE.SRGBColorSpace;
+  const dir = LIGHT_DIR.clone().multiplyScalar(8600);
+  const moon = new THREE.Sprite(new THREE.SpriteMaterial({ map: mt, color: new THREE.Color(2.6, 2.6, 2.4), fog: false, depthWrite: false })); moon.position.copy(dir); moon.scale.set(560, 560, 1); moon.renderOrder = -8; scene.add(moon);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex(), color: new THREE.Color(0.2, 0.3, 0.55), fog: false, depthWrite: false, blending: THREE.AdditiveBlending, transparent: true })); halo.position.copy(dir); halo.scale.set(3600, 3600, 1); halo.renderOrder = -8.5; scene.add(halo);
 }
 
 function ridge(radius, segs, base, height, seed, top, bottom, focus) {

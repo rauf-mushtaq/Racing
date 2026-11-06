@@ -18,6 +18,9 @@ export class Traffic {
     this.models = trafficModels();
     this.rnd = mulberry32(77);
     this.cars = [];
+    this.adopted = [];                            // parked cars that have been knocked about, so they move now
+    this.nearParked = []; this._pk = 0;
+    this.parkedWrap = { cars: this.nearParked, velocityOf: c => this.velocityOf(c), knock: (...a) => this.knock(...a) };       // (what collideTraffic needs)
     this.city = city;
     this.meshes = this.models.map(md => {
       const body = new THREE.InstancedMesh(md.geo, new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.32, envMapIntensity: 1.1 }), CAP);
@@ -164,8 +167,21 @@ export class Traffic {
     c.h = c.h == null ? h : c.h + wrapAngle(h - c.h) * 0.5;
   }
 
+  // The parked cars near a point, dressed like traffic cars so the same collision code can hit them.
+  parkedWorld(player) {
+    if (this._pk++ % 24 === 0) {
+      this.nearParked.length = 0;
+      for (const p of this.city.parkedList()) {
+        if (Math.abs(p.x - player.x) > 20 || Math.abs(p.z - player.z) > 20) continue;
+        if (p.len === undefined) { const md = this.models[p.type]; Object.assign(p, { len: md.len, mass: md.mass, rad: md.rad, active: true, parked: true, mode: 'parked', speed: 0, burn: 0, knockT: 0 }); p.hp = p.maxHp = this.hpOf(p); }
+        this.nearParked.push(p);
+      }
+    }
+    return this.parkedWrap;
+  }
   velocityOf(c) { return c.mode === 'knocked' ? [c.vx, c.vz] : [Math.sin(c.h) * c.speed, Math.cos(c.h) * c.speed]; }
   knock(c, vx, vz, spin) {
+    if (c.parked && !c.adopted) { c.adopted = true; this.adopted.push(c); }
     if (c.mode !== 'knocked' && c.mode !== 'wreck') { c.mode = 'knocked'; c.knockT = 0; c.spin = 0; }
     c.vx = vx; c.vz = vz; c.spin = (c.spin || 0) + spin;
   }
@@ -192,20 +208,27 @@ export class Traffic {
     const k = 0.35; c.y += (ty - c.y) * k; c.pitch = (c.pitch || 0) + (tp - (c.pitch || 0)) * k; c.roll = (c.roll || 0) + (tr - (c.roll || 0)) * k;
   }
 
+  // A car that has been knocked off its path (or wrecked): slides to a halt on the ground, and is cleared away after a while.
+  stepKnocked(c, dt, player, respawn) {
+    c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.spin * dt;
+    this.settle(c);
+    const wreck = c.mode === 'wreck';
+    const sp = Math.hypot(c.vx, c.vz), dec = Math.max(0, sp - (wreck ? 11 : 7) * dt) / (sp || 1);
+    c.vx *= dec; c.vz *= dec; c.spin *= Math.exp(-2 * dt);
+    if (wreck) c.burn += dt; else if (sp < 0.3) c.knockT += dt;
+    if (!respawn) return;
+    const far = Math.hypot(c.x - player.x, c.z - player.z);
+    if (wreck ? (c.burn > 26 && far > 40) || far > 520 : c.knockT > 6 && far > 60) this.spawn(c, player, 160, 420);
+  }
+
   update(dt, player, signals) {
+    for (let i = this.adopted.length - 1; i >= 0; i--) {
+      const c = this.adopted[i]; this.stepKnocked(c, dt, player, false);
+      if ((c.x - player.x) ** 2 + (c.z - player.z) ** 2 > 700 * 700) this.adopted.splice(i, 1);
+    }
     const pf = [Math.sin(player.h), Math.cos(player.h)];
     for (const c of this.cars) {
-      if (c.mode === 'knocked' || c.mode === 'wreck') {
-        c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.spin * dt;
-        this.settle(c);
-        const wreck = c.mode === 'wreck';
-        const sp = Math.hypot(c.vx, c.vz), dec = Math.max(0, sp - (wreck ? 11 : 7) * dt) / (sp || 1);
-        c.vx *= dec; c.vz *= dec; c.spin *= Math.exp(-2 * dt);
-        if (wreck) c.burn += dt; else if (sp < 0.3) c.knockT += dt;
-        const far = Math.hypot(c.x - player.x, c.z - player.z);
-        if (wreck ? (c.burn > 26 && far > 40) || far > 520 : c.knockT > 6 && far > 60) this.spawn(c, player, 160, 420);
-        continue;
-      }
+      if (c.mode === 'knocked' || c.mode === 'wreck') { this.stepKnocked(c, dt, player, true); continue; }
       const f = [Math.sin(c.h), Math.cos(c.h)], r = [-f[1], f[0]];
       let target = c.vmax;
       const toTurn = c.straightLen - c.s;
@@ -216,6 +239,7 @@ export class Traffic {
         if (df > 0 && df < 40 && Math.abs(dl) < 2.3) target = Math.min(target, Math.max(0, (df - gap) * 0.8));
       };
       look(player.x, player.z, 7.5);
+      if (this.extra) for (const e of this.extra) look(e.x, e.z, 7.5);          // your parked car, when you are on foot
       // Wait at the junction for cars already crossing it.
       const approaching = toTurn > 0 && toTurn < 11;
       let blocked = false;
@@ -258,6 +282,11 @@ export class Traffic {
       this.sphere.center.set(c.x, (c.y ?? 0) + 1, c.z); return frustum.intersectsSphere(this.sphere);
     };
     for (const c of this.cars) if (near(c, 450)) this.meshes[c.type].list.push(c);
+    if (this.beams) for (const c of this.cars) {                                   // headlights (at dusk and at night)
+      if (c.mode === 'wreck' || (c.x - player.x) ** 2 + (c.z - player.z) ** 2 > 170 * 170) continue;
+      if (frustum) { this.sphere.center.set(c.x, (c.y ?? 0) + 1, c.z); this.sphere.radius = 16; const ok = frustum.intersectsSphere(this.sphere); this.sphere.radius = 3.5; if (!ok) continue; }
+      const f = c.len * 0.5 + 0.2; this.beams.add(c.x + Math.sin(c.h) * f, (c.y ?? 0) + 0.05, c.z + Math.cos(c.h) * f, c.h, 15, 5.5);
+    }
     // Parked cars never move; they live in the city regions and use the same meshes.
     for (const p of this.city.parkedList()) { if (!near(p, 200)) continue; if (!p.color) p.color = COLORS[p.ci % COLORS.length]; this.meshes[p.type].list.push(p); }
     const { m4, q, v, one, up } = this;

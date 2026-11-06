@@ -78,7 +78,7 @@ export class ChaseMusic {
 
   _use(blob, name) {
     this.stop(true); this._drop();
-    this.url = URL.createObjectURL(blob); this.name = name;
+    this.url = URL.createObjectURL(blob); this.name = name; this._unlocked = false;
     const el = document.createElement('audio');
     el.src = this.url; el.loop = true; el.preload = 'auto'; el.setAttribute('playsinline', ''); el.style.display = 'none';
     el.addEventListener('error', () => { this.failed = true; if (this.onChange) this.onChange(); });
@@ -99,6 +99,13 @@ export class ChaseMusic {
 
   setVolume(vol, enabled) { this.level = enabled ? Math.min(1, vol * 0.95) : 0; if (this.active) this._fadeTo(this.level, 0.1); }
 
+  // On a tablet a sound can only be started from a tap the first time; so the first tap or key press plays the song silently for an
+  // instant, and later (when a chase begins in the middle of driving) it can be started without one.
+  unlock() {
+    if (this._unlocked || !this.el) return; this._unlocked = true;
+    this.audio.init(); this._wire(); const el = this.el;
+    try { const p = el.play(); if (p && p.then) p.then(() => { if (!this.active) { el.pause(); try { el.currentTime = 0; } catch (e) { /* ignore */ } } }).catch(() => { this._unlocked = false; }); } catch (e) { this._unlocked = false; }
+  }
   // From the click that starts a chase (browsers only let sound start from a tap or a key).
   start() {
     if (!this.el) return;

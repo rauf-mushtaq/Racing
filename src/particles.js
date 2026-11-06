@@ -36,13 +36,15 @@ export class Particles {
   rr(a, b) { return a + (b - a) * this.rnd(); }
   // A glow for this frame only (lamps and light bars): call every frame it should show.
   glow(x, y, z, size, r, g, b, a = 1) { this._glows.push(x, y, z, size, r, g, b, a); }
-  clear() { this._glows.length = 0; this.add.list.length = 0; this.smoke.list.length = 0; for (const t of this.tracers) { t.m.visible = false; t.t = 0; } }
+  clear() { this._glows.length = 0; this.add.list.length = 0; this.smoke.list.length = 0; for (const sys of [this.add, this.smoke]) sys.geo.setDrawRange(0, 0); for (const t of this.tracers) { t.m.visible = false; t.t = 0; } }
   get count() { return this.add.list.length + this.smoke.list.length; }
   push(sys, p) { if (sys.list.length >= MAX) sys.list.shift(); sys.list.push(p); }
   // Emitters.
   puff(x, y, z, vx, vy, vz, size, life, shade = 0.3, alpha = 0.55, grow = 2.0) {
     this.push(this.smoke, { x, y, z, vx, vy, vz, size, grow, life, age: 0, drag: 0.8, rise: 0.6, g: 0, c0: [shade * 1.05, shade, shade * 0.95, alpha], c1: [shade * 0.9, shade * 0.9, shade * 0.88, 0] });
   }
+  // Water: droplets and spray that arc up and fall back (hydrants, rain splashes).
+  water(x, y, z, vx, vy, vz) { this.push(this.smoke, { x, y, z, vx, vy, vz, size: 0.11 + Math.random() * 0.1, grow: 0.5, life: 0.9 + Math.random() * 0.7, age: 0, drag: 0.12, rise: 0, g: -9.8, c0: [0.82, 0.92, 1.0, 0.5], c1: [0.8, 0.9, 1.0, 0.0] }); }
   fire(x, y, z, vx, vy, vz, size, life) { this.push(this.add, { x, y, z, vx, vy, vz, size, grow: -size / life * 0.5, life, age: 0, drag: 1.5, rise: 3, g: 0, c0: [3.2, 1.3, 0.28, 0.9], c1: [0.9, 0.18, 0.04, 0.3] }); }
   spark(x, y, z, vx, vy, vz, life = 0.6) { this.push(this.add, { x, y, z, vx, vy, vz, size: 0.07, grow: 0, life, age: 0, drag: 0.4, rise: 0, g: -14, spark: true, c0: [8, 5, 1.6, 1], c1: [3, 0.8, 0.1, 0.5] }); }
   flash(x, y, z, size, life, power = 6, r = 1, g = 0.8, b = 0.45) { this.push(this.add, { x, y, z, vx: 0, vy: 0, vz: 0, size, grow: size * 1.5 / life, life, age: 0, drag: 0, rise: 0, g: 0, c0: [r * power, g * power, b * power, 1], c1: [r, g, b, 0] }); }

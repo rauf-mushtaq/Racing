@@ -51,6 +51,19 @@ function removeColliders(list) {
   for (const c of list) cellsOf(c, k => { const a = grid.get(k); if (!a) return; const i = a.indexOf(c); if (i >= 0) a.splice(i, 1); if (!a.length) grid.delete(k); });
 }
 export { addCollider, removeColliders };
+// Street furniture that can be smashed. Each such collider carries `brk` (what it is and which instance of its instanced mesh);
+// breaking one hides that instance, removes the collider and remembers it, so it stays broken when the region streams back in.
+const BROKEN = new Set();
+const brkKey = (x, z) => Math.round(x * 10) + ',' + Math.round(z * 10);
+const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
+export function breakProp(c) {
+  const b = c.brk; if (!b || b.broken) return null;
+  b.broken = true; BROKEN.add(b.key);
+  for (const im of b.ims || []) { im.setMatrixAt(b.i, ZERO_M); im.instanceMatrix.needsUpdate = true; }
+  removeColliders([c]);
+  if (b.region) { const k = b.region.colliders.indexOf(c); if (k >= 0) b.region.colliders.splice(k, 1); }
+  return b;
+}
 const STATIC = [];
 export const addStaticCollider = c => addCollider(c, STATIC);   // for things that never go away (bunker walls)
 let qid = 0;
@@ -186,7 +199,7 @@ export class City {
     }));
     const a2c = Q.msaa > 0;
     const m = this.mat = {
-      walk: macro(std({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: 0.92 }), 0.06, 0.3),
+      walk: macro(std({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: TOD.wet ? 0.62 : 0.92, envMapIntensity: TOD.wet ? 1.5 : 1 }), 0.06, 0.3),
       curb: std({ color: 0xc8c0bc, map: con.map, roughness: 0.9 }),
       park: std({ color: 0x8fa070, map: grass, roughness: 1, vertexColors: true }),
       mark: std({ vertexColors: true, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
@@ -200,7 +213,7 @@ export class City {
       rail: std({ map: misc.rail, alphaTest: 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.4 }),
       gantry: std({ map: misc.gantry, emissiveMap: misc.gantry, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.6, side: THREE.DoubleSide }),
     };
-    m.asphalt = macro(std({ color: TOD.road, map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.66, metalness: 0, envMapIntensity: 1.1 }), 0.045, 0.35);
+    m.asphalt = macro(std({ color: TOD.road, map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: TOD.wet ? new THREE.Vector2(0.4, 0.4) : new THREE.Vector2(0.8, 0.8), roughness: TOD.wet ? 0.4 : 0.66, metalness: 0, envMapIntensity: TOD.wet ? 2.0 : 1.1 }), 0.045, 0.35);
     this.style = {
       glass: { fac: facG, pal: GLASS }, modern: { fac: facM, pal: MODERN }, apt: { fac: facA, pal: STUCCO },
       brick: { fac: facB, pal: BRICK }, shop: { fac: facS, pal: SHOP }, house: { fac: facH, pal: HOUSE },
@@ -332,14 +345,16 @@ export class City {
     inst(P.geo.palmTrunk, P.mat.palmTrunk, L.palms, placeTree, true, region.trees);
     inst(P.geo.palmFronds, P.mat.palmFronds, L.palms, placeTree, true, region.trees, leaf);
     const placeYaw = it => at(it[0], it[3], it[1], it[2], 1);
-    inst(P.geo.lamp, P.mat.lamp, L.lamps, placeYaw, true, region.detail);
-    inst(P.geo.bulb, P.mat.bulb, L.lamps, placeYaw, false, region.detail);
-    if (TOD.lampsOn) { const pm = inst(P.geo.pool, P.mat.pool, L.lamps, it => at(it[0], 0.03, it[1], it[2], 1), false, region.detail); if (pm) pm.renderOrder = 1; }
-    inst(P.geo.pole, P.mat.pole, L.poles, placeYaw, true, region.detail);
+    const ims = { lamp: [], pole: [], hydrant: [], bin: [], bench: [] };
+    const keep = (k, im) => { if (im) ims[k].push(im); return im; };
+    keep('lamp', inst(P.geo.lamp, P.mat.lamp, L.lamps, placeYaw, true, region.detail));
+    keep('lamp', inst(P.geo.bulb, P.mat.bulb, L.lamps, placeYaw, false, region.detail));
+    if (TOD.lampsOn) { const pm = keep('lamp', inst(P.geo.pool, P.mat.pool, L.lamps, it => at(it[0], 0.03, it[1], it[2], 1), false, region.detail)); if (pm) pm.renderOrder = 1; }
+    keep('pole', inst(P.geo.pole, P.mat.pole, L.poles, placeYaw, true, region.detail));
     inst(P.geo.hedge, P.mat.hedge, L.hedges, it => { q.identity(); s.set(it[2], 0.95, it[3]); v.set(it[0], CURB, it[1]); m4.compose(v, q, s); }, true, region.detail);
-    inst(P.geo.hydrant, P.mat.hydrant, L.hydrants, placeYaw, false, region.detail);
-    inst(P.geo.bin, P.mat.bin, L.bins, placeYaw, false, region.detail);
-    inst(P.geo.bench, P.mat.bench, L.benches, placeYaw, false, region.detail);
+    keep('hydrant', inst(P.geo.hydrant, P.mat.hydrant, L.hydrants, placeYaw, false, region.detail));
+    keep('bin', inst(P.geo.bin, P.mat.bin, L.bins, placeYaw, false, region.detail));
+    keep('bench', inst(P.geo.bench, P.mat.bench, L.benches, placeYaw, false, region.detail));
     inst(P.geo.billFrame, P.mat.billFrame, L.bills, it => at(it.x, it.y, it.z, it.yaw, 1), true, region.far);
     inst(P.geo.billFace, P.mat.billFace, L.bills, it => at(it.x, it.y, it.z, it.yaw, 1), false, region.far);
     // Wires between neighbouring poles on the same pavement.
@@ -374,6 +389,7 @@ export class City {
       const lm = inst(P.geo.sigLamp, P.mat.sigLamp[k], heads[ax], h => placeHead(h, dy, 0.17), false, region.detail);
       if (lm) { lm.visible = this.sig[ax] === k; region.lamps[ax][k] = lm; }
     }
+    for (const c of ctx.colliders.slice()) if (c.brk) { c.brk.ims = ims[c.brk.kind]; c.brk.region = region; if (BROKEN.has(c.brk.key)) breakProp(c); }   // (things already smashed stay smashed)
     this.group.add(region.group);
     this.regions.set(ri + ',' + rj, region); this.version++;
   }
@@ -406,17 +422,17 @@ export class City {
         const t = s.from + 8 + (len - 16) * (n / (nLamps - 1)), p = s.c + s.out * -0.8;
         const yaw = s.axis === 'x' ? (s.out < 0 ? -Math.PI / 2 : Math.PI / 2) : (s.out < 0 ? Math.PI : 0);
         const [x, z] = s.axis === 'x' ? [p, t] : [t, p];
-        L.lamps.push([x, z, yaw, CURB]); addCollider({ type: 'circ', x, z, r: 0.25 }, ctx.colliders);
+        L.lamps.push([x, z, yaw, CURB]); addCollider({ type: 'circ', x, z, r: 0.25, brk: { kind: 'lamp', i: L.lamps.length - 1, yaw, key: brkKey(x, z) } }, ctx.colliders);
         if (n < nLamps - 1) {
           const r2 = rnd(), tq = t + (len - 16) / (nLamps - 1) * 0.28;
           const [qx, qz] = s.axis === 'x' ? [s.c - s.out * 0.7, tq] : [tq, s.c - s.out * 0.7];
-          if (r2 < 0.12) { L.hydrants.push([qx, qz, 0, CURB]); addCollider({ type: 'circ', x: qx, z: qz, r: 0.3 }, ctx.colliders); }
-          else if (r2 < 0.3) { L.bins.push([qx, qz, rnd() * 6, CURB]); addCollider({ type: 'circ', x: qx, z: qz, r: 0.3 }, ctx.colliders); }
-          else if (r2 < 0.38 && blvd) { const [bx, bz] = s.axis === 'x' ? [s.c - s.out * 3.9, tq] : [tq, s.c - s.out * 3.9]; L.benches.push([bx, bz, yaw + Math.PI, CURB]); }
+          if (r2 < 0.12) { L.hydrants.push([qx, qz, 0, CURB]); addCollider({ type: 'circ', x: qx, z: qz, r: 0.3, brk: { kind: 'hydrant', i: L.hydrants.length - 1, yaw: 0, key: brkKey(qx, qz) } }, ctx.colliders); }
+          else if (r2 < 0.3) { const by = rnd() * 6; L.bins.push([qx, qz, by, CURB]); addCollider({ type: 'circ', x: qx, z: qz, r: 0.3, brk: { kind: 'bin', i: L.bins.length - 1, yaw: by, key: brkKey(qx, qz) } }, ctx.colliders); }
+          else if (r2 < 0.38 && blvd) { const [bx, bz] = s.axis === 'x' ? [s.c - s.out * 3.9, tq] : [tq, s.c - s.out * 3.9]; L.benches.push([bx, bz, yaw + Math.PI, CURB]); addCollider({ type: 'circ', x: bx, z: bz, r: 0.55, brk: { kind: 'bench', i: L.benches.length - 1, yaw: yaw + Math.PI, key: brkKey(bx, bz) } }, ctx.colliders); }
         }
         if (!blvd && s.out > 0 && n % 2 === 0) {
           const pp = s.c - s.out * 4.3, [px, pz] = s.axis === 'x' ? [pp, t] : [t, pp];
-          L.poles.push([px, pz, s.axis === 'x' ? 0 : Math.PI / 2, CURB, i + ',' + j + ',' + si]); addCollider({ type: 'circ', x: px, z: pz, r: 0.25 }, ctx.colliders);
+          L.poles.push([px, pz, s.axis === 'x' ? 0 : Math.PI / 2, CURB, i + ',' + j + ',' + si]); addCollider({ type: 'circ', x: px, z: pz, r: 0.25, brk: { kind: 'pole', i: L.poles.length - 1, yaw: s.axis === 'x' ? 0 : Math.PI / 2, key: brkKey(px, pz) } }, ctx.colliders);
         }
         if (n < nLamps - 1) {
           const tm = t + (len - 16) / (nLamps - 1) / 2, pt = s.c - s.out * 2.6;

@@ -11,7 +11,7 @@ import { Particles } from './particles.js';
 import { clamp, wrapAngle } from './util.js';
 
 const SET = SIDEWALK + 1.2;           // buildings start a little inside the pavement
-const CAP = 12;
+const CAP = 32;                      // how many police vehicles can be out at once
 const inCity = (x, z, m = 60) => Math.abs(x) < EDGE + m && Math.abs(z) < EDGE + m;
 
 // --- The solid parts of the city, from the road grid alone (so cops can see and steer without the streamed colliders) ---------
@@ -84,20 +84,24 @@ export class PoliceChase {
   }
   rnd() { this.rng = (this.rng * 1664525 + 1013904223) >>> 0; return this.rng / 4294967296; }
   get stars() { return Math.max(1, Math.min(5, Math.floor(this.heat))); }
-  desiredCops() { return [0, 3, 4, 6, 8, 10][this.stars]; }
+  // Far more police than before: a single star already sends a squad, and five stars is a small army.
+  desiredCops() { return [0, 6, 10, 15, 20, 26][this.stars]; }
+  addHeat(a) { this.heat = Math.min(5.99, this.heat + a); }
 
   reset() {
     Object.assign(this, {
-      result: 'running', health: 100, heat: 2.0, time: 0, hidden: 0, hiddenNeeded: 13, nearest: 1e9, shake: 0, damageFlash: 0, bustT: 0,
+      result: 'running', health: 100, heat: 2.0, time: 0, hidden: 0, hiddenNeeded: 60, spotAcc: 0, nearest: 1e9, shake: 0, damageFlash: 0, bustT: 0,
       ammoMissile: 6, ammoBomb: 4, kills: 0, civilians: 0, maxStars: 2, spotted: true,
       gunHeat: 0, cdOil: 0, cdSmoke: 0, cdShield: 0, shieldT: 0, gunOut: 0, jammed: false,
       lastSeenX: 0, lastSeenZ: 0, spawnT: 0, fireT: 1 / 16, regenMissile: 0, regenBomb: 0, endT: 0, spotCool: 0, wasSpotted: true, lastStars: 2, alt: 0, pulse: 0, shieldK: 0,
     });
     this.cops.length = this.missiles.length = this.bombs.length = this.oils.length = this.smokes.length = this.messages.length = 0;
   }
-  start(p, traffic) {
+  // opts.heat: the wanted level to start at; opts.near: how many cruisers are right behind you.
+  start(p, traffic, opts = {}) {
     this.reset(); this.active = true; this.lastSeenX = p.x; this.lastSeenZ = p.z; this.fx.clear();
-    for (let i = 0; i < 3; i++) this.spawnCop(p, 0, 'near');
+    this.heat = opts.heat ?? 2.0; this.minHeat = Math.floor(this.heat); this.lastStars = this.maxStars = this.stars;
+    for (let i = 0; i < (opts.near ?? 5); i++) this.spawnCop(p, 0, 'near');
     this.messages.push('THE POLICE ARE ON YOU');
   }
   stop() {
@@ -148,7 +152,7 @@ export class PoliceChase {
       }
       const d = Math.hypot(x - p.x, z - p.z); if (d < minD || d > maxD + 60) continue;
       // Out of sight, and behind or beside the player.
-      const score = -Math.abs(d - (minD + 40)) - ((x - p.x) * fx + (z - p.z) * fz > 30 ? 120 : 0) + (this.canSee(x, z, p.x, p.z, 400) ? (near ? 60 : -150) : (near ? -60 : 0));
+      const score = -Math.abs(d - (minD + 40)) - ((x - p.x) * fx + (z - p.z) * fz > 30 ? (near ? 280 : 120) : 0) + (this.canSee(x, z, p.x, p.z, 400) ? (near ? 60 : -150) : (near ? -60 : 0));
       if (score > best) { best = score; bx = x; bz = z; }
     }
     if (best < -1e8) {                                                                               // nothing usable found: a spot on the road grid well away from the player
@@ -225,7 +229,8 @@ export class PoliceChase {
       const dl = ox * fz - oz * fx, df = ox * fx + oz * fz; if (df > -3 && Math.abs(dl) < 3.2) desired += (dl >= 0 ? -1 : 1) * 0.25;
     }
     let err = wrapAngle(desired - c.h); speedT *= clamp(1.15 - Math.abs(err) / 1.5, 0.3, 1);
-    if (chase && dist < 30 && p.speed > 3) speedT = Math.max(speedT, p.speed * 1.08);               // close in on the player and ram
+    if (chase && dist < 30 && p.speed > 3 && !p.onFoot) speedT = Math.max(speedT, p.speed * 1.08);   // close in on the player and ram
+    if (chase && p.onFoot && dist < 26) speedT = Math.min(speedT, Math.max(1.5, (dist - 3) * 0.5));   // a person on foot: slow right down beside them (and cut them off)
     if (!chase && dist < 40) speedT = Math.min(speedT, 14);                                           // reached the last known position: ease off and look around
     if (c.slip > 0) { c.slip -= dt; speedT = Math.min(speedT, 4); err += Math.sin(this.time * 14 + c.flash * 9) * 1.4; c.spin = 3.6 * (c.flash > 0.5 ? 1 : -1); } else c.spin = 0;
     const maxYaw = 2.3 / (1 + c.speed / 16), turn = clamp(err * 4.0, -maxYaw, maxYaw); c.h += turn * dt + c.spin * dt; c.roll += turn * c.speed * 0.0016 * dt * 20;
@@ -278,6 +283,15 @@ export class PoliceChase {
           if (this.onCrash) this.onCrash(j);
         }
       }
+    }
+  }
+  // Police cars and a person on foot: a cruiser at speed knocks you flat.
+  collideWalker(w) {
+    if (!this.active || this.result !== 'running') return;
+    for (const c of this.cops) {
+      const dx = w.x - c.x, dz = w.z - c.z; if (dx * dx + dz * dz > 49 || c.speed < 4) continue;
+      const fx = Math.sin(c.h), fz = Math.cos(c.h), a = clamp(dx * fx + dz * fz, -c.len / 2, c.len / 2), d = Math.hypot(dx - fx * a, dz - fz * a);
+      if (d < c.rad + 0.35) { w.knockDown(fx * c.speed * 0.7 + (dx - fx * a) * 2, fz * c.speed * 0.7 + (dz - fz * a) * 2); c.speed *= 0.5; if (this.onCrash) this.onCrash(9000); }
     }
   }
   // Damage from walls and other cars (the physics' hit callback).
@@ -338,21 +352,21 @@ export class PoliceChase {
     // Who can see you?
     let any = false; this.nearest = 1e9;
     for (const c of this.cops) {
-      c.seeT -= dt; if (c.seeT <= 0) { c.seeT = 0.1 + rnd() * 0.05; c.sees = !c.wreck && this.canSee(c.x, c.z, p.x, p.z, 230); }
+      c.seeT -= dt; if (c.seeT <= 0) { c.seeT = 0.1 + rnd() * 0.05; c.sees = !c.wreck && this.canSee(c.x, c.z, p.x, p.z, p.sight || 230); }     // (on foot you are seen from less far, and less still crouching)
       if (c.wreck) c.sees = false;
       if (c.sees) any = true; if (!c.wreck) this.nearest = Math.min(this.nearest, Math.hypot(c.x - p.x, c.z - p.z));
     }
     this.spotted = any; if (any) { this.lastSeenX = p.x; this.lastSeenZ = p.z; }
     this.spotCool -= dt;
     if (this.spotted !== this.wasSpotted) { if (this.spotCool <= 0 && this.time > 4) { this.messages.push(this.spotted ? 'SPOTTED' : 'OUT OF SIGHT - STAY HIDDEN'); this.spotCool = 3; } this.wasSpotted = this.spotted; }
-    if (this.spotted) this.heat = Math.min(5.99, this.heat + dt / 42);
+    if (this.spotted) this.heat = Math.min(5.99, this.heat + dt / 42); else this.heat = Math.max(this.minHeat || 1, this.heat - dt / 70);
     if (this.stars !== this.lastStars) { if (this.stars > this.lastStars) this.messages.push('HEAT ' + this.stars); this.lastStars = this.stars; this.maxStars = Math.max(this.maxStars, this.stars); }
-    this.hiddenNeeded = 9 + 2 * this.stars;
-    if (!this.spotted && this.nearest > 60) this.hidden += dt; else this.hidden = Math.max(0, this.hidden - dt * (this.spotted ? 3 : 1));
+    // To get away you must stay out of sight for a whole minute. Being seen for more than half a second starts the minute again.
+    if (this.spotted) { this.spotAcc += dt; if (this.spotAcc > 0.5) this.hidden = 0; } else { this.spotAcc = Math.max(0, this.spotAcc - dt * 2); this.hidden += dt; }
     if (this.hidden >= this.hiddenNeeded) { this.result = 'escaped'; this.messages.push('YOU LOST THEM'); return; }
     // Cops: spawn up to the wanted level, drive, retire the wrecks.
     this.spawnT -= dt; let alive = 0, trucks = 0; for (const c of this.cops) if (!c.wreck) { alive++; if (c.kind) trucks++; }
-    if (this.spawnT <= 0 && alive < this.desiredCops() && this.cops.length < CAP) { this.spawnCop(p, (this.stars >= 4 && trucks < this.stars - 2) ? 1 : 0, this.spotted); this.spawnT = this.spotted ? 2.2 : 5.0; }
+    if (this.spawnT <= 0 && alive < this.desiredCops() && this.cops.length < CAP) { this.spawnCop(p, (this.stars >= 4 && trucks < this.stars - 1) ? 1 : 0, this.spotted); this.spawnT = this.spotted ? 0.7 : 2.0; }
     for (let i = 0; i < this.cops.length;) {
       const c = this.cops[i]; let gx = this.spotted ? p.x + Math.sin(p.h) * pspeed * 0.6 : this.lastSeenX, gz = this.spotted ? p.z + Math.cos(p.h) * pspeed * 0.6 : this.lastSeenZ;
       if (!this.spotted) {
@@ -421,8 +435,10 @@ export class PoliceChase {
     // Wrecks of civilian cars burn too.
     for (const t of traffic.cars) if (t.mode === 'wreck' && t.burn < 20 && (t.x - p.x) ** 2 + (t.z - p.z) ** 2 < 260 * 260) this.fx.burn(t.x, t.y || 0, t.z, dt * 0.7);
     // Win or lose.
-    let close = 0; for (const c of this.cops) if (!c.wreck && Math.hypot(c.x - p.x, c.z - p.z) < 9) close++;
-    if (pspeed < 2.5 && close >= 2) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt * 2); if (this.bustT > 4) { this.result = 'busted'; this.messages.push('BUSTED'); }
+    let close = 0, grab = 0; for (const c of this.cops) if (!c.wreck) { const d = Math.hypot(c.x - p.x, c.z - p.z); if (d < 9) close++; if (d < 6.5) grab++; }
+    // In a car you are caught when boxed in and stopped; on foot, when a cop is right beside you for a couple of seconds.
+    if (p.onFoot ? grab >= 1 && pspeed < 5.6 : pspeed < 2.5 && close >= 2) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt * 2);
+    if (this.bustT > (p.onFoot ? 2.4 : 4)) { this.result = 'busted'; this.messages.push('BUSTED'); }
     if (this.health <= 0) { this.health = 0; this.result = 'wrecked'; this.messages.push('WRECKED'); this.fx.explosion(p.x, y0, p.z, 1.2); this.onBoom && this.onBoom(p.x, p.z, 1.2); }
     if (this.health < 35 && rnd() < dt * 18) this.fx.puff(p.x + fx * 1.6, y0 + 0.9, p.z + fz * 1.6, 0, 1.0, 0, 0.6, 1.6, this.health < 15 ? 0.1 : 0.35, 0.6, 1.6);
     if (this.health < 15 && rnd() < dt * 14) this.fx.fire(p.x + fx * 1.7, y0 + 0.8, p.z + fz * 1.7, 0, 1.0, 0, 0.35, 0.4);
@@ -450,6 +466,7 @@ export class PoliceChase {
         mesh.setColorAt(i, col);
         if (on) this.fx.glow(wx, c.y + by + 0.25, wz, c.kind ? 1.3 : 1.1, base[0] * 3, base[1] * 3, base[2] * 3, 0.9);
       }
+      if (!c.wreck && this.beams) this.beams.add(c.x + Math.sin(c.h) * (c.len / 2 + 0.2), c.y + 0.05, c.z + Math.cos(c.h) * (c.len / 2 + 0.2), c.h, 16, 6);
       if (!c.wreck) { const hs = (c.kind ? 1.0 : 0.72); for (const s of [-1, 1]) this.fx.glow(c.x + Math.sin(c.h) * (c.len / 2 + 0.3) + Math.cos(c.h) * s * 0.55, c.y + hs, c.z + Math.cos(c.h) * (c.len / 2 + 0.3) - Math.sin(c.h) * s * 0.55, 0.45, 2.2, 2.0, 1.7, 0.55); }
     }
     for (let ki = 0; ki < 2; ki++) {

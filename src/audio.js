@@ -30,12 +30,12 @@ export class AudioEngine {
         const g = ctx.createGain(); g.gain.value = 0; src.connect(flt); flt.connect(g); g.connect(comp); src.start();
         return { flt, g };
       };
-      const tyre = noise('bandpass', 1100, 6), wind = noise('lowpass', 500, 0.7), intake = noise('bandpass', 400, 1.2), nitro = noise('highpass', 2500, 0.7);
+      const tyre = noise('bandpass', 1100, 6), wind = noise('lowpass', 500, 0.7), intake = noise('bandpass', 400, 1.2), nitro = noise('highpass', 2500, 0.7), city = noise('lowpass', 230, 0.6);
       // The siren: a two-tone, through a band-pass so it sounds like a horn in the street rather than a test tone.
       const sirenO = ctx.createOscillator(); sirenO.type = 'sawtooth'; sirenO.frequency.value = 650;
       const sirenF = ctx.createBiquadFilter(); sirenF.type = 'bandpass'; sirenF.frequency.value = 1100; sirenF.Q.value = 0.9;
       const sirenG = ctx.createGain(); sirenG.gain.value = 0; sirenO.connect(sirenF); sirenF.connect(sirenG); sirenG.connect(comp); sirenO.start();
-      Object.assign(this, { ctx, master, eGain, eFilt, oscs, tyre, wind, intake, nitro, buf, comp, sirenO, sirenG });
+      Object.assign(this, { ctx, master, eGain, eFilt, oscs, tyre, wind, intake, nitro, city, buf, comp, sirenO, sirenG });
     } catch (e) { this.ctx = null; }
   }
   setVolume(v, enabled) {
@@ -59,6 +59,8 @@ export class AudioEngine {
     this.wind.flt.frequency.setTargetAtTime(300 + spd * 12, t, 0.1);
     this.nitro.g.gain.setTargetAtTime(on * (car.nitroOn ? 0.09 : 0), t, 0.05);
   }
+  // The low murmur of the city (traffic far off), louder when you are on foot.
+  hum(v) { if (this.ctx) this.city.g.gain.setTargetAtTime(v, this.ctx.currentTime, 0.4); }
   // The police siren at a distance-based level (0 silent to 1 right behind you).
   siren(level, clock) {
     if (!this.ctx) return;
@@ -98,6 +100,14 @@ export class AudioEngine {
     o.type = 'square'; o.frequency.value = freq; g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g); g.connect(this.comp); o.start(t); o.stop(t + dur);
   }
+  // Footsteps (a soft thud and a scuff, brighter on pavement than on grass) and a car door.
+  step(v, kind) {
+    if (!this.ctx) return;
+    const f = kind === 'grass' ? 420 : kind === 'sand' || kind === 'gravel' ? 900 : 1500;
+    this.burst(f, f * 0.45, 0.07, 0.16 * v, 'bandpass', 0.9); this.burst(180, 90, 0.06, 0.12 * v, 'lowpass', 1);
+  }
+  clang(v = 1) { const k = Math.min(1, v / 8); this.burst(2600, 900, 0.25, 0.22 + 0.3 * k, 'bandpass', 4); this.burst(900, 300, 0.18, 0.2 * k + 0.05, 'bandpass', 2); }
+  door() { this.burst(420, 70, 0.22, 0.55, 'lowpass', 1.2); setTimeout(() => this.burst(2200, 900, 0.05, 0.14, 'bandpass', 1.5), 70); }
   suspend() { if (this.ctx && this.ctx.state === 'running') this.ctx.suspend(); }
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
 }

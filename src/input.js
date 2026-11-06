@@ -8,7 +8,10 @@ const WHEEL_RE = /wheel|racing|g29|g920|g923|g27|g25|t300|t150|t248|t128|tmx|t50
 export class Input {
   constructor() {
     this.keys = new Set();
-    this.touch = { left: false, right: false, gas: false, brake: false, hand: false, nitro: false, fire: false, missile: false, bomb: false, oil: false, smoke: false, shield: false };
+    this.touch = { left: false, right: false, gas: false, brake: false, hand: false, nitro: false, fire: false, missile: false, bomb: false, oil: false, smoke: false, shield: false, jump: false, sprint: false, crouch: false };
+    this.stick = { x: 0, y: 0 };            // the on-screen walking stick (-1..1)
+    this.orbit = { dyaw: 0, dpitch: 0 };    // camera turning since the last read, for the camera on foot
+    this.footMode = false; this.footZoom = 1;
     this.handlers = {};
     this.padPrev = {};
     this.tilt = { on: false, angle: 0, flip: 1, zero: 0 };
@@ -20,15 +23,16 @@ export class Input {
     addEventListener('mousedown', e => { if (e.target && e.target.id === 'c') { this.dragging = true; this.lastDevice = 'keyboard'; } });
     addEventListener('mouseup', () => { this.dragging = false; });
     addEventListener('mousemove', e => {
+      if (this.footMode && (this.dragging || document.pointerLockElement)) { this.orbit.dyaw += e.movementX * 0.0045; this.orbit.dpitch += e.movementY * 0.0035; }
       if (!this.dragging) return;
       this.look.yaw = Math.max(-3.2, Math.min(3.2, this.look.yaw - e.movementX * 0.006));
       this.look.pitch = Math.max(-0.4, Math.min(1.1, this.look.pitch + e.movementY * 0.004)); this.look.idle = 0;
     });
-    addEventListener('wheel', e => { if (e.target && e.target.id === 'c') this.look.zoom = Math.max(0.6, Math.min(1.9, this.look.zoom * Math.exp(e.deltaY * 0.001))); }, { passive: true });
+    addEventListener('wheel', e => { if (e.target && e.target.id === 'c') this.footZoom = Math.max(0.55, Math.min(2.2, this.footZoom * Math.exp(e.deltaY * 0.001))); if (e.target && e.target.id === 'c') this.look.zoom = Math.max(0.6, Math.min(1.9, this.look.zoom * Math.exp(e.deltaY * 0.001))); }, { passive: true });
     addEventListener('contextmenu', e => { if (e.target && e.target.id === 'c') e.preventDefault(); });
     addEventListener('keydown', e => {
       if (e.target && /input|textarea/i.test(e.target.tagName)) return;
-      if (!this.keys.has(e.code)) this.edgeKey(e.code);
+      if (!this.keys.has(e.code)) this.edgeKey(e.code, e);
       this.keys.add(e.code); this.lastDevice = 'keyboard';
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab'].includes(e.code)) e.preventDefault();
       this.emit('any');
@@ -38,8 +42,9 @@ export class Input {
   }
   on(name, fn) { (this.handlers[name] ||= []).push(fn); }
   emit(name, ...a) { for (const f of this.handlers[name] || []) f(...a); }
-  edgeKey(code) {
-    const map = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'pause', KeyE: 'shiftUp', KeyQ: 'shiftDown', Enter: 'confirm', KeyU: 'mute', KeyM: 'map', Tab: 'map', KeyF: 'fullscreen' };
+  edgeKey(code, e) {
+    // F gets in and out of the car (Shift+F is the fullscreen toggle now).
+    const map = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'pause', KeyE: 'shiftUp', KeyQ: 'shiftDown', Enter: 'confirm', KeyU: 'mute', KeyM: 'map', Tab: 'map', KeyF: e && e.shiftKey ? 'fullscreen' : 'use' };
     if (map[code]) this.emit(map[code]);
   }
 
@@ -54,15 +59,37 @@ export class Input {
       }
       for (const b of el.querySelectorAll('[data-k]')) { const k = b.dataset.k; this.touch[k] = held.has(k); b.classList.toggle('on', held.has(k)); }
     };
+    // On foot: a touch on the left half makes a floating walking stick (shown by #t-stick), a touch on the right half turns the camera.
+    const stickEl = el.querySelector('#t-stick'), knob = el.querySelector('#t-knob'); let stickId = null, stickC = null, lookId = null, lookLast = null;
+    const moveStick = (x, y) => {
+      const dx = x - stickC.x, dy = y - stickC.y, r = 56, d = Math.hypot(dx, dy), k = d > r ? r / d : 1;
+      this.stick.x = clamp(dx * k / r, -1, 1); this.stick.y = clamp(-dy * k / r, -1, 1);
+      if (knob) knob.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
+    };
+    const endStick = () => { stickId = null; this.stick.x = this.stick.y = 0; if (stickEl) stickEl.classList.remove('on'); if (knob) knob.style.transform = ''; };
     el.addEventListener('pointerdown', e => {
       const tap = e.target.closest('[data-tap]');
       if (tap) { this.emit(tap.dataset.tap); this.emit('any'); return; }
       e.preventDefault(); this.lastDevice = 'touch'; this.emit('any');
       try { el.setPointerCapture(e.pointerId); } catch (err) { /* not supported */ }
+      const onButton = e.target.closest('[data-k]');
+      if (this.footMode && !onButton) {
+        if (e.clientX < innerWidth * 0.5 && stickId === null) { stickId = e.pointerId; stickC = { x: e.clientX, y: e.clientY }; if (stickEl) { stickEl.style.left = e.clientX + 'px'; stickEl.style.top = e.clientY + 'px'; stickEl.classList.add('on'); } moveStick(e.clientX, e.clientY); }
+        else if (lookId === null) { lookId = e.pointerId; lookLast = { x: e.clientX, y: e.clientY }; }
+        return;
+      }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); refresh();
     });
-    el.addEventListener('pointermove', e => { if (!pointers.has(e.pointerId)) return; e.preventDefault(); pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); refresh(); });
-    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(ev, e => { if (pointers.delete(e.pointerId)) refresh(); });
+    el.addEventListener('pointermove', e => {
+      if (e.pointerId === stickId) { e.preventDefault(); moveStick(e.clientX, e.clientY); return; }
+      if (e.pointerId === lookId) { e.preventDefault(); this.orbit.dyaw += (e.clientX - lookLast.x) * 0.0055; this.orbit.dpitch += (e.clientY - lookLast.y) * 0.004; lookLast = { x: e.clientX, y: e.clientY }; return; }
+      if (!pointers.has(e.pointerId)) return; e.preventDefault(); pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); refresh();
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(ev, e => {
+      if (e.pointerId === stickId) endStick(); if (e.pointerId === lookId) lookId = null;
+      if (pointers.delete(e.pointerId)) refresh();
+    });
+    this.endStick = endStick;
     el.addEventListener('contextmenu', e => e.preventDefault());
     el.addEventListener('touchstart', e => { if (!e.target.closest('[data-tap]')) e.preventDefault(); }, { passive: false });
     for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault(), { passive: false });
@@ -145,6 +172,15 @@ export class Input {
     if (this.tilt.on && settings.touchSteer === 'tilt' && this.lastDevice === 'touch') {
       steer = clamp((this.tilt.angle - this.tilt.zero) / 0.45, -1, 1); analog = true; digital.steer = false;
     }
+    // On foot: walk with WASD, the arrows, the left stick or the on-screen stick; Shift sprints, Space jumps, Z or Ctrl crouches.
+    const foot = {
+      mx: (k('KeyD') || k('ArrowRight') ? 1 : 0) - (k('KeyA') || k('ArrowLeft') ? 1 : 0), my: (k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0),
+      sprint: k('ShiftLeft') || k('ShiftRight') || this.touch.sprint, jump: k('Space') || this.touch.jump, crouch: k('KeyZ') || k('ControlLeft') || k('ControlRight') || this.touch.crouch,
+    };
+    if (Math.hypot(this.stick.x, this.stick.y) > 0.05) { foot.mx = this.stick.x; foot.my = this.stick.y; }
+    const dyaw = this.orbit.dyaw, dpitch = this.orbit.dpitch; this.orbit.dyaw = this.orbit.dpitch = 0; let kyaw = 0, kpitch = 0;
+    if (k('KeyJ') && this.footMode) kyaw -= 1.7 * dt; if (k('KeyL') && this.footMode) kyaw += 1.7 * dt; if (k('KeyI') && this.footMode) kpitch -= 1.2 * dt; if (k('KeyK') && this.footMode) kpitch += 1.2 * dt;
+    foot.dyaw = dyaw - kyaw; foot.dpitch = dpitch + kpitch; foot.zoom = this.footZoom;
     this.pollLearn();
     const W = settings.wheel || {};
     for (const p of this.pads()) {
@@ -172,6 +208,11 @@ export class Input {
         if (p.buttons[0] && p.buttons[0].pressed) { handbrake = true; used = true; }
         if (p.buttons[2] && p.buttons[2].pressed) { nitro = true; used = true; }
         const pb = i => !!(p.buttons[i] && p.buttons[i].pressed);
+        const dz = v => (Math.abs(v) > 0.16 ? (v - Math.sign(v) * 0.16) / 0.84 : 0), lx = dz(p.axes[0] || 0), ly = dz(p.axes[1] || 0), rx = dz(p.axes[2] || 0), ry = dz(p.axes[3] || 0);
+        if (lx || ly) { foot.mx = lx; foot.my = -ly; }
+        foot.dyaw += rx * 2.6 * dt; foot.dpitch += ry * 1.8 * dt;
+        if (pb(0)) foot.jump = true; if (pb(1)) foot.crouch = true; if (pb(6) || pb(7) || pb(10)) foot.sprint = true;
+        this.padEdge(p, 10, 'use');
         if (pb(1)) { gadgets.fire = true; used = true; } if (pb(5)) gadgets.missile = true; if (pb(4)) gadgets.bomb = true;
         if (pb(12)) gadgets.oil = true; if (pb(13)) gadgets.smoke = true; if (pb(11)) gadgets.shield = true;
         if (p.buttons[14] && p.buttons[14].pressed) steer = -1;
@@ -182,6 +223,6 @@ export class Input {
       }
       if (used) { this.lastDevice = isWheel ? 'wheel' : 'pad'; this.emit('any'); }
     }
-    return { steer, gas, brake, handbrake, nitro, analog, sens: settings.sens, digital, gadgets, device: this.lastDevice === 'touch' && !(digital.steer === false) ? 'touch' : this.lastDevice };
+    return { steer, gas, brake, handbrake, nitro, analog, sens: settings.sens, digital, gadgets, foot, device: this.lastDevice === 'touch' && !(digital.steer === false) ? 'touch' : this.lastDevice };
   }
 }
