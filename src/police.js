@@ -49,7 +49,7 @@ export class PoliceChase {
     this.reset();
     // Meshes: instanced cruisers and trucks (with their light bars), pools of missiles, bombs and oil slicks.
     const mk = md => {
-      const mat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.32, envMapIntensity: 1.1 });
+      const mat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 });
       const body = new THREE.InstancedMesh(md.geo, mat, CAP), lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), CAP);
       for (const m of [body, lights]) { m.count = 0; m.frustumCulled = false; scene.add(m); }
       body.receiveShadow = true;

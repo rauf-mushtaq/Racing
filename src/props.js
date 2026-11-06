@@ -9,6 +9,7 @@ import { mulberry32, fbm } from './util.js';
 import { mergeGeoms, mergeGeomsUV } from './geom.js';
 import { TOD } from './tod.js';
 import { Q } from './quality.js';
+import { SUN_DIR } from './sky.js';
 
 const v3 = new THREE.Vector3();
 const withUV = g => { if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2).fill(0.02), 2)); return g; };
@@ -27,7 +28,7 @@ function leafTree(detail) {
     const g = mergeVertices(ico);
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) { v3.fromBufferAttribute(p, i); p.setXYZ(i, v3.x + x, v3.y * 0.85 + y, v3.z + z); }
-    g.computeVertexNormals(); paint(g, 0.03, 0.05, 0.02); withUV(g); core.push(g);
+    g.computeVertexNormals(); paint(g, 0.07, 0.1, 0.04); withUV(g); core.push(g);
     for (let k = 0; k < perBlob; k++) {
       // Clusters at different depths in the crown, some poking well out of it,
       // each turned a random way, so the outline is ragged and leafy.
@@ -60,7 +61,7 @@ function leafBush(detail) {
     const ico = new THREE.IcosahedronGeometry(r * 0.6, 1); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
     const g = mergeVertices(ico), p = g.attributes.position;
     for (let i = 0; i < p.count; i++) { v3.fromBufferAttribute(p, i); p.setXYZ(i, v3.x + x, v3.y * 0.8 + y, v3.z + z); }
-    g.computeVertexNormals(); paint(g, 0.03, 0.05, 0.02); withUV(g); core.push(g);
+    g.computeVertexNormals(); paint(g, 0.07, 0.1, 0.04); withUV(g); core.push(g);
     for (let k = 0; k < [8, 12, 16][detail]; k++) {
       const u = rnd() * 1.4 - 0.2, a = rnd() * Math.PI * 2, s = Math.sqrt(Math.max(0, 1 - u * u));
       const n = new THREE.Vector3(s * Math.cos(a), u, s * Math.sin(a)).normalize(), rr = r * (0.6 + rnd() * 0.6), size = 0.5 + rnd() * 0.7;
@@ -169,11 +170,21 @@ function hedge() {
 // Wind: the crowns of trees, palm fronds and bushes sway. Each instance has its own phase (from where it stands), bending grows with
 // height above the foot of the plant, and leaves and fronds flutter a little on top. `uWind` is the time, set once a frame by main.js.
 export const WIND = { value: 0 };
-function windify(mat, amp, H, flutter) {
+const SUN_COL = new THREE.Color(TOD.sunColor);
+function windify(mat, amp, H, flutter, trans = 0) {
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (sh, r) => {
     if (prev) prev(sh, r);
     sh.uniforms.uWind = WIND;
+    if (trans) {
+      // Leaves glow where the sun shines through them (when you look towards the sun): light that came through the leaf, tinted by it.
+      sh.uniforms.uSunDir = { value: SUN_DIR }; sh.uniforms.uSunCol = { value: SUN_COL }; sh.uniforms.uTrans = { value: trans };
+      sh.fragmentShader = 'uniform vec3 uSunDir; uniform vec3 uSunCol; uniform float uTrans;\n' + sh.fragmentShader.replace('#include <opaque_fragment>', `
+        { vec3 sunV = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz); vec3 toCam = normalize(vViewPosition);
+          float back = pow(clamp(dot(-toCam, sunV), 0.0, 1.0), 2.5);
+          outgoingLight += diffuseColor.rgb * uSunCol * back * uTrans; }
+        #include <opaque_fragment>`);
+    }
     sh.vertexShader = 'uniform float uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
       #ifdef USE_INSTANCING
         vec2 wph = instanceMatrix[3].xz * 0.37;
@@ -186,7 +197,7 @@ function windify(mat, amp, H, flutter) {
       transformed.z += (cos(uWind * 1.15 + wph.y) + 0.4 * sin(uWind * 2.3 + wph.x)) * wk * 0.7 * gust;
       ${flutter ? `transformed += vec3(sin(uWind * 6.3 + position.x * 7.0 + position.y * 5.0), sin(uWind * 5.1 + position.z * 6.0), cos(uWind * 5.7 + position.y * 8.0)) * wh * ${flutter.toFixed(3)} * gust;` : ''}`);
   };
-  mat.customProgramCacheKey = () => 'wind' + amp + H + flutter;
+  mat.customProgramCacheKey = () => 'wind' + amp + H + flutter + trans;
   return mat;
 }
 
@@ -237,6 +248,6 @@ export function makeProps() {
     billFrame: new THREE.MeshStandardMaterial({ color: 0x222226, roughness: 0.6, metalness: 0.4 }),
     billFace: new THREE.MeshStandardMaterial({ map: billTex, emissiveMap: billTex, emissive: 0xffffff, emissiveIntensity: TOD.lampsOn ? 0.9 : 0.35, roughness: 0.6 }),
   };
-  windify(mat.treeCore, 0.2, 8, 0); windify(mat.treeCards, 0.2, 8, 0.05); windify(mat.palmTrunk, 0.42, 12, 0); windify(mat.palmFronds, 0.42, 12, 0.07); windify(mat.pine, 0.13, 10, 0.02);
+  windify(mat.treeCore, 0.2, 8, 0); windify(mat.treeCards, 0.2, 8, 0.05, 1.1); windify(mat.palmTrunk, 0.42, 12, 0); windify(mat.palmFronds, 0.42, 12, 0.07, 1.3); windify(mat.pine, 0.13, 10, 0.02);
   return { geo, mat };
 }

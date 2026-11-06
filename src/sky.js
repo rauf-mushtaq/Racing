@@ -2,6 +2,7 @@
 // of day picked in Settings (see tod.js). Sunset adds the pink smoke plume.
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { fbm, mulberry32, lerp, clamp } from './util.js';
 import { puffTex } from './textures.js';
 import { TOD } from './tod.js';
@@ -18,6 +19,30 @@ function setSky(sky) {
   u.mieCoefficient.value = TOD.sky.mie;
   u.mieDirectionalG.value = TOD.sky.mieG;
   u.sunPosition.value.copy(SUN_DIR).multiplyScalar(1000);
+}
+
+// Real light: a photographic HDR sky (Poly Haven, CC0) lights and reflects in everything. It is turned so its sun sits where ours does, and
+// the sun itself is clamped (our own sun lamp does the sunlight and the shadows; the picture supplies the sky, the horizon and the ground).
+const HDRI = {
+  golden: { url: 'assets/hdr/venice_sunset_1k.hdr', az: 36, clamp: 14, gain: 1.0 },
+  day: { url: 'assets/hdr/royal_esplanade_1k.hdr', az: -147.5, clamp: 9, gain: 0.9 },
+  sunset: { url: 'assets/hdr/venice_sunset_1k.hdr', az: 36, clamp: 14, gain: 0.9 },
+  night: { url: 'assets/hdr/moonless_golf_1k.hdr', az: -78.2, clamp: 5, gain: 0.85 },
+};
+export async function applyHDRI(renderer, scene, name) {
+  const H = HDRI[name] || HDRI.golden, sunDir = name === 'night' ? LIGHT_DIR : SUN_DIR;
+  const tex = await new Promise((res, rej) => new RGBELoader().load(H.url, res, undefined, rej));
+  const rot = Math.atan2(sunDir.z, sunDir.x) - H.az * Math.PI / 180;
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(50, 64, 32), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, toneMapped: false, uniforms: { map: { value: tex }, uRot: { value: rot }, uClamp: { value: H.clamp }, uGain: { value: H.gain } },
+    vertexShader: 'varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform sampler2D map; uniform float uRot, uClamp, uGain; varying vec3 vD;
+      void main(){ vec3 d = normalize(vD); vec2 uv = vec2(fract((atan(d.z, d.x) - uRot) * 0.15915494 + 0.5), asin(clamp(d.y, -1.0, 1.0)) * 0.31830989 + 0.5);
+        vec3 c = texture2D(map, uv).rgb; float m = max(max(c.r, c.g), c.b); if (m > uClamp) c *= uClamp / m; gl_FragColor = vec4(c * uGain, 1.0); }`,
+  }));
+  const envScene = new THREE.Scene(); envScene.add(sphere);
+  const pm = new THREE.PMREMGenerator(renderer); const env = pm.fromScene(envScene, 0.0, 1, 200).texture; pm.dispose(); tex.dispose();
+  const old = scene.environment; scene.environment = env; if (old) old.dispose();
 }
 
 export function buildSky(scene, renderer, quality) {

@@ -247,12 +247,9 @@ function glassCell(g, ge, gr, x, y, w, h, rnd) {
   g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x, y + sp - 3, w, 3);
   gr.fillStyle = '#a4a4a4'; gr.fillRect(x, y, w, sp);
   const gy = y + sp, gh = h - sp, t = rnd();
-  g.fillStyle = vgrad(g, gy, gy + gh, [[0, t < 0.5 ? '#a9cde6' : '#9fc0d8'], [0.45, '#5f88a8'], [1, '#2c465e']]);
+  g.fillStyle = vgrad(g, gy, gy + gh, [[0, t < 0.5 ? '#7d8a94' : '#76838d'], [0.5, '#56636d'], [1, '#38424b']]);
   g.fillRect(x, gy, w, gh);
   g.fillStyle = 'rgba(20,40,60,0.28)'; g.fillRect(x, gy + gh * 0.72, w, gh * 0.28);
-  g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
-  g.fillStyle = 'rgba(255,255,255,0.13)'; g.beginPath(); g.moveTo(x + w * 0.2, gy); g.lineTo(x + w * 0.46, gy); g.lineTo(x + w * 0.1, gy + gh); g.lineTo(x - w * 0.16, gy + gh); g.closePath(); g.fill();
-  g.restore();
   gr.fillStyle = '#141414'; gr.fillRect(x, gy, w, gh);
   for (const mx of [x, x + w / 2 - 3, x + w - 6]) {
     g.fillStyle = '#cfd4d9'; g.fillRect(mx, gy, 6, gh); g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(mx + 5, gy, 1.5, gh);
@@ -272,10 +269,7 @@ function modernCell(g, ge, gr, x, y, w, h, rnd) {
   g.fillStyle = 'rgba(255,255,255,0.7)'; g.fillRect(x, y, w, 2);
   gr.fillStyle = '#dcdcdc'; gr.fillRect(x, y, w, band + 7);
   const gy = y + band + 7, gh = h - band - 7;
-  g.fillStyle = vgrad(g, gy, gy + gh, [[0, '#8fb0c8'], [0.5, '#5b7f9d'], [1, '#2f485f']]); g.fillRect(x, gy, w, gh);
-  g.save(); g.beginPath(); g.rect(x, gy, w, gh); g.clip();
-  g.fillStyle = 'rgba(255,255,255,0.12)'; g.beginPath(); g.moveTo(x + w * 0.5, gy); g.lineTo(x + w * 0.75, gy); g.lineTo(x + w * 0.35, gy + gh); g.lineTo(x + w * 0.1, gy + gh); g.closePath(); g.fill();
-  g.restore();
+  g.fillStyle = vgrad(g, gy, gy + gh, [[0, '#7d8a94'], [0.5, '#5c6973'], [1, '#3a454e']]); g.fillRect(x, gy, w, gh);
   gr.fillStyle = '#151515'; gr.fillRect(x, gy, w, gh);
   for (let m = 0; m < 4; m++) { g.fillStyle = '#4b535b'; g.fillRect(x + m * w / 4, gy, 2.5, gh); gr.fillStyle = '#8c8c8c'; gr.fillRect(x + m * w / 4, gy, 2.5, gh); }
   if (rnd() < 0.3) { g.fillStyle = 'rgba(40,50,60,0.8)'; for (let f = 0; f < 3; f++) g.fillRect(x, gy + 6 + f * 9, w, 2); }
@@ -299,8 +293,7 @@ function aptCell(g, ge, gr, x, y, w, h, rnd) {
   g.fillStyle = '#e8e2d8'; g.fillRect(wx - 8, wy - 8, ww + 16, wh + 16);
   g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(wx - 8, wy - 8, ww + 16, 3); g.fillRect(wx - 8, wy - 8, 3, wh + 16);
   gr.fillStyle = '#c8c8c8'; gr.fillRect(wx - 8, wy - 8, ww + 16, wh + 16);
-  g.fillStyle = vgrad(g, wy, wy + wh, [[0, '#7a93a8'], [0.5, '#4a6075'], [1, '#222f3b']]); g.fillRect(wx, wy, ww, wh);
-  g.fillStyle = 'rgba(255,255,255,0.14)'; g.beginPath(); g.moveTo(wx + 10, wy); g.lineTo(wx + 44, wy); g.lineTo(wx, wy + 60); g.lineTo(wx, wy + 30); g.fill();
+  g.fillStyle = vgrad(g, wy, wy + wh, [[0, '#6b7882'], [0.5, '#47525b'], [1, '#252d34']]); g.fillRect(wx, wy, ww, wh);
   gr.fillStyle = '#1c1c1c'; gr.fillRect(wx, wy, ww, wh);
   g.fillStyle = '#f3efe7'; g.fillRect(wx + ww / 2 - 2.5, wy, 5, wh); g.fillRect(wx, wy + wh * 0.38, ww, 5);
   gr.fillStyle = '#b8b8b8'; gr.fillRect(wx + ww / 2 - 2.5, wy, 5, wh); gr.fillRect(wx, wy + wh * 0.38, ww, 5);
@@ -327,7 +320,7 @@ function brickCell(g, ge, gr, x, y, w, h, rnd) {
   g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(wx - 12, wy - 3, ww + 24, 3);
   g.fillStyle = '#ece6da'; g.fillRect(wx - 4, wy - 4, ww + 8, wh + 8);
   gr.fillStyle = '#c4c4c4'; gr.fillRect(wx - 12, wy - 16, ww + 24, wh + 20);
-  g.fillStyle = vgrad(g, wy, wy + wh, [[0, '#6c8093'], [1, '#202a33']]); g.fillRect(wx, wy, ww, wh);
+  g.fillStyle = vgrad(g, wy, wy + wh, [[0, '#5e6a74'], [1, '#20282e']]); g.fillRect(wx, wy, ww, wh);
   gr.fillStyle = '#1c1c1c'; gr.fillRect(wx, wy, ww, wh);
   g.fillStyle = '#ece6da'; g.fillRect(wx, wy + wh / 2 - 2.5, ww, 5); g.fillRect(wx + ww / 2 - 2.5, wy, 5, wh);
   g.fillStyle = '#d8d1c4'; g.fillRect(wx - 14, wy + wh + 4, ww + 28, 10);            // sill
@@ -344,8 +337,7 @@ function houseCell(g, ge, gr, x, y, w, h, rnd) {
   const win = (wx, wy, ww, wh) => {
     g.fillStyle = '#f4f0e8'; g.fillRect(wx - 7, wy - 7, ww + 14, wh + 14);
     g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(wx - 7, wy - 7, ww + 14, 3);
-    g.fillStyle = vgrad(g, wy, wy + wh, [[0, '#7e97ab'], [1, '#243240']]); g.fillRect(wx, wy, ww, wh);
-    g.fillStyle = 'rgba(255,255,255,0.14)'; g.beginPath(); g.moveTo(wx + 6, wy); g.lineTo(wx + ww * 0.45, wy); g.lineTo(wx, wy + wh * 0.5); g.lineTo(wx, wy + wh * 0.25); g.fill();
+    g.fillStyle = vgrad(g, wy, wy + wh, [[0, '#6c7983'], [1, '#232b32']]); g.fillRect(wx, wy, ww, wh);
     g.fillStyle = '#f4f0e8'; g.fillRect(wx + ww / 2 - 2, wy, 4, wh); g.fillRect(wx, wy + wh * 0.45, ww, 4);
     g.fillStyle = '#d6d0c4'; g.fillRect(wx - 10, wy + wh + 7, ww + 20, 7);
     gr.fillStyle = '#c0c0c0'; gr.fillRect(wx - 7, wy - 7, ww + 14, wh + 14);
@@ -369,7 +361,6 @@ function shopBay(g, ge, gr, x, y, w, h, rnd, r, k) {
   const sx = x + 12, sw = w - 24, sy = y + 150, sh = h - 150 - 30;
   g.fillStyle = '#2b2b2e'; g.fillRect(sx - 6, sy - 6, sw + 12, sh + 12);
   g.fillStyle = vgrad(g, sy, sy + sh, [[0, '#566673'], [0.6, '#2c3640'], [1, '#1c232a']]); g.fillRect(sx, sy, sw, sh);
-  g.fillStyle = 'rgba(255,255,255,0.1)'; g.beginPath(); g.moveTo(sx + sw * 0.1, sy); g.lineTo(sx + sw * 0.35, sy); g.lineTo(sx + sw * 0.05, sy + sh); g.lineTo(sx, sy + sh); g.lineTo(sx, sy + sh * 0.3); g.fill();
   gr.fillStyle = '#202020'; gr.fillRect(sx - 6, sy - 6, sw + 12, sh + 12); gr.fillStyle = '#141414'; gr.fillRect(sx, sy, sw, sh);
   g.fillStyle = '#2b2b2e'; for (let m = 1; m < 4; m++) g.fillRect(sx + m * sw / 4 - 2.5, sy, 5, sh);
   gr.fillStyle = '#505050'; for (let m = 1; m < 4; m++) gr.fillRect(sx + m * sw / 4 - 2.5, sy, 5, sh);
@@ -514,18 +505,21 @@ export function glowTex() {
 
 // A cluster of leaves on a transparent background, for tree crowns.
 export function leafTex() {
+  // A spray of leaves: each with its own shade (some yellower, some deeper green, a few turning), a pale midrib and veins, and a lighter
+  // edge, over a darker layer behind so the clump has depth.
   const S = 512, [c, g] = mk(S); const rnd = mulberry32(61);
   g.clearRect(0, 0, S, S);
-  for (let i = 0; i < 520; i++) {
-    const r = Math.sqrt(rnd()) * S * 0.46, a = rnd() * 6.28;
-    const x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r, len = 20 + rnd() * 26;
-    const l = 0.5 + rnd() * 0.5;
-    g.save(); g.translate(x, y); g.rotate(rnd() * 6.28);
-    g.fillStyle = `rgb(${(58 + rnd() * 34) * l | 0},${(108 + rnd() * 54) * l | 0},${(34 + rnd() * 22) * l | 0})`;
-    g.beginPath(); g.ellipse(0, 0, len / 2, len / 4.2, 0, 0, 6.28); g.fill();
-    g.strokeStyle = 'rgba(30,60,18,0.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(-len / 2, 0); g.lineTo(len / 2, 0); g.stroke();
+  const leaf = (x, y, len, ang, l, depth) => {
+    const warm = rnd(), hue = warm < 0.12 ? [150, 130, 40] : warm < 0.5 ? [86, 128, 36] : [58, 108, 40];
+    g.save(); g.translate(x, y); g.rotate(ang);
+    const grd = g.createLinearGradient(0, -len / 4, 0, len / 4); grd.addColorStop(0, `rgb(${hue[0] * l * 1.18 | 0},${hue[1] * l * 1.18 | 0},${hue[2] * l * 1.1 | 0})`); grd.addColorStop(1, `rgb(${hue[0] * l * 0.78 | 0},${hue[1] * l * 0.8 | 0},${hue[2] * l * 0.8 | 0})`);
+    g.fillStyle = grd; g.beginPath(); g.moveTo(-len / 2, 0); g.quadraticCurveTo(-len * 0.1, -len * 0.3, len / 2, 0); g.quadraticCurveTo(-len * 0.1, len * 0.3, -len / 2, 0); g.fill();
+    g.strokeStyle = `rgba(${200 * l | 0},${215 * l | 0},${120 * l | 0},0.45)`; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-len / 2, 0); g.lineTo(len / 2, 0); g.stroke();
+    g.lineWidth = 0.7; g.strokeStyle = `rgba(30,60,20,0.35)`; for (let v = -0.3; v <= 0.35; v += 0.18) { g.beginPath(); g.moveTo(len * v, 0); g.lineTo(len * (v + 0.18), -len * 0.17); g.moveTo(len * v, 0); g.lineTo(len * (v + 0.18), len * 0.17); g.stroke(); }
     g.restore();
-  }
+  };
+  for (let i = 0; i < 300; i++) { const r = Math.sqrt(rnd()) * S * 0.45, a = rnd() * 6.28; leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, 34 + rnd() * 30, rnd() * 6.28, 0.42 + rnd() * 0.2); }   // behind: darker
+  for (let i = 0; i < 380; i++) { const r = Math.sqrt(rnd()) * S * 0.46, a = rnd() * 6.28; leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, 30 + rnd() * 34, rnd() * 6.28, 0.62 + rnd() * 0.42); }
   return tex(c, true, false);
 }
 

@@ -23,7 +23,7 @@ export class Traffic {
     this.parkedWrap = { cars: this.nearParked, velocityOf: c => this.velocityOf(c), knock: (...a) => this.knock(...a) };       // (what collideTraffic needs)
     this.city = city;
     this.meshes = this.models.map(md => {
-      const body = new THREE.InstancedMesh(md.geo, new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.32, envMapIntensity: 1.1 }), CAP);
+      const body = new THREE.InstancedMesh(md.geo, new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 }), CAP);
       const lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), CAP);
       body.castShadow = false; body.count = 0; lights.count = 0;
       body.receiveShadow = true;

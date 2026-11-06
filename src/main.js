@@ -11,7 +11,7 @@ import { settings, save } from './store.js';
 import { setAnisotropy, setTexScale, glowTex } from './textures.js';
 import { Q } from './quality.js';
 import { WIND } from './props.js';
-import { buildSky, placeSun, SUN_DIR, LIGHT_DIR } from './sky.js';
+import { buildSky, placeSun, SUN_DIR, LIGHT_DIR, applyHDRI } from './sky.js';
 import { City, SP, N, EDGE, laneOffset, queryColliders, signalState, breakProp } from './city.js';
 import { groundAt, ROADS, BUNKERS, AIRFIELD } from './world.js';
 import { buildTerrain } from './terrain.js';
@@ -21,6 +21,7 @@ import { initGrass } from './grass.js';
 import { initStructures } from './structures.js';
 import { TOD, TOD_NAME } from './tod.js';
 import { makeHeroCar, setPaint, PAINTS, HERO_DIMS } from './carModel.js';
+import { loadFerrari } from './ferrari.js';
 import { Vehicle, SPEC } from './vehicle.js';
 import { makeGT, GT_SPEC } from './gt.js';
 import { PoliceChase } from './police.js';
@@ -53,8 +54,8 @@ installAtmosphere();
 const quality = Q.name;
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: Q.msaa === 0, powerPreference: 'high-performance', stencil: false });
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = TOD.exposure;
+renderer.toneMapping = THREE.AgXToneMapping;                 // a film-like response: less saturated highlights than ACES, closer to a photograph
+renderer.toneMappingExposure = TOD.exposure * 1.24;
 renderer.shadowMap.enabled = Q.shadows;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.info.autoReset = false;
@@ -70,7 +71,7 @@ const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 12000);
 
 // Post-processing: bloom, a speed blur, vignette and a colour grade, then ACES.
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) }, uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) }, uSharpen: { value: Q.sharpen }, tAO: { value: null }, uAO: { value: 0 }, uClarity: { value: Q.clarity }, uCA: { value: 0.003 },
+  uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) }, uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) }, uSharpen: { value: Q.sharpen }, tAO: { value: null }, uAO: { value: 0 }, uClarity: { value: Q.clarity }, uCA: { value: 0.0012 },
     uSat: { value: TOD.grade.sat }, uContrast: { value: TOD.grade.contrast }, uWarm: { value: TOD.grade.warm }, uSunset: { value: TOD.split },
     uSun: { value: new THREE.Vector2(0.5, 0.6) }, uRays: { value: TOD.rays }, uSunVis: { value: 0 }, uGrain: { value: TOD.grain }, uTime: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
@@ -171,6 +172,7 @@ async function build() {
   try { await Promise.race([Promise.all([document.fonts.load('900 52px "Barlow Condensed"'), document.fonts.load('700 40px "Barlow"')]), new Promise(r => setTimeout(r, 2500))]); } catch (e) { /* fallback fonts are fine */ }
   loadMsg('Painting the sky…'); await nextFrame();
   sky = buildSky(scene, renderer, quality);
+  try { await applyHDRI(renderer, scene, TOD_NAME); } catch (e) { console.warn('HDR sky not loaded, using the built-in one', e); }
   city = new City(scene);
   await city.init(loadMsg);
   loadMsg('Raising the hills…'); await nextFrame();
@@ -183,7 +185,9 @@ async function build() {
   await city.loadAround(START.x, START.z, Math.min(2, Q.loadR), loadMsg);
   loadMsg('Starting the traffic…'); await nextFrame();
   traffic = new Traffic(scene, city, Q.shadows);
-  carMesh = heroMesh = makeHeroCar(settings.color);
+  loadMsg('Unpacking the car…'); await nextFrame();
+  let hero = null; try { hero = await loadFerrari(settings.color, Q.name !== 'ultra'); } catch (e) { console.warn('The car model did not load, using the built-in one', e); }
+  carMesh = heroMesh = hero || makeHeroCar(settings.color);
   heroMesh.userData.dims = HERO_DIMS; heroMesh.userData.cgOff = CG_OFF;
   scene.add(heroMesh);
   // The police chase's grand tourer and its pursuers are built up front (hidden), so their materials are in the scene for the
@@ -285,7 +289,7 @@ function applyWeather() {
   if (rain) rain.visible = on;
   if (city && city.mat) {
     const a = city.mat.asphalt, w = city.mat.walk, wet = on || !!TOD.wet;
-    a.roughness = wet ? 0.4 : 0.66; a.envMapIntensity = wet ? 2.0 : 1.1; a.normalScale.setScalar(wet ? 0.4 : 0.8);
+    a.roughness = wet ? 0.4 : 0.86; a.envMapIntensity = wet ? 2.0 : 0.75; a.normalScale.setScalar(wet ? 0.4 : 0.55);
     w.roughness = wet ? 0.6 : 0.92; w.envMapIntensity = wet ? 1.5 : 1;
   }
   if (scene.fog) scene.fog.density = TOD.fogDensity * (on ? 1.7 : 1);

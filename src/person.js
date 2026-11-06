@@ -5,7 +5,7 @@
 // The figure faces +z, stands on y = 0 and is about 1.78 m tall. Rotating a limb about x by a positive angle swings its
 // lower end backwards, so a forward swing is a negative x rotation (the helpers below take care of that).
 import * as THREE from 'three';
-import { mergeGeoms } from './geom.js';
+import { mergeGeomsUV as mergeGeoms } from './geom.js';
 import { clamp, lerp } from './util.js';
 
 export const SKINS = [0xf1c9a5, 0xe0ac86, 0xc68863, 0x9a6540, 0x6e452b, 0xf4d6bc];
@@ -104,9 +104,9 @@ const J = { hipY: 0.93, hipX: 0.098, thigh: 0.45, shin: 0.44, shoulderX: 0.212, 
 export const PERSON_H = 1.78;
 
 // A set of joints (empty groups). `meshes` is given for the player: each part is added to its bone.
-export function buildRig(parts, materials) {
+export function buildRig(parts, materials, bones = false) {
   const root = new THREE.Group(), B = { root }; root.rotation.order = 'YXZ';         // turn to face a way first, then (when knocked down) tip over
-  const add = (name, parent, x = 0, y = 0, z = 0) => { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); B[name] = g; return g; };
+  const add = (name, parent, x = 0, y = 0, z = 0) => { const g = bones ? new THREE.Bone() : new THREE.Group(); g.position.set(x, y, z); parent.add(g); B[name] = g; return g; };
   add('hips', root, 0, J.hipY, 0); add('torso', B.hips, 0, 0.02, 0); add('head', B.torso, 0, J.neckY, 0);
   for (const [n, s] of [['L', -1], ['R', 1]]) {
     add('shoulder' + n, B.torso, s * J.shoulderX, J.shoulderY, 0); add('elbow' + n, B['shoulder' + n], 0, -J.uArm, 0); add('wrist' + n, B['elbow' + n], 0, -J.fArm, 0);

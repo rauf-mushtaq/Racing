@@ -2,7 +2,8 @@
 // movement (camera-relative, with collisions against buildings, poles, parked cars and traffic), the animation and the third-person
 // camera. The figure itself is in person.js.
 import * as THREE from 'three';
-import { makePlayerFigure, animate, setOutfit, PERSON_H } from './person.js';
+import { animate, PERSON_H } from './person.js';
+import { makeSmoothFigure } from './figure.js';
 import { groundAt, isWater, coastX, WORLD_LIM } from './world.js';
 import { queryColliders, EDGE } from './city.js';
 import { clamp, damp, lerp, wrapAngle } from './util.js';
@@ -13,7 +14,7 @@ const found = [];
 
 export class Walker {
   constructor(scene, outfit = 'street') {
-    this.rig = makePlayerFigure(outfit); this.mesh = this.rig.root; this.mesh.visible = false; scene.add(this.mesh);
+    this.rig = makeSmoothFigure(outfit); this.mesh = this.rig.root; this.mesh.visible = false; scene.add(this.mesh);
     // A soft contact shadow, so the feet sit on the ground even with shadow maps off.
     const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
     const gr = g.createRadialGradient(32, 32, 2, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
@@ -27,7 +28,7 @@ export class Walker {
   }
   get bodyY() { return this.y + 0.9; }
   worldVel() { return [this.vx, this.vz]; }
-  setOutfit(key) { setOutfit(this.rig, key); }
+  setOutfit(key) { this.rig.rebuild(key); }
 
   // Stand somewhere, facing a way.
   place(x, z, h) {

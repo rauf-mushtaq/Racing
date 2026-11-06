@@ -2,7 +2,8 @@
 // something loud happens). They are drawn as instanced meshes (one per body part, so about a dozen draw calls for the whole crowd)
 // on the same skeleton and animation as the player's character. A car that hits one knocks it over; that is a crime.
 import * as THREE from 'three';
-import { bodyParts, buildRig, animate, personMaterials, SKINS, HAIRS } from './person.js';
+import { bodyParts, buildRig, animate, SKINS, HAIRS } from './person.js';
+import { figureMaterials } from './figure.js';
 import { N, SP, blockRect } from './city.js';
 import { groundAt } from './world.js';
 import { mulberry32, clamp, damp, wrapAngle } from './util.js';
@@ -32,14 +33,14 @@ export class Peds {
   constructor(scene, count, shadows) {
     this.scene = scene; this.count = count; this.rnd = mulberry32(2025); this.list = []; this.onHit = null;
     // Geometry for every part, with white clothes (dyed per instance) and white skin (tinted per instance).
-    const parts = bodyParts({ skin: 0xffffff, hairStyle: 'short' }, true), mats = personMaterials();
+    const parts = bodyParts({ skin: 0xffffff, hairStyle: 'short' }, true), mats = figureMaterials();
     this.B = buildRig(null, null);                              // just the joints
     this.kinds = [];
     const dye = { torso: 'shirt', uArm: 'shirt', fArm: 'shirt', pelvis: 'pants', thigh: 'pants', shin: 'pants', shoe: 'shoes', head: 'skin', hand: 'skin', hair: 'hair' };
     for (const [k, geo] of Object.entries(parts)) {
       if (!geo || !dye[k]) continue;
       const bones = this.B.parts[k], n = count * bones.length;
-      const mesh = new THREE.InstancedMesh(geo, k === 'head' || k === 'hand' ? mats.skin : mats.cloth, n);
+      const mesh = new THREE.InstancedMesh(geo, k === 'head' || k === 'hand' ? mats.skin : k === 'hair' ? mats.hair : k === 'shoe' ? mats.shoe : mats.cloth, n);
       mesh.count = 0; mesh.frustumCulled = false; mesh.castShadow = shadows; mesh.setColorAt(0, new THREE.Color(1, 1, 1));
       scene.add(mesh); this.kinds.push({ k, bones, mesh, dye: dye[k] });
     }

@@ -213,7 +213,7 @@ export class City {
       rail: std({ map: misc.rail, alphaTest: 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.4 }),
       gantry: std({ map: misc.gantry, emissiveMap: misc.gantry, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.6, side: THREE.DoubleSide }),
     };
-    m.asphalt = macro(std({ color: TOD.road, map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: TOD.wet ? new THREE.Vector2(0.4, 0.4) : new THREE.Vector2(0.8, 0.8), roughness: TOD.wet ? 0.4 : 0.66, metalness: 0, envMapIntensity: TOD.wet ? 2.0 : 1.1 }), 0.045, 0.35);
+    m.asphalt = macro(std({ color: new THREE.Color(TOD.road).multiplyScalar(TOD.wet ? 1 : 0.78), map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: TOD.wet ? new THREE.Vector2(0.4, 0.4) : new THREE.Vector2(0.55, 0.55), roughness: TOD.wet ? 0.4 : 0.86, metalness: 0, envMapIntensity: TOD.wet ? 2.0 : 0.75 }), 0.045, 0.35);
     this.style = {
       glass: { fac: facG, pal: GLASS }, modern: { fac: facM, pal: MODERN }, apt: { fac: facA, pal: STUCCO },
       brick: { fac: facB, pal: BRICK }, shop: { fac: facS, pal: SHOP }, house: { fac: facH, pal: HOUSE },
