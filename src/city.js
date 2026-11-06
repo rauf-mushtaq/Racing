@@ -202,7 +202,7 @@ export class City {
       walk: macro(std({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: TOD.wet ? 0.62 : 0.92, envMapIntensity: TOD.wet ? 1.5 : 1 }), 0.06, 0.3),
       curb: std({ color: 0xc8c0bc, map: con.map, roughness: 0.9 }),
       park: std({ color: 0x8fa070, map: grass, roughness: 1, vertexColors: true }),
-      mark: std({ vertexColors: true, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      mark: std({ vertexColors: true, color: 0xd4d2cc, roughness: 0.82, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
       glass: fac(facG, TOD.windows, 1.5), modern: fac(facM, TOD.windows, 1.3), apt: fac(facA, TOD.windows * 1.05, 0.8),
       brick: fac(facB, TOD.windows * 1.05, 0.7), shop: fac(facS, TOD.lampsOn ? 2.0 : 0.45, 0.8), house: fac(facH, TOD.windows * 1.05, 0.8),
       roof: std({ map: misc.roof, vertexColors: true, roughness: 0.95 }),
@@ -336,7 +336,7 @@ export class City {
       im.castShadow = cast && Q.shadows; im.receiveShadow = false; im.computeBoundingSphere(); grp.add(im); return im;
     };
     const at = (x, y, z, yaw, sc) => { q.setFromAxisAngle(up, yaw); s.set(sc, sc, sc); v.set(x, y, z); m4.compose(v, q, s); };
-    const placeTree = (t, rnd) => at(t[0], t[3], t[1], rnd() * 6.28, t[2]);
+    const placeTree = (t, rnd) => { const sc = t[2]; q.setFromAxisAngle(up, rnd() * 6.28); s.set(sc * (0.86 + rnd() * 0.32), sc * (0.9 + rnd() * 0.26), sc * (0.86 + rnd() * 0.32)); v.set(t[0], t[3], t[1]); m4.compose(v, q, s); };   // (no two crowns the same shape)
     const leaf = (c, rnd) => { const r = rnd(); c.setRGB(0.8 + r * 0.35, 0.88 + r * 0.2, 0.75 + r * 0.2); };
     inst(P.geo.treeCore, P.mat.treeCore, L.trees, placeTree, true, region.trees);
     inst(P.geo.treeCards, P.mat.treeCards, L.trees, placeTree, true, region.trees, leaf);

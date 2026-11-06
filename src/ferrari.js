@@ -123,3 +123,31 @@ export async function loadFerrari(paintKey = 'pearl', lite = false) {
   root.userData = { body, wheels, paint: mats.paint, tail: mats.tail, tailGlow, headGlow, flame, cockpit, real: true, tris, stats, zr, zf };
   return root;
 }
+
+// A very light copy of the same car (about 16,000 triangles: body, glass, wheels, lights) in the form the traffic uses: one geometry with
+// vertex colours (white where the paint is, so each car can be dyed its own colour) and one for the lights.
+export async function loadFerrariTraffic() {
+  const draco = new DRACOLoader(); draco.setDecoderPath('assets/draco/');
+  const loader = new GLTFLoader(); loader.setDRACOLoader(draco);
+  const gltf = await loader.loadAsync('assets/cars/ferrari_traffic.glb'); draco.dispose();
+  const model = gltf.scene; model.updateMatrixWorld(true);
+  const M = new THREE.Matrix4().makeTranslation(0, 0, 0.13).multiply(new THREE.Matrix4().makeRotationY(Math.PI));
+  const body = [], lights = [], tint = (g, r, gg, b) => { const n = g.attributes.position.count, a = new Float32Array(n * 3); for (let i = 0; i < n; i++) a.set([r, gg, b], i * 3); g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; };
+  model.traverse(o => {
+    if (!o.isMesh) return;
+    let g = o.geometry.clone(); for (const k of Object.keys(g.attributes)) if (k !== 'position') g.deleteAttribute(k);
+    g.applyMatrix4(o.matrixWorld).applyMatrix4(M); g = toCreasedNormals(g, 0.7);
+    const n = ((o.material && o.material.name) || '').toLowerCase();
+    if (n.includes('taillight')) lights.push(tint(g, 4.2, 0.3, 0.12));
+    else if (n.includes('projector')) lights.push(tint(g, 3.2, 3.0, 2.6));
+    else if (n.includes('body_color')) body.push(tint(g, 1, 1, 1));
+    else if (n.includes('glass')) body.push(tint(g, 0.03, 0.04, 0.05));
+    else if (n.includes('tires')) body.push(tint(g, 0.025, 0.025, 0.027));
+    else if (n.includes('chrome') || n.includes('metal')) body.push(tint(g, 0.45, 0.46, 0.48));
+    else body.push(tint(g, 0.06, 0.06, 0.065));
+  });
+  const geo = mergeGeometries(body, false), lgeo = mergeGeometries(lights, false);
+  const bb = new THREE.Box3().setFromBufferAttribute(geo.attributes.position), zc = (bb.min.z + bb.max.z) / 2;
+  geo.translate(0, 0, -zc); lgeo.translate(0, 0, -zc);
+  return { geo, lights: lgeo, len: bb.max.z - bb.min.z, width: bb.max.x - bb.min.x, mass: 1500, rad: 0.95 };
+}

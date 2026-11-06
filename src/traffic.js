@@ -22,15 +22,8 @@ export class Traffic {
     this.nearParked = []; this._pk = 0;
     this.parkedWrap = { cars: this.nearParked, velocityOf: c => this.velocityOf(c), knock: (...a) => this.knock(...a) };       // (what collideTraffic needs)
     this.city = city;
-    this.meshes = this.models.map(md => {
-      const body = new THREE.InstancedMesh(md.geo, new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 }), CAP);
-      const lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), CAP);
-      body.castShadow = false; body.count = 0; lights.count = 0;
-      body.receiveShadow = true;
-      body.frustumCulled = false; lights.frustumCulled = false;
-      scene.add(body); scene.add(lights);
-      return { body, lights, list: [] };
-    });
+    this.scene = scene;
+    this.meshes = this.models.map(md => this.makeSet(md));
     // Soft contact shadows under every car (cheaper than shadow-mapping them).
     const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
     const gr = g.createRadialGradient(32, 32, 4, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -42,13 +35,24 @@ export class Traffic {
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1); this.up = new THREE.Vector3(0, 1, 0);
   }
 
+  makeSet(md) {
+    const body = new THREE.InstancedMesh(md.geo, new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 }), CAP);
+    const lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), CAP);
+    body.castShadow = false; body.count = 0; lights.count = 0;
+    body.receiveShadow = true;
+    body.frustumCulled = false; lights.frustumCulled = false;
+    this.scene.add(body); this.scene.add(lights);
+    return { body, lights, list: [] };
+  }
+  // A further kind of car (the detailed sports car), picked for about one car in ten.
+  addModel(md) { this.models.push(md); this.meshes.push(this.makeSet(md)); this.sports = this.models.length - 1; }
+  pickType() { const r = this.rnd(); return r < 0.07 ? 4 : r < 0.1 ? 5 : r < 0.2 ? 3 : this.sports && r < 0.3 ? this.sports : (this.rnd() * 3) | 0; }
   setDensity(level, player) {
     const n = COUNTS[level] ?? COUNTS.normal;
     while (this.cars.length > n) this.cars.pop();
     while (this.cars.length < n) {
       const c = { active: true, type: (this.rnd() * 4) | 0, color: COLORS[(this.rnd() * COLORS.length) | 0], len: 4.7 };
-      const r = this.rnd();
-      c.type = r < 0.07 ? 4 : r < 0.1 ? 5 : r < 0.2 ? 3 : (this.rnd() * 3) | 0;
+      c.type = this.pickType();
       c.len = this.models[c.type].len; c.mass = this.models[c.type].mass; c.rad = this.models[c.type].rad; c.hp = c.maxHp = this.hpOf(c);
       this.cars.push(c);
       this.spawn(c, player, 30, 520, true);
@@ -137,7 +141,7 @@ export class Traffic {
 
   spawn(c, player, minD, maxD, initial = false) {
     if (Math.abs(player.x) > EDGE + 150 || Math.abs(player.z) > EDGE + 150) return this.spawnHwy(c, player, minD, maxD, initial);
-    if (c.hwy) { c.hwy = false; const r = this.rnd(); c.type = r < 0.07 ? 4 : r < 0.1 ? 5 : r < 0.2 ? 3 : (this.rnd() * 3) | 0; c.len = this.models[c.type].len; c.mass = this.models[c.type].mass; c.rad = this.models[c.type].rad; c.h = undefined; }
+    if (c.hwy) { c.hwy = false; c.type = this.pickType(); c.len = this.models[c.type].len; c.mass = this.models[c.type].mass; c.rad = this.models[c.type].rad; c.h = undefined; }
     c.hp = c.maxHp = this.hpOf(c); c.burn = 0;
     for (let tries = 0; tries < 40; tries++) {
       // Pick a junction near the player (the map is far bigger than the traffic's reach).

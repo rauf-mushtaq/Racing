@@ -28,7 +28,7 @@ function leafTree(detail) {
     const g = mergeVertices(ico);
     const p = g.attributes.position;
     for (let i = 0; i < p.count; i++) { v3.fromBufferAttribute(p, i); p.setXYZ(i, v3.x + x, v3.y * 0.85 + y, v3.z + z); }
-    g.computeVertexNormals(); paint(g, 0.07, 0.1, 0.04); withUV(g); core.push(g);
+    g.computeVertexNormals(); paint(g, 0.025, 0.04, 0.015); withUV(g); core.push(g);
     for (let k = 0; k < perBlob; k++) {
       // Clusters at different depths in the crown, some poking well out of it,
       // each turned a random way, so the outline is ragged and leafy.
@@ -58,10 +58,10 @@ function leafTree(detail) {
 function leafBush(detail) {
   const rnd = mulberry32(44), core = [], cards = [];
   for (const [x, y, z, r] of [[0, 0.55, 0, 0.7], [0.6, 0.45, 0.3, 0.5], [-0.5, 0.5, -0.3, 0.55]]) {
-    const ico = new THREE.IcosahedronGeometry(r * 0.6, 1); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
+    const ico = new THREE.IcosahedronGeometry(r * 0.4, 1); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
     const g = mergeVertices(ico), p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) { v3.fromBufferAttribute(p, i); p.setXYZ(i, v3.x + x, v3.y * 0.8 + y, v3.z + z); }
-    g.computeVertexNormals(); paint(g, 0.07, 0.1, 0.04); withUV(g); core.push(g);
+    for (let i = 0; i < p.count; i++) { v3.fromBufferAttribute(p, i); p.setXYZ(i, v3.x + x, v3.y * 0.8 + y + 0.08, v3.z + z); }
+    g.computeVertexNormals(); paint(g, 0.025, 0.04, 0.015); withUV(g); core.push(g);
     for (let k = 0; k < [8, 12, 16][detail]; k++) {
       const u = rnd() * 1.4 - 0.2, a = rnd() * Math.PI * 2, s = Math.sqrt(Math.max(0, 1 - u * u));
       const n = new THREE.Vector3(s * Math.cos(a), u, s * Math.sin(a)).normalize(), rr = r * (0.6 + rnd() * 0.6), size = 0.5 + rnd() * 0.7;

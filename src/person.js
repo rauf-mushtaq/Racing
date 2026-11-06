@@ -76,10 +76,10 @@ export function bodyParts(o = {}, tintable = false) {
   }
   hg.computeVertexNormals();
   const head = [colorize(hg, skin),
-    ball(0.019, skin, 0, 0.108, 0.098, 0.75, 1.15, 1.2, 8, 6), ball(0.02, skin, -0.091, 0.13, -0.006, 0.5, 1.1, 0.8, 8, 6), ball(0.02, skin, 0.091, 0.13, -0.006, 0.5, 1.1, 0.8, 8, 6),
+    ball(0.0165, skin, 0, 0.106, 0.097, 0.7, 1.1, 1.15, 8, 6), ball(0.02, skin, -0.091, 0.13, -0.006, 0.5, 1.1, 0.8, 8, 6), ball(0.02, skin, 0.091, 0.13, -0.006, 0.5, 1.1, 0.8, 8, 6),
     place(colorize(new THREE.CylinderGeometry(0.037, 0.043, 0.1, 10), skin), 0, 0.012, 0, 1, 1, 0.95)];
   if (!o.glasses) for (const s of [-1, 1]) {
-    head.push(ball(0.0125, 0xf3f1ee, s * 0.036, 0.145, 0.085, 1.5, 0.8, 0.7, 8, 6)); head.push(ball(0.0075, 0x241810, s * 0.036, 0.145, 0.0935, 1, 1, 0.7, 8, 6));
+    head.push(ball(0.0125, 0xf1efe9, s * 0.036, 0.145, 0.085, 1.5, 0.82, 0.7, 10, 8)); head.push(ball(0.0072, o.eyes ?? 0x4a301c, s * 0.036, 0.145, 0.0925, 1, 1, 0.55, 10, 8)); head.push(ball(0.0036, 0x060606, s * 0.036, 0.145, 0.0968, 1, 1, 0.5, 8, 6));
     head.push(place(colorize(new THREE.BoxGeometry(0.034, 0.006, 0.009), tintable ? 0x40302a : hair), s * 0.037, 0.168, 0.088, 1, 1, 1, 0, 0, s * 0.07));
   }
   head.push(place(colorize(new THREE.BoxGeometry(0.044, 0.006, 0.008), 0x93564a), 0, 0.066, 0.094, 1, 1, 1));
@@ -91,7 +91,7 @@ export function bodyParts(o = {}, tintable = false) {
     hp.push(sc(new THREE.SphereGeometry(0.1, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.38)));                                        // the top
     hp.push(sc(new THREE.SphereGeometry(0.1, 20, 10, Math.PI / 2 + 0.95, Math.PI * 2 - 1.9, Math.PI * 0.38, Math.PI * (style === 'long' ? 0.3 : 0.2))));   // the sides and back, leaving the face clear
     if (style === 'long') hp.push(place(colorize(limb(0.09, 0.055, 0.27, 0.0, 12), hair), 0, 0.12, -0.085, 1.0, 1, 0.5));
-    if (style === 'tousled') for (let k = 0; k < 7; k++) { const a = k / 7 * 6.28; hp.push(place(colorize(new THREE.ConeGeometry(0.02, 0.06, 6), hair), Math.sin(a) * 0.055, 0.262, Math.cos(a) * 0.05 - 0.012, 1, 1, 1, Math.cos(a) * 0.55, 0, -Math.sin(a) * 0.55)); }
+    if (style === 'tousled') for (let k = 0; k < 7; k++) { const a = k / 7 * 6.28; hp.push(place(colorize(new THREE.SphereGeometry(0.03, 8, 6), hair), Math.sin(a) * 0.05, 0.252, Math.cos(a) * 0.045 - 0.012, 1.3, 0.8, 1.2, Math.cos(a) * 0.5, 0, -Math.sin(a) * 0.5)); }
   }
   P.hair = hp.length ? mergeGeoms(hp) : null;
   if (o.glasses) P.glasses = mergeGeoms([place(colorize(new THREE.BoxGeometry(0.062, 0.034, 0.012), 0x0a0b0e), -0.037, 0.145, 0.094), place(colorize(new THREE.BoxGeometry(0.062, 0.034, 0.012), 0x0a0b0e), 0.037, 0.145, 0.094),

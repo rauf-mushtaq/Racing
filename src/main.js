@@ -21,7 +21,7 @@ import { initGrass } from './grass.js';
 import { initStructures } from './structures.js';
 import { TOD, TOD_NAME } from './tod.js';
 import { makeHeroCar, setPaint, PAINTS, HERO_DIMS } from './carModel.js';
-import { loadFerrari } from './ferrari.js';
+import { loadFerrari, loadFerrariTraffic } from './ferrari.js';
 import { Vehicle, SPEC } from './vehicle.js';
 import { makeGT, GT_SPEC } from './gt.js';
 import { PoliceChase } from './police.js';
@@ -185,6 +185,7 @@ async function build() {
   await city.loadAround(START.x, START.z, Math.min(2, Q.loadR), loadMsg);
   loadMsg('Starting the traffic…'); await nextFrame();
   traffic = new Traffic(scene, city, Q.shadows);
+  try { traffic.addModel(await loadFerrariTraffic()); } catch (e) { console.warn('The traffic sports car did not load', e); }
   loadMsg('Unpacking the car…'); await nextFrame();
   let hero = null; try { hero = await loadFerrari(settings.color, Q.name !== 'ultra'); } catch (e) { console.warn('The car model did not load, using the built-in one', e); }
   carMesh = heroMesh = hero || makeHeroCar(settings.color);
