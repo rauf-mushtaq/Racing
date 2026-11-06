@@ -78,8 +78,8 @@ export function buildSky(scene, renderer, quality) {
 
   buildMountains(dome);
   if (TOD.night) buildNight(dome);
-  buildClouds(dome);
-  return { sky, sun, hemi, dome };
+  const clouds = buildClouds(dome);
+  return { sky, sun, hemi, dome, clouds };
 }
 
 // Moves the sun's shadow box with the car, snapped to whole shadow texels so
@@ -235,4 +235,5 @@ function buildClouds(scene) {
   const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: tex, vertexColors: true, transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide }));
   m.renderOrder = -2; m.frustumCulled = false;
   scene.add(m);
+  return m;
 }

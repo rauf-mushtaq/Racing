@@ -444,7 +444,7 @@ function startFree() {
   if (game.state === 'menu') {
     // Free roam starts on foot: the car is parked at the kerb and you are on the pavement beside it.
     placeOnFoot();
-    setState('free'); hud.toast('FREE ROAM: walk to your car and press F', 3.4);
+    setState('free'); hud.toast(input.lastDevice === 'touch' || LOW_POWER ? 'FREE ROAM: drag the left side to walk, the right side to look' : 'FREE ROAM: W A S D to walk, Shift to run, F to get in the car', 4.2);
   } else { setState('free'); hud.toast('FREE ROAM', 1.6); }
 }
 
@@ -733,7 +733,7 @@ function controlsPanel() {
 document.querySelectorAll('[data-p]').forEach(b => b.addEventListener('click', () => {
   const p = b.dataset.p;
   if (p === 'resume') togglePause();
-  else if (p === 'restart') { $('pause-panel').classList.add('hidden'); if (game.route) startEvent(game.route.ev); else if (game.chaseOn) startChase(); else if (game.onFoot) { const sp = exitSpot(); walker.place(sp.x, sp.z, car.h); footCam.reset(car.h); setState('free'); } else { respawnOnRoad(); setState('free'); } }
+  else if (p === 'restart') { $('pause-panel').classList.add('hidden'); if (game.route) startEvent(game.route.ev); else if (game.wanted) resumeFreeRoam(); else if (game.chaseOn) startChase(); else if (game.onFoot) { const sp = exitSpot(); walker.place(sp.x, sp.z, car.h); footCam.reset(car.h); setState('free'); } else { respawnOnRoad(); setState('free'); } }
   else if (p === 'settings') settingsPanel($('pause-panel'));
   else if (p === 'quit') { $('pause-panel').classList.add('hidden'); toMenu(); }
 }));
@@ -1074,6 +1074,7 @@ function tick(dt) {
   city.update(F.x, F.z, st === 'paused' || st === 'map' ? 2 : 3.5);
   terrain.update(dt, F.x, F.z, st === 'paused' || st === 'map' ? 1.5 : 3);
   structures.update(F.x, F.z);
+  if (st === 'menu' && game.garage && walker.active) { walker.t += dt; walker.pose(dt); }          // the character idles beside the car in the Garage
   const alpha = st === 'paused' || st === 'map' ? 1 : acc / STEP;
   if (beams) beams.begin();
   const pose = updateCarMesh(dt, alpha);
@@ -1088,6 +1089,7 @@ function tick(dt) {
   if (st !== 'paused' && st !== 'map') debris.update(dt);
   worldFx.update(st === 'paused' || st === 'map' ? 0 : dt, camera, renderer);
   sky.dome.position.set(camera.position.x, 0, camera.position.z);
+  if (st !== 'paused') sky.clouds.rotation.y += dt * 0.0035;                          // the clouds drift (they all face the middle, so turning them round it is exact)
   placeSun(sky.sun, tmpV.set(foot ? walker.x : pose.x, 0, foot ? walker.z : pose.z));
   if (csm) csm.update();
   if (game.flare) game.flare.position.copy(SUN_DIR).multiplyScalar(3800).add(camera.position);
