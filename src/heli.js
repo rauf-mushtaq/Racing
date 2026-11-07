@@ -4,11 +4,11 @@
 import * as THREE from 'three';
 import { groundAt } from './world.js';
 import { clamp, damp, lerp, wrapAngle } from './util.js';
-import { glowTex } from './textures.js';
 
 const HP = 240, ORBIT = 46, ALT = 52, SPEED = 30;
+const _down = new THREE.Vector3(0, -1, 0), _dir = new THREE.Vector3();
 export class Heli {
-  // env: { scene, police, audio, hud, fx (particles), boom(x, z, power) }
+  // env: { scene, police, audio, hud, fx (particles), camera, boom(x, z, power), target(), traffic }
   constructor(env) {
     this.env = env; this.alive = false; this.coolT = 0; this.hp = HP; this.t = 0; this.x = 0; this.y = 0; this.z = 0; this.h = 0; this.vx = 0; this.vz = 0; this.theta = Math.random() * 6.28; this.rotor = 0; this.told = false;
     const g = this.mesh = new THREE.Group(); g.visible = false; env.scene.add(g);
@@ -25,16 +25,14 @@ export class Heli {
     this.disc = new THREE.Mesh(new THREE.CircleGeometry(6.5, 36).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xaab0b8, transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide })); this.disc.position.y = 2.35; g.add(this.disc);
     this.tailRotor = new THREE.Group(); this.tailRotor.position.set(0.25, 1.35, -7.9); g.add(this.tailRotor); for (let i = 0; i < 2; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.5, 0.12), metal); b.rotation.x = i * Math.PI / 2; this.tailRotor.add(b); }
     for (const s of [-1, 1]) { const sk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 4.2, 6).rotateX(Math.PI / 2), metal); sk.position.set(s * 1.1, -1.35, 0.2); g.add(sk); for (const z of [-0.8, 1.3]) { const st = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.1, 5), metal); st.position.set(s * 1.0, -0.8, z); st.rotation.z = s * 0.25; g.add(st); } }
-    // POLICE on the flanks.
-    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64; const c2 = cv.getContext('2d'); c2.fillStyle = '#e8ecf2'; c2.font = '800 46px "Barlow Condensed", Arial, sans-serif'; c2.textAlign = 'center'; c2.textBaseline = 'middle'; c2.fillText('POLICE', 128, 34);
-    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-    for (const s of [-1, 1]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.65), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })); m.position.set(s * 1.32, 0.15, -0.6); m.rotation.y = s * Math.PI / 2; g.add(m); }
+    // A white stripe on each flank (no canvas texture: a late canvas can fail on an iPad).
+    const stripe = new THREE.MeshBasicMaterial({ color: 0xe8ecf2 });
+    for (const sd of [-1, 1]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.2), stripe); m.position.set(sd * 1.33, 0.1, -0.5); m.rotation.y = sd * Math.PI / 2; g.add(m); }
     // The searchlight: a soft cone down to a pool of light on the ground.
     this.beam = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 24, 1, true).translate(0, -0.5, 0), new THREE.MeshBasicMaterial({ color: 0xdfe8ff, transparent: true, opacity: 0.1, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })); this.beam.visible = false; this.beam.frustumCulled = false; env.scene.add(this.beam);
-    this.pool = new THREE.Mesh(new THREE.CircleGeometry(1, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex(), color: 0xeef4ff, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })); this.pool.visible = false; this.pool.renderOrder = 2; env.scene.add(this.pool);
     this.lx = 0; this.lz = 0; this.rotorT = 0; this.crash = null;
   }
-  reset() { this.alive = false; this.mesh.visible = false; this.beam.visible = false; this.pool.visible = false; this.crash = null; this.coolT = 0; this.told = false; this.env.police.heliSees = false; }
+  reset() { this.alive = false; this.mesh.visible = false; this.beam.visible = false; this.crash = null; this.coolT = 0; this.told = false; this.env.police.heliSees = false; }
   // Called every frame of a chase. P: the target (the player's car or on-foot character).
   update(dt, P) {
     const police = this.env.police, stars = police.stars, running = police.active && police.result === 'running';
@@ -65,24 +63,27 @@ export class Heli {
     this.alive = true; this.hp = HP; this.t = 0; const a = Math.random() * 6.28; this.x = P.x + Math.cos(a) * 380; this.z = P.z + Math.sin(a) * 380; this.y = groundAt(this.x, this.z).y + ALT + 20; this.theta = a + Math.PI; this.vx = this.vz = 0;
     this.lx = P.x; this.lz = P.z; this.mesh.visible = true; this.env.police.messages.push('A HELICOPTER IS COMING');
   }
-  leave(dt) { this.vz = damp(this.vz, 24, 0.6, dt); this.y += dt * 10; this.z += this.vz * dt; this.place(dt); this.beam.visible = this.pool.visible = false; if (this.y > 260) { this.alive = false; this.mesh.visible = false; } }
+  leave(dt) { this.vz = damp(this.vz, 24, 0.6, dt); this.y += dt * 10; this.z += this.vz * dt; this.place(dt); this.beam.visible = false; if (this.y > 260) { this.alive = false; this.mesh.visible = false; } }
   place(dt) {
     const heading = Math.atan2(this.vx, this.vz); if (Math.hypot(this.vx, this.vz) > 4) this.h += wrapAngle(heading - this.h) * Math.min(1, dt * 2.2);
     this.rotor += dt * 40; this.rotorG.rotation.y = this.rotor; this.tailRotor.rotation.x = this.rotor * 1.4;
     const lat = (this.vx * Math.cos(this.h) - this.vz * Math.sin(this.h)) * 0.01, fwd = (this.vx * Math.sin(this.h) + this.vz * Math.cos(this.h)) / SPEED;
     this.mesh.position.set(this.x, this.y, this.z); this.mesh.rotation.set(0.05 + fwd * 0.12, this.h, clamp(-lat, -0.25, 0.25), 'YXZ');
   }
+  // The searchlight: a faint cone from the helicopter to where it points. It fades away when the camera is close to it (in the chase view it
+  // would hang over the car like a fog).
   light(P) {
-    const gy = groundAt(this.lx, this.lz).y, dx = this.lx - this.x, dy = gy - (this.y - 1.2), dz = this.lz - this.z, L = Math.hypot(dx, dy, dz) || 1;
-    this.beam.visible = this.pool.visible = true;
-    this.beam.position.set(this.x, this.y - 1.2, this.z); this.beam.scale.set(L * 0.14, L, L * 0.14);
-    this.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), new THREE.Vector3(dx / L, dy / L, dz / L));
-    this.pool.position.set(this.lx, gy + 0.06, this.lz); this.pool.scale.setScalar(6.5 + L * 0.03);
+    const gy = groundAt(this.lx, this.lz).y, ox = this.x, oy = this.y - 1.2, oz = this.z, dx = this.lx - ox, dy = gy - oy, dz = this.lz - oz, L = Math.hypot(dx, dy, dz) || 1;
+    const cam = this.env.camera, cp = cam.position, t = clamp(((cp.x - ox) * dx + (cp.y - oy) * dy + (cp.z - oz) * dz) / (L * L), 0, 1);
+    const dist = Math.hypot(cp.x - (ox + dx * t), cp.y - (oy + dy * t), cp.z - (oz + dz * t)), fade = clamp((dist - 6) / 22, 0, 1);
+    this.beam.visible = fade > 0.03; this.beam.material.opacity = 0.085 * fade;
+    this.beam.position.set(ox, oy, oz); this.beam.scale.set(L * 0.14, L, L * 0.14);
+    this.beam.quaternion.setFromUnitVectors(_down, _dir.set(dx / L, dy / L, dz / L));
   }
   // Shooting it.
   damage(amount) { if (!this.alive || this.crash) return false; this.hp -= amount; if (this.hp <= 0) { this.shotDown(); return true; } return false; }
   blast(x, y, z, radius, dmg) { if (!this.alive || this.crash) return; const d = Math.hypot(this.x - x, this.y - y, this.z - z); if (d < radius * 1.8) this.damage(dmg * (1 - d / (radius * 1.8))); }
-  shotDown() { this.crash = { vy: 0, spin: 3 + Math.random() * 3, t: 0 }; this.env.hud.toast('HELICOPTER DOWN', 1.8); this.env.police.addHeat(0.3); this.env.police.messages.push('HELICOPTER DOWN'); this.beam.visible = this.pool.visible = false; }
+  shotDown() { this.crash = { vy: 0, spin: 3 + Math.random() * 3, t: 0 }; this.env.hud.toast('HELICOPTER DOWN', 1.8); this.env.police.addHeat(0.3); this.env.police.messages.push('HELICOPTER DOWN'); this.beam.visible = false; }
   crashUpdate(dt) {
     const c = this.crash; c.t += dt; c.vy -= 22 * dt; this.y += c.vy * dt; this.h += c.spin * dt; this.x += this.vx * dt * 0.5; this.z += this.vz * dt * 0.5; this.mesh.position.set(this.x, this.y, this.z); this.mesh.rotation.set(0.5, this.h, 0.7, 'YXZ'); this.rotorG.rotation.y += dt * 12;
     if (this.env.fx && Math.random() < 0.7) this.env.fx.puff(this.x, this.y, this.z, 0, 1, 0, 1.2, 1.6, 0.1, 0.6, 2.4);

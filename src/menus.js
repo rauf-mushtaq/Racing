@@ -2,7 +2,7 @@
 // main.js owns the game; it passes what these panels need in C (things that are created later are read through C when used).
 import { $, fmtTime } from './util.js';
 import { settings, save } from './store.js';
-import { Q } from './quality.js';
+import { Q, GPU } from './quality.js';
 import { EVENTS, buildRoute } from './events.js';
 import { setPaint, PAINTS } from './carModel.js';
 import { PEOPLE, personKey } from './people.js';
@@ -105,7 +105,7 @@ export function initMenus(C) {
     { key: 'tod', label: 'Time of day', opts: [['golden', 'Golden hour'], ['day', 'Midday'], ['sunset', 'Sunset'], ['night', 'Night']], reload: true },
     { key: 'quality', label: 'Graphics', opts: [['ultra', 'Ultra'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']], reload: true },
     { key: 'renderScale', label: 'Render scale', opts: [[0.75, '75%'], [1, '100%'], [1.25, '125%'], [1.5, '150%']], reload: true },
-    { key: 'rt', label: 'Ray tracing (reflections, bounced light)', opts: [[true, 'On'], [false, 'Off']], reload: true },
+    { key: 'rt2', label: 'Ray tracing (reflections, bounced light)', opts: [['auto', 'Auto'], ['full', 'Full'], ['refl', 'Reflections'], ['off', 'Off']], reload: true },
     { key: 'fps', label: 'FPS counter', opts: [[true, 'On'], [false, 'Off']] },
     { key: 'units', label: 'Speed', opts: [['kmh', 'km/h'], ['mph', 'mph']] },
     { key: 'auto', label: 'Gearbox', opts: [[true, 'Automatic'], [false, 'Manual']] },
@@ -123,13 +123,14 @@ export function initMenus(C) {
     { key: 'volume', label: 'Volume', opts: [[0.3, '30%'], [0.55, '55%'], [0.8, '80%'], [1, '100%']] },
   ];
   function settingsPanel(el) {
-    const cur = k => (k === 'quality' ? quality : k === 'tod' ? TOD_NAME : k === 'renderScale' ? Q.renderScale : settings[k]);
+    const cur = k => (k === 'quality' ? quality : k === 'tod' ? TOD_NAME : k === 'renderScale' ? Q.renderScale : k === 'rt2' ? (settings.rt2 || 'auto') : settings[k]);
     const rows = SETTINGS.map(s => `<div class="row"><label>${s.label}</label><div class="seg">${s.opts.map(([v, t]) =>
       `<button data-s="${s.key}" data-v='${JSON.stringify(v)}' class="${cur(s.key) === v ? 'on' : ''}">${t}</button>`).join('')}</div></div>`).join('');
     const w = settings.wheel || {};
     el.innerHTML = `<h2>SETTINGS</h2>${rows}
       <div class="row"><label>Steering wheel & pedals<br><span class="hint" id="wheel-state">${w.gas ? 'Set up' : 'Not set up'}</span></label><div class="seg"><button id="wheel-setup">Set up</button><button id="wheel-clear">Clear</button></div></div>
       ${musicRowHtml()}
+      <p class="hint" style="margin:10px 0 0">Graphics: ${quality}, ${GPU.renderer || 'unknown graphics chip'}, multisampling ${Q.msaa}×, ray tracing ${Q.rtMode}${Q.gi ? '' : ' (no bounced light)'}${Q.ssr ? '' : ' (no reflections)'}. If you see coloured speckle, try Ray tracing: Off.</p>
       <div class="row"><label>Fullscreen <span class="hint">(Shift+F)</span></label><div class="seg"><button id="fs-toggle">Toggle</button></div></div>`;
     el.classList.remove('hidden');
     musicRowInit();

@@ -128,15 +128,21 @@ export function placeGun(walker, m, W, draw = 1) {
 // ---- Bullet holes and glass cracks ---------------------------------------------------------------------------------------------
 // Flat dark discs stuck to whatever a bullet hit (walls, the ground, cars), and star-shaped cracks where it hit glass higher up: two ring buffers
 // of instanced quads, so the last 200 shots stay where they landed.
+// (Built from arrays of pixels, not drawn on a canvas: a canvas created late can fail on an iPad, and a failed one shows as coloured noise.)
 const markTex = glass => {
-  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); g.translate(32, 32);
-  if (!glass) { const gr = g.createRadialGradient(0, 0, 1, 0, 0, 14); gr.addColorStop(0, 'rgba(0,0,0,0.95)'); gr.addColorStop(0.45, 'rgba(10,8,8,0.75)'); gr.addColorStop(1, 'rgba(30,25,22,0)'); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 15, 0, 6.283); g.fill(); }
-  else {
-    g.strokeStyle = 'rgba(235,245,250,0.9)'; g.lineCap = 'round';
-    for (let i = 0; i < 9; i++) { const a = i / 9 * 6.283 + (i % 2) * 0.2, l = 12 + (i * 37 % 17); g.lineWidth = 1.4; g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(a) * l, Math.sin(a) * l); g.stroke(); g.lineWidth = 0.8; g.beginPath(); g.moveTo(Math.cos(a) * l * 0.6, Math.sin(a) * l * 0.6); g.lineTo(Math.cos(a + 0.5) * l * 0.85, Math.sin(a + 0.5) * l * 0.85); g.stroke(); }
-    g.fillStyle = 'rgba(20,24,30,0.8)'; g.beginPath(); g.arc(0, 0, 3.2, 0, 6.283); g.fill();
+  const S = 64, d = new Uint8Array(S * S * 4), c = S / 2;
+  const put = (x, y, r, g, b, a) => { if (x < 0 || y < 0 || x >= S || y >= S) return; const o = (y * S + x) * 4, k = a / 255, inv = 1 - k; d[o] = d[o] * inv + r * k; d[o + 1] = d[o + 1] * inv + g * k; d[o + 2] = d[o + 2] * inv + b * k; d[o + 3] = Math.max(d[o + 3], a); };
+  if (!glass) {
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) { const r = Math.hypot(x - c + 0.5, y - c + 0.5); if (r < 15) { const t = r / 15; put(x, y, 8 + 22 * t, 7 + 18 * t, 6 + 16 * t, Math.round(255 * (t < 0.45 ? 0.95 : 0.75 * (1 - (t - 0.45) / 0.55)))); } }
+  } else {
+    for (let i = 0; i < 9; i++) {
+      const a = i / 9 * 6.283 + (i % 2) * 0.2, l = 12 + (i * 37 % 17);
+      for (let t = 0; t < l; t += 0.5) put(Math.round(c + Math.cos(a) * t), Math.round(c + Math.sin(a) * t), 235, 245, 250, 230);
+      for (let t = l * 0.6; t < l * 0.85; t += 0.5) { const aa = a + 0.5 * (t - l * 0.6) / (l * 0.25); put(Math.round(c + Math.cos(aa) * t), Math.round(c + Math.sin(aa) * t), 235, 245, 250, 180); }
+    }
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) if (Math.hypot(x - c + 0.5, y - c + 0.5) < 3.2) put(x, y, 20, 24, 30, 205);
   }
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  const t = new THREE.DataTexture(d, S, S, THREE.RGBAFormat); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.flipY = false; t.needsUpdate = true; return t;
 };
 class BulletMarks {
   constructor(scene, n = 200) {

@@ -168,7 +168,7 @@ const prof = new Profiler();
 const DIST0 = { detailR: Q.detailR, treeR: Q.treeR, scatR: Q.scatR };
 const GPU_LADDER = [
   { name: 'RAY-TRACED LIGHT BOUNCE', on(v) { if (giPass) { giPass.enabled = v; grade.uniforms.uGI.value = v ? 0.75 : 0; } }, has: () => !!giPass },
-  { name: 'RAY-TRACED REFLECTIONS', on(v) { const e = v && !!Q.ssr && settings.rt !== false; SSR.enabled = e; if (!e) SSR.amt.value = 0; if (histPass) histPass.enabled = e; }, has: () => !!Q.ssr },
+  { name: 'RAY-TRACED REFLECTIONS', on(v) { const e = v && !!Q.ssr; SSR.enabled = e; if (!e) SSR.amt.value = 0; if (histPass) histPass.enabled = e; }, has: () => !!Q.ssr },
   { name: 'AMBIENT OCCLUSION', on(v) { if (aoPass) { aoPass.enabled = v; grade.uniforms.uAO.value = v ? 0.9 : 0; } }, has: () => !!aoPass },
   { name: 'DISTANT DETAIL', on(v) { const k = v ? 1 : 0.62; Q.detailR = DIST0.detailR * k; Q.treeR = DIST0.treeR * k; Q.scatR = DIST0.scatR * k; }, has: () => true },   // (the city and terrain read these every update)
 ].filter(st => st.has());
@@ -275,7 +275,7 @@ async function build() {
   // Police officers on foot (officers.js): they step out of cruisers that pull up near you, and shoot back.
   officers = new Officers({ scene, police, walker, audio, quality: Q.name, blocked: (ox, oy, oz, tx, ty, tz) => arsenal.blockedBetween(ox, oy, oz, tx, ty, tz), drop: (x, y, z, k) => arsenal.pickups.drop(x, y, z, k), shadows: !!Q.shadows, hud: { toast: (t, s) => hud.toast(t, s) }, obstacles, onFoot: () => !!game.onFoot && game.state === 'free', shake: v => { game.shake = Math.max(game.shake, v); } });
   police.officers = officers; setTimeout(() => officers.prepare(), 12000);
-  heli = new Heli({ scene, police, audio, hud: { toast: (t, s) => hud.toast(t, s) }, fx: police.fx, boom: (x, z, p) => police.onBoom && police.onBoom(x, z, p), target: () => (game.onFoot ? walker : car), traffic }); police.heli = heli; arsenal.env.heli = heli;
+  heli = new Heli({ scene, police, audio, hud: { toast: (t, s) => hud.toast(t, s) }, fx: police.fx, camera, boom: (x, z, p) => police.onBoom && police.onBoom(x, z, p), target: () => (game.onFoot ? walker : car), traffic }); police.heli = heli; arsenal.env.heli = heli;
   hud = new HUD();
   car.reset(START.x, START.z, START.h);
   traffic.setDensity(trafficLevel(), car);
@@ -934,7 +934,7 @@ function checkDiscoveries() {
 // "F  GET IN" beside the car, "F  GET OUT" when stopped in it.
 function updatePrompt() {
   let txt = '';
-  if (game.state === 'free') { if (game.onFoot) { if (nearCar()) txt = 'GET IN'; } else if (car.speed < 5) txt = 'GET OUT'; }
+  if (game.state === 'free') { if (game.onFoot) { if (nearCar()) txt = 'GET IN'; } else if (car.speed < 6.5) txt = 'GET OUT'; }       // (leaveCar needs under 7 m/s)
   const el = $('prompt'); el.classList.toggle('hidden', !txt); if (txt && $('prompt-txt').textContent !== txt) $('prompt-txt').textContent = txt;
   const tb = $('t-use'); tb.classList.toggle('show', !!txt); if (txt && tb.textContent !== txt) tb.textContent = txt;
 }
@@ -1013,8 +1013,10 @@ function frame(now) {
   const st = game.state;
   if (st === 'free' || st === 'race' || st === 'countdown') applyGuard(guard.sample(dt * 1000, performance.now() - t0, resScale <= 0.64));
 }
+const lastInfo = { calls: 0, tris: 0, geo: 0, tex: 0 };
 function tick(dt) { prof.begin(); tickBody(dt); prof.end(); }
 function tickBody(dt) {
+  { const I = renderer.info; lastInfo.calls = I.render.calls; lastInfo.tris = I.render.triangles; lastInfo.geo = I.memory.geometries; lastInfo.tex = I.memory.textures; }       // (last frame's, for the FPS counter)
   renderer.info.reset();
   frameAvg = lerp(frameAvg, dt * 1000, 0.05);
 
@@ -1108,7 +1110,7 @@ function tickBody(dt) {
     hud.drawMap(mapFocus(), traffic, game.route, game.next, game.waypoint, game.chaseOn ? police : null);
   }
   if (game.chaseOn) hud.chase(st === 'paused' || st === 'map' ? null : police, game.clock || 0);
-  if (settings.fps && (game.fpsT = (game.fpsT || 0) + dt) > 0.5) { game.fpsT = 0; $('fps').textContent = `${Math.round(1000 / frameAvg)} FPS · ${renderer.domElement.width}×${renderer.domElement.height} · ${quality}${guard.level ? ' · eased ' + guard.gpu + '/' + guard.cpu : ''}\nJS ${prof.js.toFixed(1)} ms: ${prof.report()}\n${renderer.info.render.calls} draws · ${(renderer.info.render.triangles / 1000).toFixed(0)}k tris · ${renderer.info.memory.geometries} geo · ${renderer.info.memory.textures} tex`; }
+  if (settings.fps && (game.fpsT = (game.fpsT || 0) + dt) > 0.5) { game.fpsT = 0; $('fps').textContent = `${Math.round(1000 / frameAvg)} FPS · ${renderer.domElement.width}×${renderer.domElement.height} · ${quality}${guard.level ? ' · eased ' + guard.gpu + '/' + guard.cpu : ''}\nJS ${prof.js.toFixed(1)} ms: ${prof.report()}\n${lastInfo.calls} draws · ${(lastInfo.tris / 1000).toFixed(0)}k tris · ${lastInfo.geo} geo · ${lastInfo.tex} tex\nray tracing ${Q.rtMode}${Q.gi ? '' : ', no bounce'}${Q.ssr ? '' : ', no reflections'}${SSR.enabled ? '' : ' (eased off)'} · ${Q.msaa}× MSAA`; }
 
   // Adapt resolution every couple of seconds. This is done before drawing: resizing clears the
   // canvas, so doing it after the draw would flash a black frame each time.

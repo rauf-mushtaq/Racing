@@ -2,7 +2,7 @@
 // Medium, a PC with a decent graphics card gets Ultra. Settings can override
 // it, and the render scale (75% to 150%) multiplies the pixel density.
 import { settings } from './store.js';
-import { LOW_POWER } from './util.js';
+import { LOW_POWER, IOS } from './util.js';
 
 function probeGPU() {
   try {
@@ -39,5 +39,12 @@ Q.msaa = Math.min(Q.msaa, GPU.maxSamples);
 Q.renderScale = [0.75, 1, 1.25, 1.5].includes(settings.renderScale) ? settings.renderScale : 1;
 Q.shadows = Q.shadow > 0;
 Q.csm = Q.cascades > 0;
-// Ray-traced reflections and global illumination (Settings > Ray tracing), off on the Low tier.
-if (settings.rt === false) { Q.ssr = null; Q.gi = null; }
+// Ray-traced reflections and global illumination (Settings > Ray tracing). 'auto' means on, except on an iPad or iPhone, where the screen-space
+// effects showed coloured speckle on the road (not seen in the desktop browser used for testing), so they have to be turned on there on purpose.
+const P = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const RT = P.get('rt') || (settings.rt2 && settings.rt2 !== 'auto' ? settings.rt2 : settings.rt === false ? 'off' : 'auto');          // (settings.rt false: someone who turned it off before there were four choices)
+Q.rtMode = RT === 'auto' ? (IOS ? 'off' : 'full') : RT;
+if (Q.rtMode === 'off') { Q.ssr = null; Q.gi = null; } else if (Q.rtMode === 'refl') Q.gi = null;
+// Address flags for finding which effect is at fault on a device: ?gi=0 ?ssr=0 ?ao=0 ?msaa=0 ?rt=off|refl|full
+if (P.get('gi') === '0') Q.gi = null; if (P.get('ssr') === '0') Q.ssr = null; if (P.get('ao') === '0') Q.ao = 0;
+if (P.get('msaa') !== null) Q.msaa = Math.min(Math.max(0, +P.get('msaa') || 0), GPU.maxSamples);

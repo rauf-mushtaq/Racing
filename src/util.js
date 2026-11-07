@@ -59,6 +59,8 @@ export function curve(pts) {
   };
 }
 
+// An iPad or iPhone (iPadOS reports itself as a Mac, with a touch screen).
+export const IOS = typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 export const LOW_POWER = typeof matchMedia !== 'undefined' && (matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 1);
 export const $ = id => document.getElementById(id);
 

@@ -99,6 +99,13 @@ try {
     return out;
   });
   check('a helicopter comes at three stars, finds you, and can be shot down', hel.came && hel.sees && hel.near && hel.killed && hel.gone, JSON.stringify(hel));
+  const rb = await P.evaluate(() => {
+    const g = window.__game, c = g.car; g.police.stop(); g.officers.clear(); g.game.chaseOn = false; g.game.wanted = false; g.game.onFoot = false; g.walker.show(false); g.setState('free');
+    c.reset(715, -1900, 0); c.baseY = 0; c.px = c.x; c.pz = c.z; g.startWanted('gun'); g.police.heat = 4.5; g.police.minHeat = 3; let blk = null;
+    for (let i = 0; i < 60 * 45 && !blk; i++) { g.police.health = 100; c.vx = 24; c.x = 715; c.h = 0; g.tick(1 / 60); const b = g.police.cops.filter(q => q.block); if (b.length) blk = b.map(q => [q.x, q.z]); }
+    return { n: blk ? blk.length : 0, across: blk ? Math.max(...blk.map(b => Math.abs(b[0] - 720))) < 22 && Math.max(...blk.map(b => Math.abs(b[1] - blk[0][1]))) < 6 : false, ahead: blk ? blk[0][1] - c.z : 0 };
+  });
+  check('at four stars a roadblock appears across the street ahead of a fast car', rb.n >= 2 && rb.across && rb.ahead > 60, JSON.stringify(rb));
   const lad = await P.evaluate(() => {
     const g = window.__game, d0 = g.Q.detailR, cap0 = g.officers.cap, full = g.officers.fullCap, n0 = g.peds.count ?? null;
     for (let i = 1; i <= g.GPU_LADDER.length; i++) { g.guard.gpu = i; g.applyGuard('gpu-down'); }

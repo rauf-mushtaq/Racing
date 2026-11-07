@@ -2,7 +2,7 @@
 //  * code and pages: network first (so a new version is picked up at once), the cached copy when offline
 //  * models, textures, fonts, the engine: cache first (they never change under the same name)
 //  * 'precache' message from the page: download every file in precache.json in the background
-const CACHE = 'sunset-city-v1';
+const CACHE = 'sunset-city-v2';
 const HEAVY = /\.(glb|hdr|wasm|woff2|png|svg|mp3)(\?|$)|\/vendor\//;
 
 self.addEventListener('install', e => { self.skipWaiting(); });
@@ -23,7 +23,7 @@ self.addEventListener('fetch', e => {
     const hit = await cache.match(req, { ignoreSearch: true });
     if (HEAVY.test(url.pathname) && hit) return hit;
     try {
-      const res = await fetch(req);
+      const res = await fetch(req.mode === 'navigate' ? req.url : req, { cache: 'no-cache' });          // (always check with the server: a new version is picked up at once)
       if (res.ok && res.status === 200) cache.put(req, res.clone());
       return res;
     } catch (err) {

@@ -6,7 +6,8 @@ const defaults = {
   quality: null,        // 'ultra' | 'high' | 'medium' | 'low'; null picks one for the device
   renderScale: 1,       // 0.75 | 1 | 1.25 | 1.5 times the screen's pixel density
   fps: false,
-  rt: true,             // ray-traced reflections and global illumination (see ssr.js, gi.js); off on the Low tier
+  rt: true,             // (old on/off setting, used only if rt2 was never chosen)
+  rt2: 'auto',          // ray tracing: 'auto' (off on an iPad or iPhone, where it showed coloured speckle) | 'full' | 'refl' (reflections only) | 'off'
   units: 'kmh',
   abs: true, tcs: true, esp: true,
   auto: true,           // automatic gearbox

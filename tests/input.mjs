@@ -96,7 +96,37 @@ try {
     const g0 = (await hud(page)).gren;
     [x, y] = await centre('#t-nade'); await touch('touchStart', [[x, y, 0]]); await touch('touchEnd', []); await step(page, 5);
     const g1 = (await hud(page)).gren; check('tap NADE throws a grenade', g1 === g0 - 1, `${g0} -> ${g1}`);
+    // GET OUT, in the car with the police after you: on the left, clear of every other button, and a tap gets you out
+    await page.evaluate(() => { const g = window.__game; g.game.onFoot = false; g.walker.show(false); g.setState('free'); g.car.vx = 0; g.car.vz = 0; g.startWanted('gun'); window.__game.input.lastDevice = 'touch'; g.setState('free'); });
+    await step(page, 30);
+    const use = await page.evaluate(() => {
+      const u = document.getElementById('t-use'), r = u.getBoundingClientRect(), shown = u.classList.contains('show') && getComputedStyle(u).display !== 'none', hit = [];
+      for (const b of document.querySelectorAll('#touch .tb, #t-gad .tb, #dial, #cam-btn, #map-btn')) { if (b === u || b.contains(u)) continue; const q = b.getBoundingClientRect(); if (q.width && q.height && getComputedStyle(b).display !== 'none' && r.left < q.right - 1 && q.left < r.right - 1 && r.top < q.bottom - 1 && q.top < r.bottom - 1) hit.push(b.id || b.className); }
+      const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return { shown, left: r.left, right: r.right, top: r.top, bottom: r.bottom, vw: innerWidth, vh: innerHeight, hit, topmost: at && (at.id || at.className), text: u.textContent };
+    });
+    check('GET OUT shows in the car, on the left half, inside the screen', use.shown && use.right < use.vw * 0.5 && use.left >= 0 && use.bottom <= use.vh && use.top >= 0, JSON.stringify(use));
+    check('and overlaps no other button (the gadget buttons are on the right)', use.hit.length === 0, JSON.stringify(use.hit));
+    check('and is the thing under the finger there (clickable)', use.topmost === 't-use', String(use.topmost));
+    [x, y] = await centre('#t-use'); await touch('touchStart', [[x, y, 0]]); await touch('touchEnd', []); await step(page, 20);
+    check('tapping GET OUT gets you out of the car', await page.evaluate(() => !!window.__game.game.onFoot));
     check('no script errors with touch', logs.length === 0, logs.slice(0, 3).join(' | '));
+    await ctx.close();
+  }
+
+  // The same GET OUT layout on an iPad-sized screen (with the police after you, so the gadget buttons are up)
+  {
+    const { page, ctx } = await open({ touch: true, w: 1180, h: 820 });
+    await toFoot(page);
+    await page.evaluate(() => { const g = window.__game; g.game.onFoot = false; g.walker.show(false); g.setState('free'); g.car.vx = 0; g.car.vz = 0; g.startWanted('gun'); g.input.lastDevice = 'touch'; g.setState('free'); });
+    await step(page, 30);
+    const use = await page.evaluate(() => {
+      const u = document.getElementById('t-use'), r = u.getBoundingClientRect(), hit = [];
+      for (const b of document.querySelectorAll('#touch .tb, #t-gad .tb, #dial, #cam-btn, #map-btn')) { if (b === u || b.contains(u)) continue; const q = b.getBoundingClientRect(); if (q.width && q.height && getComputedStyle(b).display !== 'none' && r.left < q.right - 1 && q.left < r.right - 1 && r.top < q.bottom - 1 && q.top < r.bottom - 1) hit.push(b.id || b.className); }
+      const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return { shown: u.classList.contains('show'), right: r.right, vw: innerWidth, hit, topmost: at && at.id };
+    });
+    check('GET OUT on an iPad-sized screen: shown, on the left, overlapping nothing, on top', use.shown && use.right < use.vw * 0.5 && use.hit.length === 0 && use.topmost === 't-use', JSON.stringify(use));
     await ctx.close();
   }
 

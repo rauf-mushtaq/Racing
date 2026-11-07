@@ -118,7 +118,7 @@ export class PoliceChase {
     Object.assign(this, {
       result: 'running', health: 100, heat: 2.0, time: 0, hidden: 0, hiddenNeeded: 60, spotAcc: 0, nearest: 1e9, shake: 0, damageFlash: 0, bustT: 0,
       ammoMissile: 6, ammoBomb: 4, kills: 0, officersDown: 0, shotAt: false, civilians: 0, maxStars: 2, spotted: true,
-      gunHeat: 0, cdOil: 0, cdSmoke: 0, cdShield: 0, shieldT: 0, gunOut: 0, jammed: false,
+      blockT: 25, gunHeat: 0, cdOil: 0, cdSmoke: 0, cdShield: 0, shieldT: 0, gunOut: 0, jammed: false,
       lastSeenX: 0, lastSeenZ: 0, spawnT: 0, fireT: 1 / 16, regenMissile: 0, regenBomb: 0, endT: 0, spotCool: 0, wasSpotted: true, lastStars: 2, alt: 0, pulse: 0, shieldK: 0,
     });
     this.cops.length = this.missiles.length = this.bombs.length = this.oils.length = this.smokes.length = this.messages.length = 0;
@@ -188,6 +188,26 @@ export class PoliceChase {
     c.x = bx; c.z = bz; c.y = groundAt(bx, bz).y; c.h = Math.atan2(p.x - bx, p.z - bz); this.cops.push(c); return c;
   }
 
+  // A roadblock: cruisers parked across the street ahead of a player who is driving fast along a street of the city, at three stars and up.
+  makeRoadblock(p) {
+    const fx = Math.sin(p.h), fz = Math.cos(p.h), alongZ = Math.abs(fz) >= Math.abs(fx), sg = Math.sign(alongZ ? fz : fx) || 1;
+    const k = clamp(Math.round((alongZ ? p.x : p.z) / SP), -N, N), w = hw(k), off = (alongZ ? p.x : p.z) - k * SP;
+    if (Math.abs(off) > w + 2) return false;                                                         // (not on a street)
+    let j = Math.floor(((alongZ ? p.z : p.x) + sg * 150) / SP); if (sg < 0) j++;
+    let m = (j + 0.5 * (sg > 0 ? 1 : -1)) * SP; if ((m - (alongZ ? p.z : p.x)) * sg < 100) m += sg * SP;           // the middle of a block, 100 to 260 m ahead
+    if (Math.abs(m) > EDGE - 30) return false;
+    const n = Math.min(5, Math.ceil(2 * w / 4.8)), step = 2 * w / n; let made = 0;
+    // The cars come from the pursuit that is furthest away (or are new, if there is room): the total never goes over the cap.
+    const spare = this.cops.filter(q => !q.wreck && !q.block && !q.kind && !q.held && Math.hypot(q.x - p.x, q.z - p.z) > 90).sort((a, b) => Math.hypot(b.x - p.x, b.z - p.z) - Math.hypot(a.x - p.x, a.z - p.z));
+    for (let i = 0; i < n; i++) {
+      let c = spare.shift(); if (!c) { if (this.cops.length >= CAP) break; c = this.spawnCop(p, 0, false); }
+      const a = -w + (i + 0.5) * step, jit = (this.rnd() - 0.5) * 0.3; c.air = false; c.slip = 0; c.stuck = 0;
+      if (alongZ) { c.x = k * SP + a; c.z = m; c.h = (i % 2 ? Math.PI / 2 : -Math.PI / 2) + jit; } else { c.z = k * SP + a; c.x = m; c.h = (i % 2 ? 0 : Math.PI) + jit; }
+      c.y = groundAt(c.x, c.z).y; c.speed = 0; c.vx = c.vz = 0; c.block = true; c.blockT = 80; made++;
+    }
+    return made > 0;
+  }
+
   // --- Navigation: along the roads, one junction at a time ---------------------------------------------------------------
   navTarget(c, gx, gz, out) {
     if (!inCity(c.x, c.z, 20) || !inCity(gx, gz, 400)) { out[0] = gx; out[1] = gz; return; }
@@ -235,6 +255,12 @@ export class PoliceChase {
       return;
     }
     c.y = gy; c.roll *= Math.exp(-4 * dt); this.groundTilt(c, dt);
+    if (c.block) {                                                                                  // part of a roadblock: parked across the street until the player is through (or it is shoved or wrecked)
+      c.speed = 0; c.x += c.vx * dt; c.z += c.vz * dt; const kb = Math.exp(-3 * dt); c.vx *= kb; c.vz *= kb; c.blockT -= dt;
+      const past = (c.x - p.x) * Math.sin(p.h) + (c.z - p.z) * Math.cos(p.h) < -25;
+      if (c.blockT <= 0 || (past && Math.hypot(c.x - p.x, c.z - p.z) > 60)) c.block = false;
+      return;
+    }
     // Where to drive: the goal, along the roads when something is in the way.
     const dx = gx - c.x, dz = gz - c.z, dist = Math.hypot(dx, dz), tgt = this._nav || (this._nav = [0, 0]); tgt[0] = gx; tgt[1] = gz;
     c.dirT -= dt; if (c.dirT <= 0) { c.dirT = 0.12 + rnd() * 0.06; c.direct = dist < 22 || (this.canSee(c.x, c.z, gx, gz, 150) && raycastStatic(c.x, c.z, dx, dz, dist) >= dist - 2); }
@@ -397,6 +423,10 @@ export class PoliceChase {
     if (this.hidden >= this.hiddenNeeded) { this.result = 'escaped'; this.messages.push('YOU LOST THEM'); return; }
     // Cops: spawn up to the wanted level, drive, retire the wrecks.
     this._firers = 0; for (const c of this.cops) if (c.burst > 0 && !c.wreck) this._firers++;
+    this.blockT -= dt;
+    if (this.blockT <= 0 && this.stars >= 3 && !p.onFoot && pspeed > 10 && inCity(p.x, p.z, -60) && !this.cops.some(c => c.block && !c.wreck)) {
+      if (this.makeRoadblock(p)) { this.messages.push('ROADBLOCK AHEAD'); this.blockT = 45; } else this.blockT = 4;
+    }
     this.spawnT -= dt; let alive = 0, trucks = 0; for (const c of this.cops) if (!c.wreck) { alive++; if (c.kind) trucks++; }
     if (this.spawnT <= 0 && alive < this.desiredCops() && this.cops.length < CAP) { this.spawnCop(p, (this.stars >= 4 && trucks < this.stars - 1) ? 1 : 0, this.spotted); this.spawnT = this.spotted ? 0.7 : 2.0; }
     for (let i = 0; i < this.cops.length;) {
