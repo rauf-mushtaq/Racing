@@ -10,6 +10,7 @@ import { GB, rectPoly, chamferRect, roundedRect, circlePoly, scalePoly, offsetPo
 import { makeProps } from './props.js';
 import { TOD } from './tod.js';
 import { Q } from './quality.js';
+import { attachSSR } from './ssr.js';
 export { mergeGeoms };
 
 export const SP = 180;            // distance between road centre lines
@@ -156,6 +157,38 @@ function macro(mat, scale, amount) {
   mat.customProgramCacheKey = () => 'macro' + scale;
   return mat;
 }
+// Wet weather: puddles. Where a patch of tarmac is flooded, its roughness drops to that of still water (so the ray-traced reflections
+// show up sharp and mirror-like there), it darkens, and its grain disappears, while the rest stays damp. The patches come from noise in
+// world space, so they're the same every time you pass. `wet` is how much of it (0..1), `damp` darkens the rest in rain by day (the
+// night streets are already tuned wet).
+export const WETNESS = { wet: { value: 0 }, damp: { value: 0 } };
+function puddles(mat, cover = 0.6) {
+  const prev = mat.onBeforeCompile, key = Object.prototype.hasOwnProperty.call(mat, 'customProgramCacheKey') ? mat.customProgramCacheKey() : (prev ? prev.toString() : '');
+  mat.onBeforeCompile = (sh, r) => {
+    if (prev) prev.call(mat, sh, r);
+    sh.uniforms.uWet = WETNESS.wet; sh.uniforms.uDamp = WETNESS.damp;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vPdW;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vPdW = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+        #else
+          vPdW = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        #endif`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying vec3 vPdW; uniform float uWet, uDamp;
+      float pdH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float pdN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(pdH(i), pdH(i + vec2(1.0, 0.0)), f.x), mix(pdH(i + vec2(0.0, 1.0)), pdH(i + vec2(1.0, 1.0)), f.x), f.y); }`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        float pdn = 0.55 * pdN(vPdW.xz * 0.045) + 0.3 * pdN(vPdW.xz * 0.13 + 7.3) + 0.15 * pdN(vPdW.xz * 0.41 + 2.1);
+        float puddle = smoothstep(${(0.66 - cover * 0.18).toFixed(3)}, ${(0.73 - cover * 0.18).toFixed(3)}, pdn) * uWet;
+        roughnessFactor = mix(roughnessFactor, 0.03, puddle);
+        diffuseColor.rgb *= (1.0 - 0.3 * puddle) * mix(1.0, 0.74, uDamp * uWet);`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        normal = normalize(mix(normal, nonPerturbedNormal, puddle));`);
+  };
+  mat.customProgramCacheKey = () => key + '|puddles' + cover;
+  return mat;
+}
 // Dirt and shade at the foot of walls (the facade meshes are in world coordinates).
 function grime(mat) {
   mat.onBeforeCompile = sh => {
@@ -213,7 +246,10 @@ export class City {
       rail: std({ map: misc.rail, alphaTest: 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.4 }),
       gantry: std({ map: misc.gantry, emissiveMap: misc.gantry, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.6, side: THREE.DoubleSide }),
     };
+    attachSSR(m.walk, { range: 70, rough: 0.7 }); puddles(m.walk, 0.35);
+    for (const k of ['glass', 'modern', 'shop']) attachSSR(m[k], { range: 110, rough: 0.45, view: 160, strength: 0.85 });
     m.asphalt = macro(std({ color: new THREE.Color(TOD.road).multiplyScalar(TOD.wet ? 1 : 0.78), map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: TOD.wet ? new THREE.Vector2(0.4, 0.4) : new THREE.Vector2(0.55, 0.55), roughness: TOD.wet ? 0.4 : 0.86, metalness: 0, envMapIntensity: TOD.wet ? 2.0 : 0.75 }), 0.045, 0.35);
+    attachSSR(m.asphalt, { range: 90, rough: 0.64 }); puddles(m.asphalt, 0.6);
     this.style = {
       glass: { fac: facG, pal: GLASS }, modern: { fac: facM, pal: MODERN }, apt: { fac: facA, pal: STUCCO },
       brick: { fac: facB, pal: BRICK }, shop: { fac: facS, pal: SHOP }, house: { fac: facH, pal: HOUSE },

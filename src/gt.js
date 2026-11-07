@@ -4,6 +4,7 @@
 // an armour plate that rises behind the cabin, and oil and smoke nozzles under the tail. (No badges or logos: the shape is the
 // point, this is not a licensed car.)
 import * as THREE from 'three';
+import { attachSSR } from './ssr.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { curve } from './util.js';
 import { glowTex, plateTex } from './textures.js';
@@ -68,8 +69,8 @@ function makeWireWheel(r, width, side, mats) {
 
 export function makeGT() {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-  const paint = new THREE.MeshPhysicalMaterial({ color: 0xb4b8bf, metalness: 0.78, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.1 });
-  const glass = new THREE.MeshPhysicalMaterial({ color: 0x07090c, metalness: 0.1, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.6, transparent: true, opacity: 0.84 });
+  const paint = attachSSR(new THREE.MeshPhysicalMaterial({ color: 0xb4b8bf, metalness: 0.78, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.1 }), { range: 70, rough: 0.5, view: 120 });
+  const glass = attachSSR(new THREE.MeshPhysicalMaterial({ color: 0x07090c, metalness: 0.1, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.6, transparent: true, opacity: 0.84 }), { range: 70, rough: 0.4, view: 120 });
   const chrome = new THREE.MeshStandardMaterial({ color: 0xdfe2e7, roughness: 0.08, metalness: 1, envMapIntensity: 1.3 });
   const black = new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.5, metalness: 0.3 });
   const matte = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.9 });

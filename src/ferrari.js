@@ -9,6 +9,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import { PAINTS, HERO_DIMS } from './carModel.js';
 import { glowTex } from './textures.js';
+import { attachSSR } from './ssr.js';
 
 const URL = 'assets/cars/ferrari.glb', URL_LITE = 'assets/cars/ferrari_lite.glb';   // the lite one has about 40% of the triangles, for tablets and lower settings
 
@@ -40,6 +41,8 @@ export async function loadFerrari(paintKey = 'pearl', lite = false) {
     blue: new THREE.MeshStandardMaterial({ color: 0x1e90ff, roughness: 0.5, metalness: 0.2, emissive: 0x0a3a80, emissiveIntensity: 0.6 }),
     yellow: new THREE.MeshStandardMaterial({ color: 0xf8cc00, roughness: 0.45, metalness: 0.2 }),
   };
+  // Ray-traced reflections (see ssr.js) on the glossy parts: the road, the street and the other cars show in the paint and glass.
+  for (const k of ['paint', 'glass', 'lens', 'chrome', 'rim', 'carbon', 'metal']) attachSSR(mats[k], { range: 70, rough: k === 'paint' || k === 'carbon' ? 0.5 : 0.4, view: 120 });
   const byName = n => {
     n = n.toLowerCase();
     if (n.includes('body_color')) return mats.paint;

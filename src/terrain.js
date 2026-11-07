@@ -3,6 +3,7 @@
 // mesh cut away underneath. Both use a biome shader that blends grass, sand, snow,
 // rock and dry lakebed by where you are, how high and how steep it is.
 import * as THREE from 'three';
+import { attachSSR } from './ssr.js';
 import { clamp } from './util.js';
 import { EDGE } from './city.js';
 import { heightAt, climate, coastX, lakeDist, AIRFIELD, WORLD, SEA_Y } from './world.js';
@@ -163,9 +164,9 @@ export function buildTerrain(scene, day) {
 
   // --- The sea, with ripples that drift -------------------------------------------------
   const ripple = T.rippleNormal(); ripple.repeat.set(420, 420);
-  const sea = new THREE.Mesh(new THREE.PlaneGeometry(11000, 18000).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(11000, 18000).rotateX(-Math.PI / 2), attachSSR(new THREE.MeshStandardMaterial({
     color: day ? 0x1b5f7c : 0x3a3550, roughness: 0.07, metalness: 0.2, envMapIntensity: 1.6, normalMap: ripple, normalScale: new THREE.Vector2(0.7, 0.7),
-  }));
+  }), { range: 160, rough: 0.4, view: 400 }));
   sea.position.set(-3000 - 5500, SEA_Y, 0); group.add(sea);
 
   // --- Detail tiles streaming in and out --------------------------------------------------

@@ -3,6 +3,7 @@
 // homing missiles, proximity bombs, an oil slick, a smoke screen, an armour shield and nitro. Get out of sight and stay hidden
 // to lose them. Get wrecked, or boxed in and stopped, and you lose. (A port of the native version's escape mode.)
 import * as THREE from 'three';
+import { attachSSR } from './ssr.js';
 import { SP, N, hw, EDGE, SIDEWALK, isPark } from './city.js';
 import { groundAt, heightAt, ROADS, coastX } from './world.js';
 import { policeModels } from './carModel.js';
@@ -49,7 +50,7 @@ export class PoliceChase {
     this.reset();
     // Meshes: instanced cruisers and trucks (with their light bars), pools of missiles, bombs and oil slicks.
     const mk = md => {
-      const mat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 });
+      const mat = attachSSR(new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 }), { range: 50, rough: 0.45, view: 110 });
       const body = new THREE.InstancedMesh(md.geo, mat, CAP), lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), CAP);
       for (const m of [body, lights]) { m.count = 0; m.frustumCulled = false; scene.add(m); }
       body.receiveShadow = true;

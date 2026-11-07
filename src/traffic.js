@@ -3,6 +3,7 @@
 // and get knocked aside if you hit them. Traffic stays around the player:
 // cars that fall far behind are moved to roads further ahead.
 import * as THREE from 'three';
+import { attachSSR } from './ssr.js';
 import { N, SP, hw, isBlvd, laneCount, laneOffset, EDGE } from './city.js';
 import { ROADS, groundAt } from './world.js';
 import { trafficModels } from './carModel.js';
@@ -36,7 +37,7 @@ export class Traffic {
   }
 
   makeSet(md) {
-    const body = new THREE.InstancedMesh(md.geo, new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 }), CAP);
+    const body = new THREE.InstancedMesh(md.geo, attachSSR(new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 }), { range: 50, rough: 0.45, view: 110 }), CAP);
     const lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), CAP);
     body.castShadow = false; body.count = 0; lights.count = 0;
     body.receiveShadow = true;

@@ -47,6 +47,8 @@ Built to look sharp on a PC, and still run on a tablet. The game picks a tier fo
 | Car reflections | live, 256 px | live, 256 px | live, 128 px | off |
 | Textures | full size | full size | ¾ size | half size |
 | Ambient occlusion | yes | yes | no | no |
+| Ray-traced reflections | 28 steps, full resolution | 20 steps, full resolution | 12 steps, half resolution | off |
+| Ray-traced bounced light | 6 rays per pixel | 4 rays per pixel | off | off |
 | Grass around the car | 75 m, dense | 62 m | 46 m, lighter | none |
 | Draw distance | about 1.6 km | 1.2 km | 0.9 km | 0.9 km |
 
@@ -66,8 +68,20 @@ Built to look sharp on a PC, and still run on a tablet. The game picks a tier fo
 - **Materials.** Glass is a neutral, dark, mirror-like reflective surface (no painted-on sky), asphalt is dark, fine and dry-rough (wet when it rains or at night), leaves are a detailed hand-painted leaf spray with veins and glow when the sun shines through them, skin has a soft sheen and pores, fabric has a weave, hair has strands, and the traffic and police have clear-coat paint.
 - **A smooth body.** Your character is one continuous skinned mesh (no gaps or caps at the joints), so arms and legs bend like a person's.
 
+## Ray tracing and physically based rendering
+
+Browsers have no hardware ray tracing (neither WebGL nor WebGPU can reach a graphics card's ray-tracing cores), so the rays here are marched through the picture the game has already drawn ("screen-space ray tracing"). It runs on any GPU, including a tablet's. Switch it off in Settings → Ray tracing (it needs a reload); it is off on the Low tier.
+
+- **Ray-traced reflections** (`src/ssr.js`). After each frame the scene's colour (still in linear HDR) and each pixel's distance from the camera are kept, with mip levels. A glossy surface (wet road, window glass, car paint and glass, chrome, water) then fires a ray along its true mirror direction, using its own normal and roughness, steps along it through last frame's picture, refines where it meets something, and reflects what it finds there, blurred by the surface's roughness. So a wet street shows the buildings, palms, lamp posts, lit windows and the cars themselves, and the paint reflects the road. A ray that finds nothing (it leaves the screen, or flies into the sky) falls back to the photographic sky lighting, so nothing pops.
+- **Ray-traced bounced light** (`src/gi.js`). Each pixel fires a few rays over its hemisphere, marches them through the depth buffer and collects the lit colour of what they hit; a depth-aware blur merges 16 different ray sets per pixel. The result is added to the picture, tinted by the surface's own colour, so a sunlit road lights the underside of an awning, a car tints the tarmac beside it and green verges warm the pavement.
+- **Puddles.** In rain and at night the road has patches of standing water: still-water smooth (so the reflections are sharp and mirror-like there), darker, without grain. The rest of the road is damp. The patches come from noise in world space, so they are the same each time you pass.
+- **Physically based materials.** Everything uses the metal/rough model (with clear-coat paint, sheen on skin and fabric, a roughness-aware specular antialiasing, and energy-conserving image-based lighting from the HDR sky), real-world-style roughness for each surface, and tone mapping that behaves like film.
+
+What it can't do, because it only knows what was on screen last frame: it can't reflect anything behind the camera or off the edge of the picture (those reflections fade to the sky), it can't bounce light from things you can't see, moving objects reflect one frame late, and there are no ray-traced shadows. Thin things (wires, palm fronds) in a reflection can break up a little. This is a convincing approximation of ray tracing, not a path tracer.
+
 ## Honest notes
 
+- Ray tracing here means screen-space ray marching (see above), not hardware ray tracing, and its cost on real hardware (especially on a tablet) is untested; turn it off in Settings if the frame rate drops.
 - The graphics are procedural: every texture, tree and building is generated in code, with no photo scans or hand-modelled assets, so close up it looks like a good browser game, not a AAA one.
 - It was tested here in headless Chrome with software rendering, which is far slower than a real GPU. Frame rates on real Ultra/High hardware, and on an iPad, are not measured. If it stutters, lower Settings → Graphics or Render scale.
 - The police stay in their cars: a cruiser stops beside you when you are on foot and arrests you if you stay put, but no officers get out and chase you on foot. People are simple loops round the pavements and do not cross the roads. Neither has been balanced on real hardware: how easy it is to hide for a minute depends on the city and the luck of where the cruisers are.
@@ -119,6 +133,8 @@ Fullscreen (Shift+F), a mouse-look camera, the city map, an FPS counter (Setting
 - `src/sky.js`: sky, light, mountains, clouds and the plume
 - `src/atmos.js`: the height-aware, sun-aware haze (it replaces three.js's fog shader)
 - `src/ao.js`: screen-space ambient occlusion from the depth buffer
+- `src/ssr.js`: ray-traced reflections (screen-space rays through last frame's picture) and the shader patch that gives materials them
+- `src/gi.js`: ray-traced bounced light (screen-space)
 - `src/grass.js`: the streamed field of grass tufts around the car
 - `src/world.js`: the world: height, biomes, the motorway network and road profiles, ground and surface queries, bunkers and the airfield
 - `src/terrain.js`: the streamed terrain (a coarse whole-world mesh plus fine tiles), biome and cliff shading, and the sea

@@ -6,6 +6,7 @@ const defaults = {
   quality: null,        // 'ultra' | 'high' | 'medium' | 'low'; null picks one for the device
   renderScale: 1,       // 0.75 | 1 | 1.25 | 1.5 times the screen's pixel density
   fps: false,
+  rt: true,             // ray-traced reflections and global illumination (see ssr.js, gi.js); off on the Low tier
   units: 'kmh',
   abs: true, tcs: true, esp: true,
   auto: true,           // automatic gearbox

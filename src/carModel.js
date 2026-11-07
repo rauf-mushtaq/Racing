@@ -2,6 +2,7 @@
 // rounded shape with a body side, a shoulder and a narrower glasshouse on top,
 // joined into one smooth surface. The nose points along +z.
 import * as THREE from 'three';
+import { attachSSR } from './ssr.js';
 import { curve, lerp, clamp } from './util.js';
 import { plateTex, glowTex } from './textures.js';
 import { mergeGeoms } from './geom.js';
@@ -171,8 +172,8 @@ export function makeHeroCar(paintKey = 'pearl') {
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body); // pitches and rolls on the suspension
   const pt = PAINTS[paintKey] || PAINTS.pearl;
-  const paint = new THREE.MeshPhysicalMaterial({ color: pt.color, metalness: pt.metal, roughness: pt.rough, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.0 });
-  const glass = new THREE.MeshPhysicalMaterial({ color: 0x07080a, metalness: 0.1, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.6, transparent: true, opacity: 0.86 });
+  const paint = attachSSR(new THREE.MeshPhysicalMaterial({ color: pt.color, metalness: pt.metal, roughness: pt.rough, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.0 }), { range: 70, rough: 0.5, view: 120 });
+  const glass = attachSSR(new THREE.MeshPhysicalMaterial({ color: 0x07080a, metalness: 0.1, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.6, transparent: true, opacity: 0.86 }), { range: 70, rough: 0.4, view: 120 });
   const black = new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.45, metalness: 0.35 });
   const carbon = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.32, metalness: 0.5 });
   const matte = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.9 });
