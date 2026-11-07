@@ -139,7 +139,7 @@ export function initMenus(C) {
       settings[key] = v; save();
       el.querySelectorAll(`[data-s="${key}"]`).forEach(x => x.classList.toggle('on', x === b));
       if (spec.reload) { location.reload(); return; }
-      applyAids(); applyVolume(); applyWeather(); if (key === 'crowd') C.peds.setCount(Math.round(Q.peds * settings.crowd)); $('fps').classList.toggle('hidden', !settings.fps);
+      applyAids(); applyVolume(); applyWeather(); if (key === 'crowd') C.peds.setCount(C.crowdCount()); $('fps').classList.toggle('hidden', !settings.fps);
       if (key === 'traffic') C.traffic.setDensity(settings.traffic, car);
       document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
     }));

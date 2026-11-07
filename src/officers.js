@@ -166,7 +166,7 @@ class Officer {
 export class Officers {
   // env: { scene, police, walker (the player), audio, hud, obstacles(x, z), onFoot(), shadows, quality }
   constructor(env) {
-    this.env = env; this.list = []; this.ready = false; this.loading = false; this.cap = CAPS[env.quality] || 4; this.enabled = true; this.sinceHit = 99; this.first = true; this.seed = 7; this.backupT = 0;
+    this.env = env; this.list = []; this.ready = false; this.loading = false; this.cap = this.fullCap = CAPS[env.quality] || 4; this.enabled = true; this.sinceHit = 99; this.first = true; this.seed = 7; this.backupT = 0;
   }
   rnd() { this.seed = (this.seed * 1664525 + 1013904223) >>> 0; return this.seed / 4294967296; }
   prepare() {                                                                          // load the four models (a little over three megabytes) before the first deployment

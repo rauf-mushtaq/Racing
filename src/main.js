@@ -48,6 +48,7 @@ import { PEOPLE, personKey } from './people.js';
 import { Arsenal, WEAPONS } from './weapons.js';
 import { Officers } from './officers.js';
 import { initMenus } from './menus.js';
+import { Profiler, PerfGuard } from './perf.js';
 
 // Test and debugging hooks (window.__game, __cam, __freeze, __noRender, __fixedRes) exist only when the page is opened with ?debug
 const DEBUG = new URLSearchParams(location.search).has('debug');
@@ -59,6 +60,7 @@ const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(
 // ---------------------------------------------------------------------------
 installAtmosphere();
 const quality = Q.name;
+const TIER_EXPLICIT = ['ultra', 'high', 'medium', 'low'].includes(settings.quality);
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: Q.msaa === 0, powerPreference: 'high-performance', stencil: false });
 renderer.toneMapping = THREE.AgXToneMapping;                 // a film-like response: less saturated highlights than ACES, closer to a photograph
@@ -155,6 +157,44 @@ if (quality !== 'low') {
   if (giPass) { grade.uniforms.tGI.value = giPass.texture; grade.uniforms.uGI.value = 0.75; }
   composer.addPass(new OutputPass());
 }
+
+// ---------------------------------------------------------------------------
+// Keeping the frame rate up (src/perf.js). The resolution scaler (below) goes first; when it is at its floor the guard turns the dearest
+// effects off one by one (and on again when there is room); when the JavaScript is the limit it thins the police, crowds and traffic.
+// ---------------------------------------------------------------------------
+const prof = new Profiler();
+const DIST0 = { detailR: Q.detailR, treeR: Q.treeR, scatR: Q.scatR };
+const GPU_LADDER = [
+  { name: 'RAY-TRACED LIGHT BOUNCE', on(v) { if (giPass) { giPass.enabled = v; grade.uniforms.uGI.value = v ? 0.75 : 0; } }, has: () => !!giPass },
+  { name: 'RAY-TRACED REFLECTIONS', on(v) { const e = v && !!Q.ssr && settings.rt !== false; SSR.enabled = e; if (!e) SSR.amt.value = 0; if (histPass) histPass.enabled = e; }, has: () => !!Q.ssr },
+  { name: 'AMBIENT OCCLUSION', on(v) { if (aoPass) { aoPass.enabled = v; grade.uniforms.uAO.value = v ? 0.9 : 0; } }, has: () => !!aoPass },
+  { name: 'DISTANT DETAIL', on(v) { const k = v ? 1 : 0.62; Q.detailR = DIST0.detailR * k; Q.treeR = DIST0.treeR * k; Q.scatR = DIST0.scatR * k; }, has: () => true },   // (the city and terrain read these every update)
+].filter(st => st.has());
+const CPU_LADDER = [
+  { name: 'FEWER OFFICERS', on(v) { if (officers) officers.cap = v ? officers.fullCap : Math.max(2, Math.ceil(officers.fullCap / 2)); } },
+  { name: 'SMALLER CROWDS', on(v) { guardCrowd = v ? 1 : 0.5; if (peds) peds.setCount(crowdCount()); } },
+  { name: 'LIGHTER TRAFFIC', on(v) { guardTraffic = v; if (traffic) traffic.setDensity(trafficLevel(), car); } },
+];
+let guardCrowd = 1, guardTraffic = true;
+const guard = new PerfGuard(GPU_LADDER.length, CPU_LADDER.length);
+const crowdCount = () => Math.round(Q.peds * (settings.crowd ?? 1) * guardCrowd);
+const trafficLevel = (l = settings.traffic) => (!guardTraffic && l !== 'off' ? 'light' : l);
+// Every step is down and the device is still too slow: if the quality was left on Auto, the next start is one tier lighter.
+function saveLighterTier() {
+  const order = ['ultra', 'high', 'medium', 'low'], i = order.indexOf(Q.name);
+  if (TIER_EXPLICIT || i < 0 || i >= order.length - 1 || settings.qualityAuto === order[i + 1]) return;
+  settings.qualityAuto = order[i + 1]; save(); if (hud) hud.toast('THIS DEVICE STRUGGLES: A LIGHTER GRAPHICS SETTING IS SAVED FOR NEXT TIME', 4);
+}
+function applyGuard(act) {
+  if (!act) return;
+  if (act === 'exhausted') { saveLighterTier(); return; }
+  if (act.endsWith('-down')) { const lad = act.startsWith('gpu') ? GPU_LADDER : CPU_LADDER, st = lad[(act.startsWith('gpu') ? guard.gpu : guard.cpu) - 1]; st.on(false); if (hud) hud.toast('SMOOTHER: ' + st.name + ' OFF', 2.2); }
+  else { const gpu = act.endsWith('gpu'), st = (gpu ? GPU_LADDER : CPU_LADDER)[gpu ? guard.gpu : guard.cpu]; st.on(true); }
+}
+// A phone or tablet can lose the graphics context when it runs short of memory; the page says so and carries on when it comes back.
+canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); game.ctxLost = true; loadMsgSoft('The graphics were reset by the device (low memory?). Hold on…'); });
+canvas.addEventListener('webglcontextrestored', () => { game.ctxLost = false; loadMsgSoft(''); resize(); guard.pause(6); });
+function loadMsgSoft(t) { const el = $('load-msg'); if (!el) return; el.textContent = t; $('loading').classList.toggle('hidden', !t); }
 function resize() {
   const w = innerWidth, h = innerHeight, pr = basePR * resScale;
   renderer.setPixelRatio(pr); renderer.setSize(w, h, false);
@@ -219,7 +259,7 @@ async function build() {
   rain = new Rain(scene);
   worldFx = new Particles(scene); debris = new Debris(scene, city.props, worldFx); debris.onClang = (k, v) => audio.clang(v);
   gates = new Gates(scene);
-  peds = new Peds(scene, Q.peds, Q.shadows); peds.setCount(Math.round(Q.peds * (settings.crowd ?? 1))); peds.onHit = (p, sp) => { audio.thump(0.35); crime(0.6, 'ped'); };
+  peds = new Peds(scene, Q.peds, Q.shadows); peds.setCount(crowdCount()); peds.onHit = (p, sp) => { audio.thump(0.35); crime(0.6, 'ped'); };
   walker = new Walker(scene, settings.outfit); walker.onStep = (v, kind) => audio.step(v, kind); footCam = new FootCamera();
   arsenal = new Arsenal({
     scene, fx: police.fx, police, traffic, city, peds, audio, camera, aimRay, get officers() { return officers; },
@@ -234,7 +274,7 @@ async function build() {
   police.officers = officers; setTimeout(() => officers.prepare(), 12000);
   hud = new HUD();
   car.reset(START.x, START.z, START.h);
-  traffic.setDensity(settings.traffic, car);
+  traffic.setDensity(trafficLevel(), car);
   applyAids();
   setupProbe();
   if (Q.csm) setupCSM();
@@ -451,7 +491,7 @@ function startChase() {
   game.chaseOn = true; game.gadgets = true; game.wanted = false; game.onFoot = false; walker.show(false); swapCar('gt');
   resetCar(START.x, START.z, START.h);
   city.loadNow(START.x, START.z, 1); terrain.loadNow(START.x, START.z, 1); if (grass) grass.now(START.x, START.z);
-  traffic.setDensity(settings.traffic === 'off' ? 'light' : settings.traffic, car);
+  traffic.setDensity(trafficLevel(settings.traffic === 'off' ? 'light' : settings.traffic), car);
   for (const c of traffic.cars) traffic.spawn(c, car, 40, 500, true);
   driver.reset(); game.gprev = {};
   police.start(car, traffic); applyVolume(); if (settings.music) chaseMusic.start();
@@ -495,7 +535,9 @@ function chaseUpdate(dt, raw) {
   police.clock = game.clock;
   const T = game.onFoot ? walker : car;                                      // who they are after
   police.update(dt, T, traffic, game.state === 'free' && game.gadgets && !game.onFoot ? inp : {});
+  prof.mark('police');
   officers.update(dt);
+  prof.mark('officers');
   if (game.onFoot && walker.active && game.state === 'free') police.collideWalker(walker);
   for (const m of police.consumeMessages()) hud.toast(m, 1.9);
   game.shake = Math.max(game.shake, police.shake * 0.7);
@@ -524,7 +566,7 @@ function startEvent(ev) {
   gates.build(route);
   resetCar(route.start.x, route.start.z, route.start.h);
   city.loadNow(route.start.x, route.start.z, 1); terrain.loadNow(route.start.x, route.start.z, 1); if (grass) grass.now(route.start.x, route.start.z);
-  traffic.setDensity(settings.traffic, car);
+  traffic.setDensity(trafficLevel(), car);
   for (const c of traffic.cars) traffic.spawn(c, car, 40, 500, true);
   setState('countdown');
 }
@@ -647,7 +689,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { aud
 const menus = initMenus({
   game, chaseMusic, car, input, START, quality, startEvent, startChase, setState, resumeFreeRoam, togglePause, toggleFullscreen, startFree,
   respawnOnRoad, resetCar, medalFor, exitSpot, endChase, applyWeather, applyVolume, applyAids,
-  get walker() { return walker; }, get hud() { return hud; }, get arsenal() { return arsenal; }, get traffic() { return traffic; }, get peds() { return peds; },
+  crowdCount, get walker() { return walker; }, get hud() { return hud; }, get arsenal() { return arsenal; }, get traffic() { return traffic; }, get peds() { return peds; },
   get heroMesh() { return heroMesh; }, get gates() { return gates; }, get footCam() { return footCam; },
 });
 const { toMenu } = menus;
@@ -960,10 +1002,14 @@ let last = performance.now(), frameAvg = 16, adaptT = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (game.state === 'loading' || (DEBUG && window.__freeze)) return;
+  if (game.state === 'loading' || game.ctxLost || (DEBUG && window.__freeze)) return;
+  const t0 = performance.now();
   tick(dt);
+  const st = game.state;
+  if (st === 'free' || st === 'race' || st === 'countdown') applyGuard(guard.sample(dt * 1000, performance.now() - t0, resScale <= 0.64));
 }
-function tick(dt) {
+function tick(dt) { prof.begin(); tickBody(dt); prof.end(); }
+function tickBody(dt) {
   renderer.info.reset();
   frameAvg = lerp(frameAvg, dt * 1000, 0.05);
 
@@ -994,11 +1040,16 @@ function tick(dt) {
     const sig = signalState(game.clock);
     if (sig.Z !== game.sigZ || sig.X !== game.sigX) { game.sigZ = sig.Z; game.sigX = sig.X; city.setSignals(sig); }
     traffic.extra = foot ? [car] : null;
+    prof.mark('physics');
     if (foot) footUpdate(dt, raw);
+    prof.mark('foot');
     traffic.update(dt, F, sig);
+    prof.mark('traffic');
     peds.update(dt, F, camera, sig);
+    prof.mark('peds');
     if (!foot && car.speed > 13 && (game.scareT = (game.scareT || 0) - dt) <= 0) { game.scareT = 0.35; peds.scare(car.x + Math.sin(car.h) * 9, car.z + Math.cos(car.h) * 9, 9, 3); }
     if (game.chaseOn) chaseUpdate(dt, raw);
+    prof.mark('chase');
     if (st === 'race' || st === 'countdown') raceUpdate(dt);
     else if (st === 'free' && !game.chaseOn) waypointUpdate();
     if ((st === 'free' && !game.chaseOn) || st === 'race') checkDiscoveries();
@@ -1007,6 +1058,7 @@ function tick(dt) {
   city.update(F.x, F.z, st === 'paused' || st === 'map' ? 2 : 3.5);
   terrain.update(dt, F.x, F.z, st === 'paused' || st === 'map' ? 1.5 : 3);
   structures.update(F.x, F.z);
+  prof.mark('world');
   if (st === 'menu' && game.garage && walker.active) { walker.t += dt; walker.pose(dt); }          // the character idles beside the car in the Garage
   const alpha = st === 'paused' || st === 'map' ? 1 : acc / STEP;
   if (beams) beams.begin();
@@ -1015,12 +1067,14 @@ function tick(dt) {
   camera.updateMatrixWorld(); camFrustum.setFromProjectionMatrix(projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   traffic.render(F, camFrustum);
   if (grass) grass.update(performance.now() / 1000, camera.position.x, camera.position.z);
+  prof.mark('scene');
   updateCamera(dt, pose);
   if (!game.onFoot) { aimRay.pos.copy(camera.position); camera.getWorldDirection(aimRay.dir); }
   if (DEBUG && window.__cam) { const c = typeof window.__cam === 'function' ? window.__cam() : window.__cam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); if (c[6]) { camera.fov = c[6]; camera.updateProjectionMatrix(); } }   // (a test hook: put the camera anywhere)
   if (st !== 'menu' || game.garage) peds.render(camera, st === 'paused' || st === 'map' ? 0 : dt);
   if (game.chaseOn && st !== 'paused' && st !== 'map') police.draw(game.clock || 0, car, dt, carMesh, camera, renderer);
   else if (st !== 'paused' && st !== 'map') police.fx.update(dt, camera, renderer);        // (gunfire and explosions outside a chase)
+  prof.mark('view');
   if (arsenal) { if (!foot) arsenal.update(dt, NO_ARMS, walker, camera, false); weaponHud(); }
   if (beams) beams.end();
   if (rain && rain.visible) rain.update(performance.now() / 1000, camera, !!TOD.night);
@@ -1038,6 +1092,7 @@ function tick(dt) {
     grade.uniforms.uSunVis.value = clamp((tmpFwd.dot(SUN_DIR) - 0.15) / 0.5, 0, 1);
     grade.uniforms.uTime.value = (performance.now() / 1000) % 100;
   }
+  prof.mark('effects');
   updateProbe(pose);
   audio.hum(st === 'menu' || st === 'loading' ? 0.012 : foot ? 0.05 : 0.018);
   audio.update(car, (st === 'free' && !foot) || st === 'race' || st === 'countdown' || st === 'finish' || st === 'chaseEnd');
@@ -1046,7 +1101,7 @@ function tick(dt) {
     hud.drawMap(mapFocus(), traffic, game.route, game.next, game.waypoint, game.chaseOn ? police : null);
   }
   if (game.chaseOn) hud.chase(st === 'paused' || st === 'map' ? null : police, game.clock || 0);
-  if (settings.fps && (game.fpsT = (game.fpsT || 0) + dt) > 0.5) { game.fpsT = 0; $('fps').textContent = `${Math.round(1000 / frameAvg)} FPS · ${renderer.domElement.width}×${renderer.domElement.height} · ${quality}`; }
+  if (settings.fps && (game.fpsT = (game.fpsT || 0) + dt) > 0.5) { game.fpsT = 0; $('fps').textContent = `${Math.round(1000 / frameAvg)} FPS · ${renderer.domElement.width}×${renderer.domElement.height} · ${quality}${guard.level ? ' · eased ' + guard.gpu + '/' + guard.cpu : ''}\nJS ${prof.js.toFixed(1)} ms: ${prof.report()}\n${renderer.info.render.calls} draws · ${(renderer.info.render.triangles / 1000).toFixed(0)}k tris · ${renderer.info.memory.geometries} geo · ${renderer.info.memory.textures} tex`; }
 
   // Adapt resolution every couple of seconds. This is done before drawing: resizing clears the
   // canvas, so doing it after the draw would flash a black frame each time.
@@ -1057,6 +1112,7 @@ function tick(dt) {
     else if (frameAvg < 14.5 && resScale < 1) { resScale = Math.min(1, resScale * 1.08); resize(); }
   }
 
+  prof.mark('hud');
   if (DEBUG && window.__noRender) return;                                  // (automated tests step the game without drawing)
   if (composer) {
     const blur = clamp((car.speed - 35) / 55, 0, 1) * 0.8 + (car.nitroOn ? 0.5 : 0);
@@ -1065,6 +1121,7 @@ function tick(dt) {
     composer.render(dt);
     ssrEnd(camera);
   } else renderer.render(scene, camera);
+  prof.mark('draw');
 }
 
 // ---------------------------------------------------------------------------
@@ -1100,4 +1157,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-if (DEBUG) window.__game = { get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+if (DEBUG) window.__game = { prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

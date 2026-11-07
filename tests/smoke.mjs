@@ -72,6 +72,18 @@ try {
   await step(P, 60 * 25);
   const off = await P.evaluate(() => { const g = window.__game; return { chase: g.game.chaseOn, cops: g.police.cops.length, officers: g.officers.list.length, living: g.officers.living, ended: g.game.state }; });
   check('police arrive when wanted', off.chase && off.cops > 0, JSON.stringify(off));
+  const lad = await P.evaluate(() => {
+    const g = window.__game, d0 = g.Q.detailR, cap0 = g.officers.cap, full = g.officers.fullCap, n0 = g.peds.count ?? null;
+    for (let i = 1; i <= g.GPU_LADDER.length; i++) { g.guard.gpu = i; g.applyGuard('gpu-down'); }
+    for (let i = 1; i <= g.CPU_LADDER.length; i++) { g.guard.cpu = i; g.applyGuard('cpu-down'); }
+    const down = { detail: g.Q.detailR, cap: g.officers.cap };
+    for (let i = g.CPU_LADDER.length - 1; i >= 0; i--) { g.guard.cpu = i; g.applyGuard('up:cpu'); }
+    for (let i = g.GPU_LADDER.length - 1; i >= 0; i--) { g.guard.gpu = i; g.applyGuard('up:gpu'); }
+    g.guard.gpu = g.guard.cpu = 0;
+    return { d0, cap0, full, down, up: { detail: g.Q.detailR, cap: g.officers.cap } };
+  });
+  check('the performance guard steps effects down and brings them back', lad.down.detail < lad.d0 && lad.down.cap < lad.full && lad.up.detail === lad.d0 && lad.up.cap === lad.full, JSON.stringify(lad));
+  await step(P, 120);
   check('no script errors while playing', A.logs.length === 0, A.logs.slice(0, 3).join(' | '));
 
   // ---- 3. offline: after one visit the service worker has every file

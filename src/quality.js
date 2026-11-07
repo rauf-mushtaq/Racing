@@ -25,6 +25,7 @@ const TIERS = {
 };
 
 function autoTier() {
+  if (TIERS[settings.qualityAuto]) return settings.qualityAuto;            // a lighter default the performance guard saved (see main.js)
   if (LOW_POWER) return 'medium';
   const r = GPU.renderer;
   if (/swiftshader|llvmpipe|software|basic render/i.test(r)) return 'low';

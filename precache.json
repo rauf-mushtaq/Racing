@@ -62,6 +62,7 @@
   "src/particles.js",
   "src/peds.js",
   "src/people.js",
+  "src/perf.js",
   "src/person.js",
   "src/police.js",
   "src/props.js",
