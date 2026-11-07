@@ -195,7 +195,7 @@ class Pickups {
 
 // ---- The arsenal ------------------------------------------------------------------------------------------------------------------
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _aim = new THREE.Vector3(), _mz = new THREE.Vector3(), _dir = new THREE.Vector3(), _q = new THREE.Quaternion();
-const HIT = { none: 0, wall: 1, ground: 2, cop: 3, car: 4, parked: 5, officer: 6 };
+const HIT = { none: 0, wall: 1, ground: 2, cop: 3, car: 4, parked: 5, officer: 6, heli: 7 };
 const hitOut = { t: 0, type: 0, ref: null }, officerOut = { t: 0, type: 0, ref: null };
 const BOOT_COOLDOWN = 90;
 
@@ -291,6 +291,7 @@ export class Arsenal {
       if (o.dead) continue; const w = o.walker, ex = w.x - ox, ez = w.z - oz; if (ex * ex + ez * ez > (maxD + 8) ** 2) continue;
       const t = circ(w.x, w.z, w.y, 0.42, o.crouched ? 1.3 : 1.85); if (t >= 0 && t < best) { best = t; type = HIT.officer; ref = o; }
     }
+    const hel = this.env.heli; if (hel && hel.alive && !hel.crash) { const t = circ(hel.x, hel.z, hel.y - 1.6, 3.2, 4.2); if (t >= 0 && t < best) { best = t; type = HIT.heli; ref = hel; } }
     for (const p of city.parkedList()) {
       const ex = p.x - ox, ez = p.z - oz; if (ex * ex + ez * ez > (maxD + 8) ** 2 || (p.adopted)) continue;
       const pf = [Math.sin(p.h), Math.cos(p.h)];
@@ -406,6 +407,7 @@ export class Arsenal {
       spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = head ? 0.3 : 0.15; this.env.heat(0.02);
       if (killed) { hud.toast(head ? 'HEADSHOT: OFFICER DOWN' : 'OFFICER DOWN', 1.3); this.env.heat(0.3); }
     }
+    else if (r.type === HIT.heli) { r.ref.damage(w.dmg * fall); spark(3); this.hitT = 0.15; this.env.heat(0.01); }
     else if (r.type === HIT.parked) { spark(2); this.env.audio.clang(3); this.marks.add(ex, ey, ez, -d.x, -d.y, -d.z, 0.1); }
     else if (r.type === HIT.wall) {
       const n = wallNormal(ex, ez, d.x, d.z, this.nrm), glassy = ey > 2.4 && ey < 60; spark(glassy ? 4 : 2); fx.puff(ex, ey, ez, 0, 0.4, 0, 0.35, 0.8, glassy ? 0.7 : 0.5, 0.3, 1.2);

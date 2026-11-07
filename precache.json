@@ -62,6 +62,7 @@
   "src/gi.js",
   "src/grass.js",
   "src/gt.js",
+  "src/heli.js",
   "src/hud.js",
   "src/input.js",
   "src/lights.js",

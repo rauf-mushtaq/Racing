@@ -125,13 +125,13 @@ export class PoliceChase {
   }
   // opts.heat: the wanted level to start at; opts.near: how many cruisers are right behind you.
   start(p, traffic, opts = {}) {
-    this.reset(); if (this.officers) this.officers.clear(); this.active = true; this.lastSeenX = p.x; this.lastSeenZ = p.z; this.fx.clear();
+    this.reset(); if (this.officers) this.officers.clear(); if (this.heli) this.heli.reset(); this.active = true; this.lastSeenX = p.x; this.lastSeenZ = p.z; this.fx.clear();
     this.heat = opts.heat ?? 2.0; this.minHeat = Math.floor(this.heat); this.lastStars = this.maxStars = this.stars;
     for (let i = 0; i < (opts.near ?? 5); i++) this.spawnCop(p, 0, 'near');
     this.messages.push('THE POLICE ARE ON YOU');
   }
   stop() {
-    this.active = false; if (this.officers) this.officers.clear(); this.reset(); this.fx.clear(); this.render(0, null, 0);
+    this.active = false; if (this.officers) this.officers.clear(); if (this.heli) this.heli.reset(); this.reset(); this.fx.clear(); this.render(0, null, 0);
     this.bubble.visible = false;
   }
   setVisible(v) { for (const k of this.kinds) { k.body.visible = k.lights.visible = v; } }
@@ -344,6 +344,7 @@ export class PoliceChase {
     if (d < radius * 0.8) { const fall = 1 - d / (radius * 0.8); this.health -= dmg * fall * 0.15 * (this.shieldT > 0 ? 0.3 : 1); this.damageFlash = Math.min(1, this.damageFlash + fall * 0.4); }
     this.shake = Math.min(1, Math.max(this.shake, power * 0.9 / (1 + d * 0.04)));
     if (this.officers) this.officers.blast(x, z, y, radius, dmg);
+    if (this.heli) this.heli.blast(x, y, z, radius, dmg);
   }
   muzzle(p, side) {
     const f = Math.sin(p.h), g = Math.cos(p.h), lx = Math.cos(p.h), lz = -Math.sin(p.h), d = p.muzzleZ ?? 2.5;   // (d: from the centre of mass to the nose, set for each car in main.js)
@@ -385,6 +386,7 @@ export class PoliceChase {
       if (c.sees) any = true; if (!c.wreck) this.nearest = Math.min(this.nearest, Math.hypot(c.x - p.x, c.z - p.z));
     }
     if (this.time < 6) any = true;                                                   // the first few seconds: the radio has told them just where you are
+    if (this.heliSees) any = true;                                                   // the helicopter has the searchlight on you
     this.spotted = any; if (any) { this.lastSeenX = p.x; this.lastSeenZ = p.z; }
     this.spotCool -= dt;
     if (this.spotted !== this.wasSpotted) { if (this.spotCool <= 0 && this.time > 4) { this.messages.push(this.spotted ? 'SPOTTED' : 'OUT OF SIGHT - STAY HIDDEN'); this.spotCool = 3; } this.wasSpotted = this.spotted; }

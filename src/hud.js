@@ -157,7 +157,7 @@ export class HUD {
     if (!this.cg) this.cg = { stars: [...document.querySelectorAll('#c-stars i')], gads: [...document.querySelectorAll('[data-g]')].map(el => ({ el, g: el.dataset.g, cnt: el.querySelector('.cnt') })), status: $('c-status'), health: $('c-health'), hide: $('c-hide'), sirens: $('sirens'), dmg: $('dmg') };
     const C = this.cg, st = P.stars, blink = ((clock * 4) % 1) < 0.5;
     C.stars.forEach((el, i) => { el.className = i < st ? (P.spotted && blink ? 'on hot' : 'on') : ''; });
-    const txt = P.bustT > 0.4 ? 'BEING ARRESTED' : P.spotted ? 'SPOTTED' : P.hidden > 0.5 ? 'OUT OF SIGHT' : 'SEARCHING FOR YOU';
+    const txt = P.bustT > 0.4 ? 'BEING ARRESTED' : P.spotted ? (P.heliSees ? 'HELICOPTER ON YOU' : 'SPOTTED') : P.hidden > 0.5 ? 'OUT OF SIGHT' : 'SEARCHING FOR YOU';
     if (C.status.textContent !== txt) C.status.textContent = txt;
     C.status.className = P.bustT > 0.4 ? 'bust' : P.spotted ? 'seen' : 'hid';
     C.status.style.setProperty('--p', (P.bustT > 0.4 ? clamp(P.bustFrac || 0, 0, 1) : 0).toFixed(3));        // (the arrest fills the label)

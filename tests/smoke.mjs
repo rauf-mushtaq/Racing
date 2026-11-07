@@ -91,6 +91,14 @@ try {
   });
   check('bullets leave marks on what they hit', cmb.found && cmb.marks >= 4, JSON.stringify(cmb));
   check('officers\' drops can be picked up, and the boot only restocks once in a while', cmb.took && cmb.boot1 && !cmb.boot2, JSON.stringify(cmb));
+  const hel = await P.evaluate(async () => {
+    const g = window.__game, H = g.heli; g.police.heat = 3.6; g.police.minHeat = 3; const out = {};
+    for (let i = 0; i < 60 * 16; i++) { g.police.health = 100; g.police.bustT = 0; g.tick(1 / 60); if (H.alive) break; }
+    out.came = H.alive; for (let i = 0; i < 60 * 14; i++) { g.police.health = 100; g.police.bustT = 0; g.tick(1 / 60); } out.sees = g.police.heliSees; out.near = Math.hypot(H.x - g.walker.x, H.z - g.walker.z) < 120;
+    out.killed = H.damage(1000); for (let i = 0; i < 60 * 6; i++) { g.police.health = 100; g.police.bustT = 0; g.tick(1 / 60); } out.gone = !H.alive && H.coolT > 0;
+    return out;
+  });
+  check('a helicopter comes at three stars, finds you, and can be shot down', hel.came && hel.sees && hel.near && hel.killed && hel.gone, JSON.stringify(hel));
   const lad = await P.evaluate(() => {
     const g = window.__game, d0 = g.Q.detailR, cap0 = g.officers.cap, full = g.officers.fullCap, n0 = g.peds.count ?? null;
     for (let i = 1; i <= g.GPU_LADDER.length; i++) { g.guard.gpu = i; g.applyGuard('gpu-down'); }
