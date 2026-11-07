@@ -7,12 +7,18 @@ import { figureMaterials } from './figure.js';
 import { N, SP, blockRect } from './city.js';
 import { groundAt } from './world.js';
 import { mulberry32, clamp, damp, wrapAngle } from './util.js';
+import { PEDS, loadPerson } from './people.js';
+import { Mocap } from './mocap.js';
+import { Q } from './quality.js';
 
 const SHIRTS = [0xd9d4cc, 0x2c3e55, 0x8a2b2b, 0x2f5d44, 0xe0b23c, 0x3a3a3f, 0xf0f0f0, 0x7a4b8a, 0x2a7aa8, 0xc7632b, 0xb8a58a, 0x1e1e22, 0xc44d6b, 0x587a3a, 0x9bb7d4, 0xe8c9b0];
 const PANTS = [0x2a3550, 0x1c1c20, 0x4a4036, 0x6b6b70, 0x3a2f28, 0x2d4660, 0x8a7d62, 0x22303a, 0x59606b];
 const SHOES = [0xf2f2f2, 0x1c1c1c, 0x6b4a32, 0xc9c0b0, 0x7a2a2a];
 const OFFSETS = [1.8, 2.4, 3.0];
 const SHOW_R = 125;
+// The people close to the camera are real people (Rocketbox models with recorded walking, see people.js and mocap.js): a small pool of them is
+// handed to whoever is nearest, and given back as they walk away (the rest of the crowd is the instanced figures below).
+const REAL = { ultra: 10, high: 8, medium: 5, low: 3 }[Q.name] ?? 4, REAL_IN = 36, REAL_OUT = 46;
 
 // Walking loops round a block's pavement (corners cut), cached per block and distance from the kerb.
 const rings = new Map();
@@ -46,6 +52,51 @@ export class Peds {
     }
     this.vis = []; this.slotOwner = new Array(count).fill(-1); this.tmpC = new THREE.Color(); this.m = new THREE.Matrix4(); this.mir = new THREE.Matrix4().makeScale(-1, 1, 1);
     this.zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    this.real = { slots: [], started: false }; this.realScale = 1; this.shadows = shadows; this.frame = 0;
+  }
+  // Real people, one at a time (each costs a model to clone and some textures to upload, so they are spread out in time).
+  startReal() {
+    const R = this.real; if (R.started || !REAL) return; R.started = true;
+    const keys = Object.keys(PEDS); let n = 0;
+    const next = async () => {
+      if (n >= REAL) return;
+      const key = keys[n % keys.length];
+      try {
+        const person = await loadPerson(key), rig = Object.assign(buildRig(null, null, false), { meshes: [] });
+        rig.root.add(person.root); person.setShadows(this.shadows); rig.root.visible = false; this.scene.add(rig.root);
+        R.slots.push({ idx: R.slots.length, key, person, rig, ped: null });
+      } catch (e) { console.warn('pedestrian model not loaded', key, e); R.failed = true; return; }
+      n++; setTimeout(next, 600);
+    };
+    next();
+  }
+  // Give the nearest people to the pool, and take them back when they are far away.
+  bindReal(camera) {
+    const R = this.real, n = Math.min(R.slots.length, Math.round(R.slots.length * this.realScale)); const cx = camera.position.x, cz = camera.position.z;
+    for (const p of this.vis) p.seen = this.frame;
+    for (const sl of R.slots) {
+      const p = sl.ped; if (!p) continue;
+      const d2 = (p.x - cx) ** 2 + (p.z - cz) ** 2;
+      if (p.state === 'away' || p.seen !== this.frame || d2 > REAL_OUT * REAL_OUT || sl.idx >= n) { sl.ped = null; p.real = null; sl.rig.root.visible = false; }
+    }
+    if (!n) return;
+    const cand = this.vis.filter(p => !p.real && p.state !== 'away' && (p.x - cx) ** 2 + (p.z - cz) ** 2 < REAL_IN * REAL_IN);
+    if (!cand.length) return;
+    cand.sort((a, b) => ((a.x - cx) ** 2 + (a.z - cz) ** 2) - ((b.x - cx) ** 2 + (b.z - cz) ** 2));
+    for (const p of cand) { const free = R.slots.find(sl => !sl.ped && sl.idx < n); if (!free) break; free.ped = p; p.real = free; free.rig.root.visible = true; p.hs = p.hs || 0.95 + this.rnd() * 0.1; free.person.root.scale.setScalar(0.01 * p.hs); }
+  }
+  poseReal(camera, dt) {
+    const cx = camera.position.x, cz = camera.position.z;
+    for (const sl of this.real.slots) {
+      const p = sl.ped; if (!p) continue;
+      const sp = Math.min(p.speed, 5.5), lie = p.lie || 0, B = sl.rig, d2 = (p.x - cx) ** 2 + (p.z - cz) ** 2;
+      p.mphase = (p.mphase ?? p.phase / 6.283) + sp * dt / Mocap.strideAt(Math.max(sp, 0.7));
+      if (lie > 0.01) { animate(B, { down: lie, t: p.t, speed: 0 }); } else B.root.rotation.x = 0;
+      sl.person.faceOn = d2 < 450;
+      sl.person.poseMocap(B, { speed: sp, phase: p.mphase, t: p.t, pLegs: Math.min(1, lie * 3), pUpper: Math.min(1, lie * 3) });
+      sl.person.updateFace(dt);
+      B.root.position.set(p.x, p.y + lie * 0.13, p.z); B.root.rotation.y = p.h;
+    }
   }
 
   // Put a person on a pavement somewhere around `focus`, not too close and (when we can manage it) out of sight.
@@ -63,7 +114,7 @@ export class Peds {
     // Nowhere good: park it far away (it is tried again next frame).
     p.x = 1e5; p.z = 1e5; p.state = 'away'; p.ring = null; p.colors = p.colors || [SHIRTS[0], PANTS[0], SHOES[0], SKINS[0], HAIRS[0]]; return p;
   }
-  setCount(n) { n = Math.min(n, this.count); while (this.list.length > n) this.list.pop(); while (this.list.length < n) this.list.push({}); }
+  setCount(n) { for (const p of this.list.slice(n)) if (p.real) { p.real.ped = null; p.real.rig.root.visible = false; p.real = null; } n = Math.min(n, this.count); while (this.list.length > n) this.list.pop(); while (this.list.length < n) this.list.push({}); }
 
   // Everyone within r metres of a point is frightened and runs.
   scare(x, z, r, secs = 4) {
@@ -121,6 +172,7 @@ export class Peds {
         p.look = Math.sin(p.t * 0.5 + idx) * 0.4 * (p.state === 'idle' ? 1 : 0.3);
       }
     }
+    if (!this._started) { setTimeout(() => this.startReal(), 2500); }
     this._started = true;
   }
   // After being knocked down, rejoin the nearest pavement loop.
@@ -138,9 +190,12 @@ export class Peds {
       if (d2 > 36 && (dx * f.x + dz * f.z) < -0.25 * Math.sqrt(d2) - 2) continue;         // behind the camera
       this.vis.push(p);
     }
-    const B = this.B, n = this.vis.length;
+    this.frame++;
+    if (this.real.slots.length) { this.bindReal(camera); this.poseReal(camera, dt); }
+    const inst = this.inst || (this.inst = []); inst.length = 0; for (const p of this.vis) { if (!p.real) inst.push(p); else p.phase += p.speed * dt / (p.state === 'panic' ? 2.2 : 1.4) * 6.283; }
+    const B = this.B, n = inst.length;
     for (let s = 0; s < n; s++) {
-      const p = this.vis[s];
+      const p = inst[s];
       animate(B, { phase: p.phase += p.speed * dt / (p.state === 'panic' ? 2.2 : 1.4) * 6.283, speed: p.speed, run: p.state === 'panic' ? 0.55 : 0.0, t: p.t, down: p.lie, look: p.look });
       B.root.position.set(p.x, p.y + p.lie * 0.13, p.z); B.root.rotation.y = p.h; B.root.updateMatrixWorld(true);
       for (const K of this.kinds) {

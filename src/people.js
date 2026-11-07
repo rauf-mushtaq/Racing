@@ -27,6 +27,13 @@ export const COPS = {
   cop_vest:  { name: 'Detective', file: 'assets/people/cop_vest.glb' },
   cop_swat:  { name: 'SWAT', file: 'assets/people/cop_swat.glb' },
 };
+// The people on the pavements (smaller 512-pixel textures: they are seen from further away than the player and the officers).
+export const PEDS = {
+  ped_m1: { name: 'Pedestrian', file: 'assets/people/ped_m1.glb' }, ped_m2: { name: 'Pedestrian', file: 'assets/people/ped_m2.glb' },
+  ped_m3: { name: 'Pedestrian', file: 'assets/people/ped_m3.glb' }, ped_m4: { name: 'Pedestrian', file: 'assets/people/ped_m4.glb' },
+  ped_f1: { name: 'Pedestrian', file: 'assets/people/ped_f1.glb' }, ped_f2: { name: 'Pedestrian', file: 'assets/people/ped_f2.glb' },
+  ped_f3: { name: 'Pedestrian', file: 'assets/people/ped_f3.glb' }, ped_f4: { name: 'Pedestrian', file: 'assets/people/ped_f4.glb' },
+};
 export const DEFAULT_PERSON = 'agent';
 export const personKey = k => (PEOPLE[k] ? k : DEFAULT_PERSON);
 
@@ -37,12 +44,12 @@ let aniso = 4;
 export function setPeopleAnisotropy(n) { aniso = n; }
 
 function template(key) {
-  key = COPS[key] ? key : personKey(key); const def = COPS[key] || PEOPLE[key];
+  key = COPS[key] || PEDS[key] ? key : personKey(key); const def = COPS[key] || PEDS[key] || PEOPLE[key];
   if (!templates.has(key)) templates.set(key, new GLTFLoader().loadAsync(def.file).then(g => g.scene).catch(e => { templates.delete(key); throw e; }));
   return templates.get(key);
 }
 export const preload = key => { Mocap.load(); return template(key); };
-export async function loadPerson(key) { key = COPS[key] ? key : personKey(key); const [t] = await Promise.all([template(key), Mocap.load()]); return new Person(key, cloneSkinned(t)); }
+export async function loadPerson(key) { key = COPS[key] || PEDS[key] ? key : personKey(key); const [t] = await Promise.all([template(key), Mocap.load()]); return new Person(key, cloneSkinned(t)); }
 
 // The real bones, parents first: [bone, the child it points at (to find its rest direction), which stick joint drives it, straighten (an arm)].
 const ARMS = ['L', 'R'].flatMap(s => [[`Bip01_${s}_UpperArm`, `Bip01_${s}_Forearm`], [`Bip01_${s}_Forearm`, `Bip01_${s}_Hand`], [`Bip01_${s}_Hand`, `Bip01_${s}_Finger2`]]);
