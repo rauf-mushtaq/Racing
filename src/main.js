@@ -49,6 +49,7 @@ import { Arsenal, WEAPONS } from './weapons.js';
 import { Officers } from './officers.js';
 import { initMenus } from './menus.js';
 import { Profiler, PerfGuard } from './perf.js';
+import { SeatedDriver } from './seated.js';
 
 // Test and debugging hooks (window.__game, __cam, __freeze, __noRender, __fixedRes) exist only when the page is opened with ?debug
 const DEBUG = new URLSearchParams(location.search).has('debug');
@@ -213,7 +214,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
+let seated = null, grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -260,6 +261,7 @@ async function build() {
   worldFx = new Particles(scene); debris = new Debris(scene, city.props, worldFx); debris.onClang = (k, v) => audio.clang(v);
   gates = new Gates(scene);
   peds = new Peds(scene, Q.peds, Q.shadows); peds.setCount(crowdCount()); peds.onHit = (p, sp) => { audio.thump(0.35); crime(0.6, 'ped'); };
+  seated = new SeatedDriver(scene, Q.shadows); seated.setOutfit(settings.outfit); seated.mount(carMesh);
   walker = new Walker(scene, settings.outfit); walker.onStep = (v, kind) => audio.step(v, kind); footCam = new FootCamera();
   arsenal = new Arsenal({
     scene, fx: police.fx, police, traffic, city, peds, audio, camera, aimRay, get officers() { return officers; },
@@ -406,7 +408,7 @@ function setState(s) {
 // The chase happens in the free-roam state with game.chaseOn set; when it ends the state becomes 'chaseEnd' (the result card).
 function swapCar(kind) {
   const next = kind === 'gt' ? gtMesh : heroMesh;
-  if (carMesh !== next) { carMesh.visible = false; carMesh = next; carMesh.visible = true; car.setSpec(kind === 'gt' ? GT_SPEC : SPEC); }
+  if (carMesh !== next) { carMesh.visible = false; carMesh = next; carMesh.visible = true; car.setSpec(kind === 'gt' ? GT_SPEC : SPEC); if (seated) seated.mount(carMesh); }
   car.muzzleZ = kind === 'gt' ? 2.46 : 2.56;                // where the guns come out, ahead of the centre of mass
   game.head = null; applyAids();
 }
@@ -689,7 +691,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { aud
 const menus = initMenus({
   game, chaseMusic, car, input, START, quality, startEvent, startChase, setState, resumeFreeRoam, togglePause, toggleFullscreen, startFree,
   respawnOnRoad, resetCar, medalFor, exitSpot, endChase, applyWeather, applyVolume, applyAids,
-  crowdCount, get walker() { return walker; }, get hud() { return hud; }, get arsenal() { return arsenal; }, get traffic() { return traffic; }, get peds() { return peds; },
+  crowdCount, setOutfitAll(k) { walker.setOutfit(k); if (seated) seated.setOutfit(k); }, get walker() { return walker; }, get hud() { return hud; }, get arsenal() { return arsenal; }, get traffic() { return traffic; }, get peds() { return peds; },
   get heroMesh() { return heroMesh; }, get gates() { return gates; }, get footCam() { return footCam; },
 });
 const { toMenu } = menus;
@@ -1063,6 +1065,7 @@ function tickBody(dt) {
   const alpha = st === 'paused' || st === 'map' ? 1 : acc / STEP;
   if (beams) beams.begin();
   const pose = updateCarMesh(dt, alpha);
+  if (seated) { const show = !game.onFoot && st !== 'menu' && st !== 'loading' && game.camMode !== 2 && carMesh.visible; seated.show(show); if (show) seated.update(st === 'paused' || st === 'map' ? 0 : dt, { steer: car.steer / (car.s.steerMax || 0.6), w: car.w, throttle: car.throttle, brake: car.brakeIn }); }
   if (st !== 'paused' && st !== 'map') { wheelFx(pose); fx.update(dt); }
   camera.updateMatrixWorld(); camFrustum.setFromProjectionMatrix(projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   traffic.render(F, camFrustum);
@@ -1157,4 +1160,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-if (DEBUG) window.__game = { prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+if (DEBUG) window.__game = { get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

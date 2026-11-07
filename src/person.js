@@ -244,6 +244,30 @@ export function animate(B, a) {
   }
 }
 
+// ---- Sitting at the wheel ------------------------------------------------------------------------------------------
+// The rig's origin is put at the hip point of the seat (the car's body carries it). o: { t, steer (-1..1, left of the car is +), gas, brake, look (head yaw),
+// gripR, gripL (where the character's right and left hands go, in the torso's own frame; null leaves the arms down) }.
+export function seatedPose(B, o) {
+  const { t = 0, steer = 0, gas = 0, brake = 0, look = 0 } = o, breathe = Math.sin(t * 1.9) * 0.5 + 0.5;
+  B.hips.position.set(0, 0, 0); B.hips.rotation.set(0, 0, 0);
+  B.torso.rotation.set(-0.1 + 0.012 * breathe, -steer * 0.14, steer * 0.05); B.torso.scale.set(1 + 0.006 * breathe, 1, 1 + 0.012 * breathe);
+  B.head.rotation.set(0.12 + Math.sin(t * 0.7) * 0.015, look - B.torso.rotation.y * 0.7, -B.torso.rotation.z * 0.6);
+  // Legs: the thighs forward (a little below level) and a little apart, the shins nearly down, the feet on the pedals (the right foot works the throttle and the brake).
+  const th = 1.3, kn = 1.0, shin = th - kn;
+  sw(B.hipJL, th + 0.02); sw(B.hipJR, th - 0.02); B.kneeL.rotation.x = kn; B.kneeR.rotation.x = kn + 0.08;
+  B.hipJL.rotation.z = -0.09; B.hipJR.rotation.z = 0.09;
+  B.ankleL.rotation.x = shin + 0.42 + gas * 0.2 - brake * 0.12; B.ankleR.rotation.x = shin + 0.3;
+  B.ankleL.rotation.z = 0.05; B.ankleR.rotation.z = -0.05;
+  // Arms: the hands on the wheel.
+  B.shoulderL.rotation.set(0, 0, 0); B.shoulderR.rotation.set(0, 0, 0);
+  if (o.gripR) { _pole.set(-0.6, -1, 0.1); solveArm(B, 'L', [-J.shoulderX, J.shoulderY, 0], 'elbowL', o.gripR, _pole, 1); }
+  else { sw(B.shoulderL, 0.5); B.elbowL.rotation.x = -0.9; }
+  if (o.gripL) { _pole.set(0.6, -1, 0.1); solveArm(B, 'R', [J.shoulderX, J.shoulderY, 0], 'elbowR', o.gripL, _pole, 1); }
+  else { sw(B.shoulderR, 0.5); B.elbowR.rotation.x = -0.9; }
+  B.wristL.rotation.set(-0.15, 0, 0); B.wristR.rotation.set(-0.15, 0, 0);
+  B.root.rotation.set(0, 0, 0);
+}
+
 // The player's character: a rig with meshes. `outfit` colours the clothes.
 export const OUTFITS = {
   street: { name: 'Street', jacket: 0x46607e, pants: 0x25282f, shoes: 0xf2f2f2, trim: 0xe0662c, hair: HAIRS[1], skin: SKINS[1], hairStyle: 'tousled' },

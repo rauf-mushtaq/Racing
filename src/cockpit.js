@@ -282,6 +282,7 @@ export function buildCockpit(body, bodyGeo, style = 'modern') {
   let acc = 0;
   return {
     group: g, wheel: spin, canvas: cv, tex, eye, style,
+    seat: { hip: eye.clone().add(new THREE.Vector3(0, -0.73, 0.09)), grips: hands },          // (for the seated driver, src/seated.js: where the hips and hands go)
     // Called each frame: turns the wheel with the steering, moves the arms, lights the shift lights, and redraws the gauges ~30 times a second.
     update(st, dt) {
       spin.rotation.z = st.wheelAngle;

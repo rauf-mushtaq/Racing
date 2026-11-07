@@ -126,6 +126,12 @@ export async function loadFerrari(paintKey = 'pearl', lite = false) {
   // What the game's camera and gauges need from a cockpit: where the driver's eyes are, and something to do each frame.
   const eye = new THREE.Vector3(spos.x, spos.y + 0.3, spos.z - 0.56);
   const cockpit = { eye, style: 'real', group: body, update(st) { steerBase.quaternion.setFromAxisAngle(steerAxis, -st.wheelAngle); } };
+  // Where a seated driver sits (src/seated.js): the hips sit a seated body's height below the eyes, and two markers on the wheel (at 10 and 2 o'clock; they turn with it) are where the hands go.
+  const seat = { hip: eye.clone().add(new THREE.Vector3(0, -0.73, 0.09)), grips: [] };
+  { const bs = new THREE.Box3().setFromObject(steerBase).getSize(new THREE.Vector3()), R = Math.max(bs.x, bs.y, bs.z) / 2 * 0.92;
+    const lat = new THREE.Vector3(1, 0, 0).addScaledVector(steerAxis, -steerAxis.x).normalize(), upv = new THREE.Vector3().crossVectors(steerAxis, lat).normalize(); if (upv.y < 0) upv.negate();
+    for (const sd of [-1, 1]) { const m = new THREE.Object3D(); m.position.copy(lat).multiplyScalar(sd * R).addScaledVector(upv, R * 0.28); steerBase.add(m); seat.grips.push(m); } }
+  cockpit.seat = seat;
   root.userData = { body, wheels, paint: mats.paint, tail: mats.tail, tailGlow, headGlow, flame, cockpit, real: true, tris, stats, zr, zf, guns: gad.guns, shield: gad.shield };
   return root;
 }

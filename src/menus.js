@@ -93,7 +93,7 @@ export function initMenus(C) {
       panel.querySelectorAll('[data-c]').forEach(x => x.classList.toggle('on', x === b));
     }));
     panel.querySelectorAll('[data-o]').forEach(b => b.addEventListener('click', () => {
-      settings.outfit = b.dataset.o; save(); C.walker.setOutfit(settings.outfit);
+      settings.outfit = b.dataset.o; save(); C.setOutfitAll(settings.outfit);
       panel.querySelectorAll('[data-o]').forEach(x => x.classList.toggle('on', x === b));
     }));
     // The character stands beside the car while you choose.

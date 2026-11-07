@@ -70,6 +70,7 @@
   "src/rain.js",
   "src/roads.js",
   "src/scatter.js",
+  "src/seated.js",
   "src/sky.js",
   "src/ssr.js",
   "src/store.js",

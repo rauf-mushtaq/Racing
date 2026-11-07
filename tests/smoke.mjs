@@ -51,10 +51,17 @@ try {
   await step(P, 60);
   const drove = await P.evaluate(() => { const g = window.__game; g.simulate(2, { throttle: 1, gas: 1 }); return g.car.speed; });
   check('car accelerates', drove > 3, 'speed ' + drove);
+  await P.evaluate(() => { const g = window.__game; if (g.game.onFoot) { g.game.onFoot = false; g.walker.show(false); g.setState('free'); } g.game.camMode = 0; }); await step(P, 5);
+  const seat1 = await P.evaluate(async () => { const g = window.__game; for (let i = 0; i < 400 && !g.seated.ready; i++) await new Promise(r => setTimeout(r, 50)); window.__game.tick(1 / 60); return { ready: g.seated.ready, vis: g.seated.root.visible, host: g.seated.host === g.carMesh }; });
+  check('a driver sits in the car in the chase camera view', seat1.ready && seat1.vis && seat1.host, JSON.stringify(seat1));
+  await P.evaluate(() => { window.__game.game.camMode = 2; }); await step(P, 3);
+  check('and is hidden in the driver\'s-eye view', !(await P.evaluate(() => window.__game.seated.root.visible)));
+  await P.evaluate(() => { window.__game.game.camMode = 0; });
   await P.evaluate(() => { const g = window.__game; g.car.vx = 0; g.car.vz = 0; g.leaveCar(); });
   await step(P, 90);
   const foot = await P.evaluate(() => { const g = window.__game; return { onFoot: !!g.game.onFoot, shown: g.walker.visible !== false }; });
   check('player gets out of the car and stands on foot', foot.onFoot);
+  check('the driver is not left in the empty car', !(await P.evaluate(() => { window.__game.tick(1 / 60); return window.__game.seated.root.visible; })));
   const w0 = await P.evaluate(() => { const w = window.__game.walker; return [w.x, w.z]; });
   await P.keyboard.down('KeyW'); await step(P, 90); await P.keyboard.up('KeyW');
   const w1 = await P.evaluate(() => { const w = window.__game.walker; return [w.x, w.z]; });
