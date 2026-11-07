@@ -166,9 +166,10 @@ export function initMenus(C) {
     <div class="keys">
       <kbd>F</kbd><span>Get in or out of the car (beside it, or when stopped)</span>
       <kbd>W A S D</kbd><span>On foot: walk. <kbd>Shift</kbd> sprint, <kbd>Space</kbd> jump, <kbd>Z</kbd> or <kbd>Ctrl</kbd> crouch (harder to spot)</span>
-      <kbd>Mouse</kbd><span>On foot: click the game to look around with the mouse (Esc lets go), or <kbd>J</kbd> <kbd>L</kbd> <kbd>I</kbd> <kbd>K</kbd> turn the camera</span>
+      <kbd>Mouse</kbd><span>On foot: click the game to capture the mouse and look around with it (Esc lets go), or <kbd>J</kbd> <kbd>L</kbd> <kbd>I</kbd> <kbd>K</kbd> turn the camera</span>
+      <kbd>Cursor</kbd><span>Where the mouse cannot be captured (an iPad with a trackpad or mouse): with a gun out, the cursor is the crosshair; moving it to the edge of the screen turns the camera, and so does a two-finger swipe</span>
       <kbd>1 2 3 4</kbd><span>On foot: pistol, submachine gun, shotgun, rocket launcher (again, or <kbd>0</kbd>, puts it away; <kbd>Q</kbd> goes back one)</span>
-      <kbd>Click / X</kbd><span>On foot: fire (clicking once captures the mouse). <kbd>Right click / V</kbd> aim, <kbd>R</kbd> reload, <kbd>G</kbd> grenade</span>
+      <kbd>Click / X</kbd><span>On foot: fire (on a PC the first click captures the mouse). <kbd>Right click / V</kbd> aim, <kbd>R</kbd> reload, <kbd>G</kbd> grenade</span>
       <kbd>J K L O I H</kbd><span>In the car while the police are after you: guns, missile, bomb, oil, smoke, armour (<kbd>1</kbd> to <kbd>6</kbd> too)</span>
       <kbd>W / ↑</kbd><span>Throttle</span><kbd>S / ↓</kbd><span>Brake, and reverse when stopped</span>
       <kbd>A D / ← →</kbd><span>Steer</span><kbd>Space</kbd><span>Handbrake (drift)</span>

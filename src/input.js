@@ -20,17 +20,29 @@ export class Input {
     this.lastDevice = 'keyboard';
     this.wheelSeen = false;
     // Mouse: drag (either button) on the game to look around the car, wheel to zoom.
-    this.look = { yaw: 0, pitch: 0, zoom: 1, idle: 0 }; this.dragging = false;
-    addEventListener('mousedown', e => { if (e.target && e.target.id === 'c') { this.dragging = true; this.lastDevice = 'keyboard'; if (e.button === 0) this.mouse.left = true; if (e.button === 2) this.mouse.right = true; } });
+    this.look = { yaw: 0, pitch: 0, zoom: 1, idle: 0 }; this.dragging = false; this.dragButton = 0;
+    // The mouse or trackpad without pointer lock (iPadOS has none, and on a PC it is the state before the first click): on foot with a gun in
+    // hand the cursor IS the crosshair, the left button fires, the right button aims, the cursor at the edge of the screen turns the camera, and
+    // a two-finger swipe (or the keys J / L) turns it too. With the pointer captured (a click on the game, on a PC) it is the usual mouse look.
+    this.cursor = { x: 0, y: 0, inside: false, t: -9 }; this.weaponDrawn = false; this.mouseSeen = false;
+    addEventListener('pointermove', e => { if (e.pointerType === 'mouse' || e.pointerType === 'pen') { this.cursor.x = e.clientX / innerWidth * 2 - 1; this.cursor.y = -(e.clientY / innerHeight * 2 - 1); this.cursor.inside = true; this.cursor.t = performance.now(); this.mouseSeen = true; } }, { passive: true });
+    document.addEventListener('mouseleave', () => { this.cursor.inside = false; });
+    document.addEventListener('mouseenter', () => { this.cursor.inside = true; });
+    const onGame = t => !!t && (t.id === 'c' || t.id === 'touch');          // (the touch layer lies over the game; a mouse over it still means the game)
+    addEventListener('mousedown', e => { if (onGame(e.target)) { this.dragging = true; this.dragButton = e.button; this.lastDevice = 'keyboard'; this.mouseSeen = true; if (e.button === 0) this.mouse.left = true; if (e.button === 2) this.mouse.right = true; } });
     addEventListener('mouseup', e => { this.dragging = false; if (e.button === 0) this.mouse.left = false; if (e.button === 2) this.mouse.right = false; });
     addEventListener('mousemove', e => {
-      if (this.footMode && (this.dragging || document.pointerLockElement)) { this.orbit.dyaw += e.movementX * 0.0045; this.orbit.dpitch += e.movementY * 0.0035; }
+      const locked = !!document.pointerLockElement;
+      // (left button turns the camera too, unless it is firing a gun)
+      const turns = locked || (this.dragging && (this.dragButton !== 0 || !this.weaponDrawn) && !(this.dragButton === 2 && this.weaponDrawn));
+      if (this.footMode && turns) { this.orbit.dyaw += e.movementX * 0.0045; this.orbit.dpitch += e.movementY * 0.0035; }
       if (!this.dragging) return;
       this.look.yaw = Math.max(-3.2, Math.min(3.2, this.look.yaw - e.movementX * 0.006));
       this.look.pitch = Math.max(-0.4, Math.min(1.1, this.look.pitch + e.movementY * 0.004)); this.look.idle = 0;
     });
-    addEventListener('wheel', e => { if (e.target && e.target.id === 'c') this.footZoom = Math.max(0.55, Math.min(2.2, this.footZoom * Math.exp(e.deltaY * 0.001))); if (e.target && e.target.id === 'c') this.look.zoom = Math.max(0.6, Math.min(1.9, this.look.zoom * Math.exp(e.deltaY * 0.001))); }, { passive: true });
-    addEventListener('contextmenu', e => { if (e.target && e.target.id === 'c') e.preventDefault(); });
+    addEventListener('wheel', e => { if (this.footMode && onGame(e.target) && Math.abs(e.deltaX) > Math.abs(e.deltaY)) { this.orbit.dyaw += e.deltaX * 0.004; return; }   // (a two-finger swipe sideways turns the camera)
+      if (onGame(e.target)) this.footZoom = Math.max(0.55, Math.min(2.2, this.footZoom * Math.exp(e.deltaY * 0.001))); if (onGame(e.target)) this.look.zoom = Math.max(0.6, Math.min(1.9, this.look.zoom * Math.exp(e.deltaY * 0.001))); }, { passive: true });
+    addEventListener('contextmenu', e => { if (onGame(e.target)) e.preventDefault(); });
     addEventListener('keydown', e => {
       if (e.target && /input|textarea/i.test(e.target.tagName)) return;
       if (!this.keys.has(e.code)) this.edgeKey(e.code, e);
@@ -73,6 +85,7 @@ export class Input {
     el.addEventListener('pointerdown', e => {
       const tap = e.target.closest('[data-tap]');
       if (tap) { this.emit(tap.dataset.tap); this.emit('any'); return; }
+      if (e.pointerType === 'mouse' && !e.target.closest('[data-k]')) return;        // a mouse or trackpad over the touch layer is the mouse (see above), not a finger
       e.preventDefault(); this.lastDevice = 'touch'; this.emit('any');
       try { el.setPointerCapture(e.pointerId); } catch (err) { /* not supported */ }
       const onButton = e.target.closest('[data-k]');
@@ -186,7 +199,14 @@ export class Input {
     foot.dyaw = dyaw - kyaw; foot.dpitch = dpitch + kpitch; foot.zoom = this.footZoom;
     // On foot with a gun: X or the left mouse button fires (the mouse needs the pointer captured, which the first click does); V or the right mouse button aims.
     const locked = !!document.pointerLockElement;
-    const arms = { fire: k('KeyX') || (this.mouse.left && locked) || this.touch.afire, aim: k('KeyV') || (this.mouse.right && locked), sprint: foot.sprint };
+    // Cursor aiming: a mouse in use (moved in the last 6 s, nothing touched since) and the pointer not captured.
+    const cursorAim = this.footMode && !locked && this.weaponDrawn && this.mouseSeen && this.lastDevice !== 'touch' && this.lastDevice !== 'pad' && this.cursor.inside && performance.now() - this.cursor.t < 6000;
+    if (cursorAim) {                                                        // the cursor near a side of the screen turns the camera that way
+      const ex = Math.abs(this.cursor.x), ey = Math.abs(this.cursor.y);
+      if (ex > 0.78) foot.dyaw += Math.sign(this.cursor.x) * (ex - 0.78) / 0.22 * 1.9 * dt;
+      if (ey > 0.82) foot.dpitch -= Math.sign(this.cursor.y) * (ey - 0.82) / 0.18 * 1.1 * dt;
+    }
+    const arms = { fire: k('KeyX') || (this.mouse.left && (locked || cursorAim)) || this.touch.afire, aim: k('KeyV') || (this.mouse.right && (locked || cursorAim)), sprint: foot.sprint, cursor: cursorAim ? this.cursor : null };
     this.pollLearn();
     const W = settings.wheel || {};
     for (const p of this.pads()) {

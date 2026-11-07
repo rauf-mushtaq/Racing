@@ -182,6 +182,7 @@
   #xhair, #wpn { display: none; pointer-events: none; }
   body.armed #wpn { display: block; }
   body.drawn #xhair { display: block; }
+  body.cursoraim canvas#c { cursor: none; }
   #xhair { position: fixed; left: 50%; top: 50%; width: 0; height: 0; --gap: 10px; z-index: 6; }
   #xhair i { position: absolute; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.55); opacity: 0.92; transition: background .08s; }
   #xhair .u { width: 2px; height: 9px; left: -1px; top: calc(-9px - var(--gap)); } #xhair .d { width: 2px; height: 9px; left: -1px; top: var(--gap); }

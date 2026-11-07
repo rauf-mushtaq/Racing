@@ -419,8 +419,21 @@ function obstacles(x, z) {
   peds.near(x, z, circ);
   return _obs;
 }
+// The camera is moved before the weapons are, so the crosshair ray is this frame's (not the one before).
+let footCamDone = false;
+function footCamStep(dt, f, still) {
+  footCam.update(dt, camera, walker, { dyaw: still ? 0 : f.dyaw || 0, dpitch: still ? 0 : f.dpitch || 0, zoom: f.zoom || 1, aim: arsenal ? arsenal.aimK : 0 }, { my: f.my || 0 });
+  footCamDone = true;
+}
+// Where the crosshair points: the middle of the screen, or (a mouse without pointer lock) the cursor.
+function setAimRay(cursor) {
+  camera.updateMatrixWorld(); aimRay.pos.copy(camera.position);
+  if (cursor) { tmpV.set(cursor.x, cursor.y, 0.5).unproject(camera); aimRay.dir.copy(tmpV).sub(camera.position).normalize(); game.cursorAim = cursor; }
+  else { camera.getWorldDirection(aimRay.dir); game.cursorAim = null; }
+}
 function footUpdate(dt, raw) {
   const f = raw.foot; walker.update(dt, f, footCam.yaw, obstacles);
+  footCamStep(dt, f, false); setAimRay(arsenal.cur >= 0 ? raw.arms.cursor : null);
   arsenal.update(dt, raw.arms, walker, camera, true);
   // The boot of the car is an armoury: walk up to it and the guns are topped up.
   const near = nearCar(); if (near && !arsenal.nearCar && arsenal.needsStock()) arsenal.restock(); arsenal.nearCar = near;
@@ -749,7 +762,8 @@ function updateCarMesh(dt, alpha) {
 function updateCamera(dt, pose) {
   if (game.onFoot && game.state !== 'menu') {
     const f = game.foot || {}, still = game.state === 'paused' || game.state === 'map';
-    footCam.update(dt, camera, walker, { dyaw: still ? 0 : f.dyaw || 0, dpitch: still ? 0 : f.dpitch || 0, zoom: f.zoom || 1, aim: arsenal ? arsenal.aimK : 0 }, { my: f.my || 0 });
+    if (!footCamDone) footCamStep(dt, f, still);
+    footCamDone = false;
     if (game.shake > 0.001) { camera.position.x += (Math.random() - 0.5) * game.shake * 0.3; camera.position.y += (Math.random() - 0.5) * game.shake * 0.3; game.shake *= Math.exp(-dt * 7); }
     camInit = false; applyBlend(dt); return;
   }
@@ -883,8 +897,8 @@ const aimRay = { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, 1) };   
 const wh = { sig: '', slots: '' };
 function weaponHud() {
   const on = !!game.onFoot && game.state === 'free', h = arsenal.hud, show = on && walker.active;
-  const cl = document.body.classList; cl.toggle('armed', show); cl.toggle('drawn', show && h.drawn); cl.toggle('aiming', show && h.aim > 0.6); cl.toggle('hitmark', show && h.hit);
-  if (!show) return;
+  const cl = document.body.classList; cl.toggle('armed', show); cl.toggle('drawn', show && h.drawn); cl.toggle('aiming', show && h.aim > 0.6); cl.toggle('hitmark', show && h.hit); cl.toggle('cursoraim', show && h.drawn && !!game.cursorAim);
+  if (!show) { input.weaponDrawn = false; return; }
   const slots = h.slots.map(s => `<i class="${s.cur ? 'cur' : ''}${s.empty ? ' empty' : ''}" data-w="${s.i}"><kbd>${s.i}</kbd>${s.n.split(' ').pop()}</i>`).join('');
   if (slots !== wh.slots) { wh.slots = slots; $('wpn-slots').innerHTML = slots; }
   const sig = [h.name, h.mag, h.reserve, h.gren, h.reloading ? 1 : 0].join('|');
@@ -895,7 +909,10 @@ function weaponHud() {
   }
   $('t-aim').classList.toggle('on', arsenal.aimToggle);
   $('wpn-reload').firstElementChild.style.width = (h.reloading ? h.reload * 100 : 0) + '%';
-  $('xhair').style.setProperty('--gap', (6 + (1 - h.aim) * 10 + Math.min(1, walker.speed / 4) * 10) + 'px');
+  const xh = $('xhair').style, ca = game.cursorAim;
+  xh.setProperty('--gap', (6 + (1 - h.aim) * 10 + Math.min(1, walker.speed / 4) * 10) + 'px');
+  xh.left = ca ? (ca.x * 0.5 + 0.5) * 100 + '%' : ''; xh.top = ca ? (0.5 - ca.y * 0.5) * 100 + '%' : '';       // (the crosshair follows the cursor when the mouse is not captured)
+  input.weaponDrawn = show && h.drawn;
 }
 function waypointUpdate() {
   const w = game.waypoint;
@@ -999,7 +1016,7 @@ function tick(dt) {
   traffic.render(F, camFrustum);
   if (grass) grass.update(performance.now() / 1000, camera.position.x, camera.position.z);
   updateCamera(dt, pose);
-  aimRay.pos.copy(camera.position); camera.getWorldDirection(aimRay.dir);
+  if (!game.onFoot) { aimRay.pos.copy(camera.position); camera.getWorldDirection(aimRay.dir); }
   if (DEBUG && window.__cam) { const c = typeof window.__cam === 'function' ? window.__cam() : window.__cam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); if (c[6]) { camera.fov = c[6]; camera.updateProjectionMatrix(); } }   // (a test hook: put the camera anywhere)
   if (st !== 'menu' || game.garage) peds.render(camera, st === 'paused' || st === 'map' ? 0 : dt);
   if (game.chaseOn && st !== 'paused' && st !== 'map') police.draw(game.clock || 0, car, dt, carMesh, camera, renderer);

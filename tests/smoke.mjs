@@ -1,45 +1,10 @@
 // Smoke tests for the web game. Run:  npm install && npx playwright install chromium && npm test
-// They start a static server, open the game in Chromium (software GL, Low quality) and check that it
-//  1. needs nothing from the internet and has no script errors,
-//  2. keeps working offline through the service worker,
-//  3. hides its debug hooks unless ?debug is in the address,
-//  4. plays: walk, draw a weapon, shoot, get wanted, officers step out and can be hurt,
-//  5. answers real touch / pointer / gamepad input on the weapon buttons.
-import http from 'node:http';
+//  1. needs nothing from the internet and has no script errors,  2. keeps working offline through the service worker,
+//  3. hides its debug hooks unless ?debug is in the address,      4. plays: walk, draw a weapon, shoot, get wanted.
+// (tests/input.mjs covers real touch, mouse and gamepad input.)
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.glb': 'model/gltf-binary', '.hdr': 'application/octet-stream', '.wasm': 'application/wasm', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json' };
-const server = http.createServer((req, res) => {
-  const p = path.join(ROOT, decodeURIComponent(new URL(req.url, 'http://x').pathname));
-  if (!p.startsWith(ROOT) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.statusCode = 404; return res.end('not found'); }
-  res.setHeader('content-type', TYPES[path.extname(p)] || 'application/octet-stream'); res.setHeader('cache-control', 'no-cache');
-  fs.createReadStream(p).pipe(res);
-});
-await new Promise(r => server.listen(0, '127.0.0.1', r));
-const BASE = `http://127.0.0.1:${server.address().port}/`;
-
-const results = []; let failed = 0;
-const check = (name, ok, info = '') => { results.push([ok, name, info]); if (!ok) failed++; console.log((ok ? '  ok   ' : '  FAIL ') + name + (info && !ok ? '  -> ' + info : '')); };
-const ignorable = t => /Failed to load resource|GPU stall|GL Driver|ReadPixels|Automatic fallback to software WebGL/.test(t);
-
-const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
-async function open({ debug = true, w = 844, h = 390, touch = false, offline = false, ctx } = {}) {
-  ctx = ctx || await browser.newContext({ viewport: { width: w, height: h }, hasTouch: touch, isMobile: touch, deviceScaleFactor: 1 });
-  await ctx.addInitScript(() => { try { localStorage.setItem('sunsetcity.v1', JSON.stringify({ quality: 'low', renderScale: 0.75 })); } catch (e) { /* private mode */ } });
-  const page = await ctx.newPage(); const logs = [], external = [];
-  page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !ignorable(m.text())) logs.push(m.text().slice(0, 240)); });
-  page.on('pageerror', e => logs.push('pageerror: ' + e.message.slice(0, 300)));
-  page.on('response', r => { if (r.status() >= 400 && !/music\/chase\.mp3/.test(r.url())) logs.push(r.status() + ' ' + r.url()); });   // (music/chase.mp3 is optional: put your own there)
-  page.on('request', r => { if (!r.url().startsWith(BASE) && !/^(data|blob):/.test(r.url())) external.push(r.url()); });
-  await page.goto(BASE + (debug ? 'index.html?debug' : 'index.html'));
-  await page.waitForSelector('button[data-m="free"]', { state: 'visible', timeout: 240000 });
-  return { page, ctx, logs, external };
-}
-const step = (page, n, dt = 1 / 60) => page.evaluate(([n, dt]) => { const g = window.__game, nr = window.__noRender; window.__noRender = true; for (let i = 0; i < n; i++) g.tick(dt); window.__noRender = nr; }, [n, dt]);
+import { ROOT, BASE, browser, check, open, step, finish } from './lib.mjs';
 
 try {
   // ---- 0. the precache list names every file the game ships
@@ -132,8 +97,5 @@ try {
   }
 } catch (e) {
   check('suite ran to the end', false, e.stack || String(e));
-} finally {
-  await browser.close(); server.close();
 }
-console.log(failed ? `\n${failed} FAILED` : '\nall passed');
-process.exit(failed ? 1 : 0);
+await finish();
