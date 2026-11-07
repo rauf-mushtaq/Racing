@@ -19,6 +19,13 @@ export const PEOPLE = {
   leather: { name: 'Leather', file: 'assets/people/leather.glb', sw: [0x5b3421, 0x6c6552] },
   tee:     { name: 'Tee',     file: 'assets/people/tee.glb',     sw: [0x8b8d93, 0x3b4a69] },
 };
+// The police officers (lighter textures, since they are seen from a distance): blue and black uniforms, a plain-clothes vest, and a SWAT officer.
+export const COPS = {
+  cop_blue:  { name: 'Officer', file: 'assets/people/cop_blue.glb' },
+  cop_black: { name: 'Officer', file: 'assets/people/cop_black.glb' },
+  cop_vest:  { name: 'Detective', file: 'assets/people/cop_vest.glb' },
+  cop_swat:  { name: 'SWAT', file: 'assets/people/cop_swat.glb' },
+};
 export const DEFAULT_PERSON = 'agent';
 export const personKey = k => (PEOPLE[k] ? k : DEFAULT_PERSON);
 
@@ -28,11 +35,12 @@ let aniso = 4;
 export function setPeopleAnisotropy(n) { aniso = n; }
 
 function template(key) {
-  key = personKey(key);
-  if (!templates.has(key)) templates.set(key, new GLTFLoader().loadAsync(PEOPLE[key].file).then(g => g.scene).catch(e => { templates.delete(key); throw e; }));
+  key = COPS[key] ? key : personKey(key); const def = COPS[key] || PEOPLE[key];
+  if (!templates.has(key)) templates.set(key, new GLTFLoader().loadAsync(def.file).then(g => g.scene).catch(e => { templates.delete(key); throw e; }));
   return templates.get(key);
 }
-export async function loadPerson(key) { key = personKey(key); const t = await template(key); return new Person(key, cloneSkinned(t)); }
+export const preload = key => template(key);
+export async function loadPerson(key) { key = COPS[key] ? key : personKey(key); const t = await template(key); return new Person(key, cloneSkinned(t)); }
 
 // The real bones, parents first: [bone, the child it points at (to find its rest direction), which stick joint drives it, straighten (an arm)].
 const ARMS = ['L', 'R'].flatMap(s => [[`Bip01_${s}_UpperArm`, `Bip01_${s}_Forearm`], [`Bip01_${s}_Forearm`, `Bip01_${s}_Hand`], [`Bip01_${s}_Hand`, `Bip01_${s}_Finger2`]]);

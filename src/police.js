@@ -92,7 +92,7 @@ export class PoliceChase {
   reset() {
     Object.assign(this, {
       result: 'running', health: 100, heat: 2.0, time: 0, hidden: 0, hiddenNeeded: 60, spotAcc: 0, nearest: 1e9, shake: 0, damageFlash: 0, bustT: 0,
-      ammoMissile: 6, ammoBomb: 4, kills: 0, civilians: 0, maxStars: 2, spotted: true,
+      ammoMissile: 6, ammoBomb: 4, kills: 0, officersDown: 0, civilians: 0, maxStars: 2, spotted: true,
       gunHeat: 0, cdOil: 0, cdSmoke: 0, cdShield: 0, shieldT: 0, gunOut: 0, jammed: false,
       lastSeenX: 0, lastSeenZ: 0, spawnT: 0, fireT: 1 / 16, regenMissile: 0, regenBomb: 0, endT: 0, spotCool: 0, wasSpotted: true, lastStars: 2, alt: 0, pulse: 0, shieldK: 0,
     });
@@ -100,13 +100,13 @@ export class PoliceChase {
   }
   // opts.heat: the wanted level to start at; opts.near: how many cruisers are right behind you.
   start(p, traffic, opts = {}) {
-    this.reset(); this.active = true; this.lastSeenX = p.x; this.lastSeenZ = p.z; this.fx.clear();
+    this.reset(); if (this.officers) this.officers.clear(); this.active = true; this.lastSeenX = p.x; this.lastSeenZ = p.z; this.fx.clear();
     this.heat = opts.heat ?? 2.0; this.minHeat = Math.floor(this.heat); this.lastStars = this.maxStars = this.stars;
     for (let i = 0; i < (opts.near ?? 5); i++) this.spawnCop(p, 0, 'near');
     this.messages.push('THE POLICE ARE ON YOU');
   }
   stop() {
-    this.active = false; this.reset(); this.fx.clear(); this.render(0, null, 0);
+    this.active = false; if (this.officers) this.officers.clear(); this.reset(); this.fx.clear(); this.render(0, null, 0);
     this.bubble.visible = false;
   }
   setVisible(v) { for (const k of this.kinds) { k.body.visible = k.lights.visible = v; } }
@@ -231,7 +231,8 @@ export class PoliceChase {
     }
     let err = wrapAngle(desired - c.h); speedT *= clamp(1.15 - Math.abs(err) / 1.5, 0.3, 1);
     if (chase && dist < 30 && p.speed > 3 && !p.onFoot) speedT = Math.max(speedT, p.speed * 1.08);   // close in on the player and ram
-    if (chase && p.onFoot && dist < 26) speedT = Math.min(speedT, Math.max(1.5, (dist - 3) * 0.5));   // a person on foot: slow right down beside them (and cut them off)
+    if (this.officers && this.officers.holds(c, dist)) speedT = 0;                                      // an officer's car: pulled up while its officers are out (see officers.js)
+    else if (chase && p.onFoot && dist < 26) speedT = Math.min(speedT, Math.max(1.5, (dist - 3) * 0.5));   // a person on foot: slow right down beside them (and cut them off)
     if (!chase && dist < 40) speedT = Math.min(speedT, 14);                                           // reached the last known position: ease off and look around
     if (c.slip > 0) { c.slip -= dt; speedT = Math.min(speedT, 4); err += Math.sin(this.time * 14 + c.flash * 9) * 1.4; c.spin = 3.6 * (c.flash > 0.5 ? 1 : -1); } else c.spin = 0;
     const maxYaw = 2.3 / (1 + c.speed / 16), turn = clamp(err * 4.0, -maxYaw, maxYaw); c.h += turn * dt + c.spin * dt; c.roll += turn * c.speed * 0.0016 * dt * 20;
@@ -247,7 +248,7 @@ export class PoliceChase {
       }
     }
     if (c.x < coastX(c.z) + 70) { c.x = coastX(c.z) + 70; c.speed *= 0.7; }
-    c.stuck = (Math.hypot(c.x - ox0, c.z - oz0) < 0.25 * dt * 10 && dist > 40) ? c.stuck + dt : Math.max(0, c.stuck - dt);
+    c.stuck = (Math.hypot(c.x - ox0, c.z - oz0) < 0.25 * dt * 10 && dist > 40 && !c.held) ? c.stuck + dt : Math.max(0, c.stuck - dt);
     // Cars in the way get shoved aside (and the cop is slowed).
     for (const t of traffic.cars) {
       if (!t.active || !t.pts || t.mode === 'wreck') continue; if ((t.x - c.x) ** 2 + (t.z - c.z) ** 2 > 36) continue;
@@ -317,6 +318,7 @@ export class PoliceChase {
     const dx = p.x - x, dz = p.z - z, d = Math.hypot(dx, dz);
     if (d < radius * 0.8) { const fall = 1 - d / (radius * 0.8); this.health -= dmg * fall * 0.15 * (this.shieldT > 0 ? 0.3 : 1); this.damageFlash = Math.min(1, this.damageFlash + fall * 0.4); }
     this.shake = Math.min(1, Math.max(this.shake, power * 0.9 / (1 + d * 0.04)));
+    if (this.officers) this.officers.blast(x, z, y, radius, dmg);
   }
   muzzle(p, side) {
     const f = Math.sin(p.h), g = Math.cos(p.h), lx = Math.cos(p.h), lz = -Math.sin(p.h), d = p.muzzleZ ?? 2.5;   // (d: from the centre of mass to the nose, set for each car in main.js)
@@ -438,6 +440,7 @@ export class PoliceChase {
     for (const t of traffic.cars) if (t.mode === 'wreck' && t.burn < 20 && (t.x - p.x) ** 2 + (t.z - p.z) ** 2 < 260 * 260) this.fx.burn(t.x, t.y || 0, t.z, dt * 0.7);
     // Win or lose.
     let close = 0, grab = 0; for (const c of this.cops) if (!c.wreck) { const d = Math.hypot(c.x - p.x, c.z - p.z); if (d < 9) close++; if (d < 6.5) grab++; }
+    if (this.officers) { const n = this.officers.nearCount(p, 3.4); grab += n; close += n; }        // an officer right beside you arrests you too
     // In a car you are caught when boxed in and stopped; on foot, when a cop is right beside you for a couple of seconds.
     if (p.onFoot ? grab >= 1 && pspeed < 5.6 : pspeed < 2.5 && close >= 2) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt * 2);
     if (this.bustT > (p.onFoot ? 2.4 : 4)) { this.result = 'busted'; this.messages.push('BUSTED'); }

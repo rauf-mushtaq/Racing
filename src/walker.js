@@ -2,9 +2,9 @@
 // movement (camera-relative, with collisions against buildings, poles, parked cars and traffic), the animation and the third-person
 // camera. The figure itself is in person.js.
 import * as THREE from 'three';
-import { animate, PERSON_H } from './person.js';
+import { animate, buildRig, PERSON_H } from './person.js';
 import { makeSmoothFigure } from './figure.js';
-import { loadPerson, personKey } from './people.js';
+import { loadPerson, personKey, COPS } from './people.js';
 import { groundAt, isWater, coastX, WORLD_LIM } from './world.js';
 import { queryColliders, EDGE } from './city.js';
 import { clamp, damp, lerp, wrapAngle } from './util.js';
@@ -13,14 +13,19 @@ export const SPEED = { walk: 1.9, jog: 3.9, sprint: 6.7, crouch: 1.45 };
 const RAD = 0.34, GRAV = 15, JUMP = 5.0;
 const found = [];
 
+let blobMat = null, blobGeo = null;
 export class Walker {
-  constructor(scene, outfit = 'street') {
-    this.rig = makeSmoothFigure(outfit); this.mesh = this.rig.root; this.mesh.visible = false; scene.add(this.mesh);
+  // opts.lite: for the police officers: no made-up stand-in figure, just the bare stick skeleton that animates the real model.
+  constructor(scene, outfit = 'street', opts = {}) {
+    this.rig = opts.lite ? Object.assign(buildRig(null, null, false), { meshes: [] }) : makeSmoothFigure(outfit); this.mesh = this.rig.root; this.mesh.visible = false; scene.add(this.mesh);
     // A soft contact shadow, so the feet sit on the ground even with shadow maps off.
-    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
-    const gr = g.createRadialGradient(32, 32, 2, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
-    this.blob = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
-    this.blob.renderOrder = 1; this.blob.visible = false; scene.add(this.blob);
+    if (!blobMat) {
+      const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+      const gr = g.createRadialGradient(32, 32, 2, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+      blobGeo = new THREE.PlaneGeometry(1.1, 1.1).rotateX(-Math.PI / 2); blobMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    }
+    this.blob = new THREE.Mesh(blobGeo, blobMat.clone()); this.blob.material.map = blobMat.map;
+    this.blob.renderOrder = 1; this.blob.visible = false; scene.add(this.blob); this.lite = !!opts.lite;
     this.active = false;
     this.x = 0; this.z = 0; this.y = 0; this.h = 0; this.vx = 0; this.vz = 0; this.vy = 0; this.speed = 0; this.phase = 0; this.t = Math.random() * 10;
     this.crouch = 0; this.crouching = false; this.run = 0; this.air = 0; this.grounded = true; this.turn = 0; this.look = 0;
@@ -34,13 +39,13 @@ export class Walker {
   // The character: one of the real people (people.js). The stick figure animates; until the real model has loaded (or if it cannot be loaded)
   // the smooth made-up figure stands in.
   attachPerson(p) {
-    if (this.person && this.person !== p) { this.rig.root.remove(this.person.root); for (const k in this.person.mats) { const m = this.person.mats[k]; for (const t of [m.map, m.normalMap, m.roughnessMap]) t && t.dispose(); } }
+    if (this.person && this.person !== p) { this.rig.root.remove(this.person.root); if (!this.lite) for (const k in this.person.mats) { const m = this.person.mats[k]; for (const t of [m.map, m.normalMap, m.roughnessMap]) t && t.dispose(); } }
     this.person = p; this.rig.root.add(p.root);
     for (const m of this.rig.meshes) m.visible = false;
     this.pose(0);
   }
   async setOutfit(key) {
-    key = personKey(key); if (this.person && this.person.key === key) return; this.want = key;
+    key = this.lite && COPS[key] ? key : personKey(key); if (this.person && this.person.key === key) return; this.want = key;
     try { const p = await loadPerson(key); if (this.want === key) this.attachPerson(p); } catch (e) { console.warn('character model not loaded', e); }
   }
 

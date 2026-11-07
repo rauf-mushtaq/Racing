@@ -46,6 +46,7 @@ import { Headlights } from './lights.js';
 import { Rain } from './rain.js';
 import { PEOPLE, personKey } from './people.js';
 import { Arsenal, WEAPONS } from './weapons.js';
+import { Officers } from './officers.js';
 
 const loadMsg = t => { $('load-msg').textContent = t; };
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
@@ -169,7 +170,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
+let grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -217,13 +218,16 @@ async function build() {
   peds = new Peds(scene, Q.peds, Q.shadows); peds.setCount(Math.round(Q.peds * (settings.crowd ?? 1))); peds.onHit = (p, sp) => { audio.thump(0.35); crime(0.6, 'ped'); };
   walker = new Walker(scene, settings.outfit); walker.onStep = (v, kind) => audio.step(v, kind); footCam = new FootCamera();
   arsenal = new Arsenal({
-    scene, fx: police.fx, police, traffic, city, peds, audio, camera, aimRay,
+    scene, fx: police.fx, police, traffic, city, peds, audio, camera, aimRay, get officers() { return officers; },
     hud: { toast: (t, s) => hud.toast(t, s) },
     crime: kind => gunCrime(kind), heat: a => { if (game.chaseOn) police.addHeat(a); },
     boom: (x, z, p) => police.onBoom && police.onBoom(x, z, p), shake: v => { game.shake = Math.max(game.shake, v); },
     active: () => !!game.onFoot && game.state === 'free', get touch() { return input.lastDevice === 'touch'; },
   });
   walker.placeWeapon = w => arsenal.place(w);
+  // Police officers on foot (officers.js): they step out of cruisers that pull up near you, and shoot back.
+  officers = new Officers({ scene, police, walker, audio, quality: Q.name, shadows: !!Q.shadows, hud: { toast: (t, s) => hud.toast(t, s) }, obstacles, onFoot: () => !!game.onFoot && game.state === 'free', shake: v => { game.shake = Math.max(game.shake, v); } });
+  police.officers = officers; setTimeout(() => officers.prepare(), 12000);
   hud = new HUD();
   car.reset(START.x, START.z, START.h);
   traffic.setDensity(settings.traffic, car);
@@ -385,7 +389,7 @@ const blend = { t: 1, dur: 0.7, pos: new THREE.Vector3(), quat: new THREE.Quater
 function beginBlend(dur = 0.7) { blend.t = 0; blend.dur = dur; blend.pos.copy(camera.position); blend.quat.copy(camera.quaternion); blend.fov = camera.fov; }
 function enterCar() {
   if (!game.onFoot || game.state !== 'free' || !nearCar()) return false;
-  beginBlend(); game.onFoot = false; walker.show(false); arsenal.holster(); arsenal.clear(); audio.door(); audio.init();
+  beginBlend(); game.onFoot = false; walker.show(false); arsenal.holster(); arsenal.clear(); if (officers) officers.standDown(); audio.door(); audio.init();
   camYaw = car.h; camInit = false; game.head = null; setState('free'); applyVolume();
   return true;
 }
@@ -405,6 +409,7 @@ function obstacles(x, z) {
   const circ = (cx, cz, r) => { if (n < _pool.length) { const o = _pool[n++]; o.x = cx; o.z = cz; o.r = r; _obs.push(o); } };
   const addCar = (c, len, rad) => { const dx = c.x - x, dz = c.z - z; if (dx * dx + dz * dz > 100) return; const f = [Math.sin(c.h), Math.cos(c.h)], q = len * 0.5 - rad; for (const o of [-q, 0, q]) circ(c.x + f[0] * o, c.z + f[1] * o, rad); };
   addCar(car, 4.6, 0.95);
+  if (police && police.active) for (const c of police.cops) if (!c.wreck) addCar(c, c.len, c.rad);        // (parked police cars are solid too)
   for (const t of traffic.cars) if (t.active && t.pts) addCar(t, t.len || 4.6, t.rad || 0.95);
   for (const p of city.parkedList()) addCar(p, 4.5, 0.95);
   peds.near(x, z, circ);
@@ -458,9 +463,9 @@ function chaseResult() {
   if (won && (settings.chaseBest == null || t < settings.chaseBest)) { settings.chaseBest = t; save(); newBest = true; }
   $('ce-title').textContent = won ? 'YOU GOT AWAY' : P.result === 'busted' ? 'BUSTED' : 'WRECKED';
   $('ce-title').style.color = won ? '#7ff0a6' : '#ff6a5a';
-  $('ce-sub').textContent = won ? 'You stayed out of sight for a whole minute: they gave up.' : P.result === 'busted' ? (walker.active && game.onFoot ? 'Caught on foot: the police have you.' : 'Boxed in and stopped: the police have you.') : (game.onFoot && walker.active ? 'Your armour is gone: you went down.' : carMesh === gtMesh ? 'The grand tourer is a burning wreck.' : 'Your car is a burning wreck.');
+  $('ce-sub').textContent = won ? 'You stayed out of sight for a whole minute: they gave up.' : P.result === 'busted' ? (walker.active && game.onFoot ? 'Caught on foot: the police have you.' : 'Boxed in and stopped: the police have you.') : (game.onFoot && walker.active ? 'You were shot down by the police.' : carMesh === gtMesh ? 'The grand tourer is a burning wreck.' : 'Your car is a burning wreck.');
   const row = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`;
-  $('ce-table').innerHTML = row('Time', fmtTime(t)) + row('Heat reached', '★'.repeat(P.maxStars)) + row('Police cars wrecked', P.kills) + row('Bystander cars wrecked', P.civilians) + row('Armour left', Math.round(P.health) + '%') +
+  $('ce-table').innerHTML = row('Time', fmtTime(t)) + row('Heat reached', '★'.repeat(P.maxStars)) + row('Police cars wrecked', P.kills) + (P.officersDown ? row('Officers down', P.officersDown) : '') + row('Bystander cars wrecked', P.civilians) + row('Armour left', Math.round(P.health) + '%') +
     (settings.chaseBest != null ? row(newBest ? 'New best escape!' : 'Best escape', fmtTime(settings.chaseBest)) : '');
   setState('chaseEnd');
   audio.beep(won ? 880 : 220, 0.25); setTimeout(() => audio.beep(won ? 1320 : 165, 0.4), 180);
@@ -473,6 +478,7 @@ function chaseUpdate(dt, raw) {
   police.clock = game.clock;
   const T = game.onFoot ? walker : car;                                      // who they are after
   police.update(dt, T, traffic, game.state === 'free' && game.gadgets && !game.onFoot ? inp : {});
+  officers.update(dt);
   if (game.onFoot && walker.active && game.state === 'free') police.collideWalker(walker);
   for (const m of police.consumeMessages()) hud.toast(m, 1.9);
   game.shake = Math.max(game.shake, police.shake * 0.7);
@@ -1245,4 +1251,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-window.__game = { get arsenal() { return arsenal; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+window.__game = { get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

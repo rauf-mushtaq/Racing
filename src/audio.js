@@ -86,6 +86,8 @@ export class AudioEngine {
     else if (key === 'smg') { if (t - (this.lastSmg || 0) < 0.04) return; this.lastSmg = t; this.burst(2600, 600, 0.05, 0.22, 'bandpass', 1); this.burst(300, 100, 0.06, 0.22, 'lowpass', 1); }
     else if (key === 'shotgun') { this.burst(2200, 160, 0.34, 0.75, 'lowpass', 0.8); this.burst(3800, 700, 0.14, 0.42, 'bandpass', 0.7); setTimeout(() => { this.burst(900, 500, 0.04, 0.2, 'bandpass', 3); setTimeout(() => this.burst(1400, 700, 0.05, 0.2, 'bandpass', 3), 110); }, 380); }
   }
+  // An officer's pistol or submachine gun: louder and sharper than yours (it is not silenced), quieter the further away.
+  copShot(vol = 1) { if (!this.ctx) return; const t = this.ctx.currentTime; if (t - (this.lastCop || 0) < 0.05) return; this.lastCop = t; this.burst(2600, 520, 0.08, 0.34 * vol, 'bandpass', 0.9); this.burst(280, 90, 0.1, 0.32 * vol, 'lowpass', 1); }
   rocketSound() { this.burst(300, 3500, 0.9, 0.45, 'bandpass', 0.5); this.burst(500, 70, 0.5, 0.6, 'lowpass', 0.8); }
   reloadSound(dur, key) {
     if (!this.ctx) return; const click = (d, f = 3200) => setTimeout(() => this.burst(f, f * 0.6, 0.035, 0.22, 'bandpass', 4), d * 1000);

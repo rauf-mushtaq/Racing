@@ -42,29 +42,29 @@ class Kit {
   }
 }
 
-function makePistol() {
+function makePistol(silenced = true) {
   const k = new Kit();
   k.box(0.03, 0.026, 0.15, poly, 0, 0.012, 0.045);                                  // frame
   k.box(0.031, 0.104, 0.05, poly, 0, -0.048, -0.014, 0.17);                         // grip
   k.box(0.032, 0.036, 0.175, steel, 0, 0.047, 0.062, 0, 0, 0, 0.006);               // slide
   for (let i = 0; i < 5; i++) k.box(0.034, 0.03, 0.004, dark, 0, 0.047, -0.01 + i * 0.01);   // slide serrations
-  k.cyl(0.0155, 0.0155, 0.17, dark, 0, 0.047, 0.235);                               // the silencer
-  k.cyl(0.011, 0.011, 0.03, steel, 0, 0.047, 0.155);
+  if (silenced) { k.cyl(0.0155, 0.0155, 0.17, dark, 0, 0.047, 0.235); k.cyl(0.011, 0.011, 0.03, steel, 0, 0.047, 0.155); }     // the silencer
+  else k.cyl(0.009, 0.009, 0.03, dark, 0, 0.047, 0.17);
   k.box(0.004, 0.04, 0.004, poly, 0, 0.0, 0.052);                                   // trigger
   k.box(0.028, 0.004, 0.06, poly, 0, -0.012, 0.075);                                // trigger guard (bottom)
   k.box(0.028, 0.026, 0.004, poly, 0, 0.0, 0.103);                                  // trigger guard (front)
   k.box(0.032, 0.012, 0.056, steel, 0, -0.104, -0.028, 0.17);                       // magazine base plate
   k.box(0.006, 0.008, 0.01, dark, 0, 0.069, 0.0).box(0.004, 0.01, 0.006, dark, 0, 0.07, 0.14);   // sights
-  const g = k.build('pistol'); g.userData.muzzle = new THREE.Vector3(0, 0.047, 0.32); return g;
+  const g = k.build('pistol'); g.userData.muzzle = new THREE.Vector3(0, 0.047, silenced ? 0.32 : 0.19); return g;
 }
-function makeSMG() {
+function makeSMG(silenced = true) {
   const k = new Kit();
   k.box(0.042, 0.064, 0.31, poly, 0, 0.04, 0.04, 0, 0, 0, 0.007);                    // receiver
   k.box(0.022, 0.01, 0.28, steel, 0, 0.079, 0.05);                                   // top rail
   k.cyl(0.0185, 0.0185, 0.2, steel, 0, 0.046, 0.3);                                  // barrel shroud
   for (let i = 0; i < 6; i++) k.box(0.044, 0.01, 0.012, dark, 0, 0.046, 0.23 + i * 0.03, 0, 0, 0, 0.002);
-  k.cyl(0.025, 0.025, 0.27, dark, 0, 0.046, 0.5);                                    // silencer
-  k.cyl(0.02, 0.02, 0.035, steel, 0, 0.046, 0.65);
+  if (silenced) { k.cyl(0.025, 0.025, 0.27, dark, 0, 0.046, 0.5); k.cyl(0.02, 0.02, 0.035, steel, 0, 0.046, 0.65); }   // silencer
+  else k.cyl(0.014, 0.014, 0.07, dark, 0, 0.046, 0.43);                              // flash hider
   k.box(0.025, 0.17, 0.036, poly, 0, -0.065, 0.1, 0.1);                              // magazine
   k.box(0.036, 0.1, 0.046, poly, 0, -0.045, -0.04, 0.24);                            // pistol grip
   k.box(0.032, 0.075, 0.036, poly, 0, -0.01, 0.255, 0.12);                           // foregrip
@@ -72,7 +72,7 @@ function makeSMG() {
   k.box(0.045, 0.075, 0.016, poly, 0, 0.04, -0.3);                                   // butt plate
   k.box(0.008, 0.02, 0.012, dark, 0, 0.095, -0.07).box(0.006, 0.02, 0.008, dark, 0, 0.095, 0.24);   // iron sights
   k.box(0.01, 0.012, 0.03, chrome, 0.023, 0.05, 0.0);                                // cocking handle
-  const g = k.build('smg'); g.userData.muzzle = new THREE.Vector3(0, 0.046, 0.67); return g;
+  const g = k.build('smg'); g.userData.muzzle = new THREE.Vector3(0, 0.046, silenced ? 0.67 : 0.47); return g;
 }
 function makeShotgun() {
   const k = new Kit();
@@ -113,9 +113,20 @@ function makeGrenade() {
   return k.build('grenade');
 }
 
+// A gun for someone else to hold (the police officers): 'pistol' or 'smg', without the silencer.
+export function makeGun(kind) { return kind === 'smg' ? makeSMG(false) : makePistol(false); }
+// Put a gun in a walker's hand once its pose is final: where the arms' IK put the palm, drawn to the real hand, pointing the way the aim frame says.
+export function placeGun(walker, m, W, draw = 1) {
+  const o = W.out, rig = walker.rig;
+  _w.copy(o.palm); rig.torso.localToWorld(_w); rig.torso.getWorldQuaternion(_q); _q.multiply(o.q);
+  if (walker.person) { walker.person.worldPos('Bip01_R_Hand', _v); walker.person.worldPos('Bip01_R_Finger2', _aim); _v.lerp(_aim, 0.5); _w.lerp(_v, 0.85); }
+  m.position.copy(_w); m.quaternion.copy(_q); m.scale.setScalar(lerp(0.6, 1, clamp((draw - 0.35) / 0.65, 0, 1)));
+  m.updateMatrixWorld(true);
+}
+
 // ---- The arsenal ------------------------------------------------------------------------------------------------------------------
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _aim = new THREE.Vector3(), _mz = new THREE.Vector3(), _dir = new THREE.Vector3(), _q = new THREE.Quaternion();
-const HIT = { none: 0, wall: 1, ground: 2, cop: 3, car: 4, parked: 5 };
+const HIT = { none: 0, wall: 1, ground: 2, cop: 3, car: 4, parked: 5, officer: 6 };
 const hitOut = { t: 0, type: 0, ref: null };
 
 export class Arsenal {
@@ -192,12 +203,16 @@ export class Arsenal {
       const tf = [Math.sin(t0.h), Math.cos(t0.h)];
       for (const to of [-t0.len * 0.28, t0.len * 0.28]) { const t = circ(t0.x + tf[0] * to, t0.z + tf[1] * to, t0.y || groundAt(t0.x, t0.z).y, (t0.rad || 0.95) + 0.1, 1.6); if (t >= 0 && t < best) { best = t; type = HIT.car; ref = t0; } }
     }
+    if (this.env.officers) for (const o of this.env.officers.list) {
+      if (o.dead) continue; const w = o.walker, ex = w.x - ox, ez = w.z - oz; if (ex * ex + ez * ez > (maxD + 8) ** 2) continue;
+      const t = circ(w.x, w.z, w.y, 0.42, o.crouched ? 1.3 : 1.85); if (t >= 0 && t < best) { best = t; type = HIT.officer; ref = o; }
+    }
     for (const p of city.parkedList()) {
       const ex = p.x - ox, ez = p.z - oz; if (ex * ex + ez * ez > (maxD + 8) ** 2 || (p.adopted)) continue;
       const pf = [Math.sin(p.h), Math.cos(p.h)];
       for (const to of [-1.1, 1.1]) { const t = circ(p.x + pf[0] * to, p.z + pf[1] * to, groundAt(p.x, p.z).y, 1.0, 1.5); if (t >= 0 && t < best) { best = t; type = HIT.parked; ref = p; } }
     }
-    out.t = best; out.type = type; out.ref = ref; return out;
+    out.t = best; out.type = type; out.ref = ref; out.y = oy + dy * best; return out;
   }
 
   // --- Every frame -------------------------------------------------------------------------------------------------------------------
@@ -248,12 +263,8 @@ export class Arsenal {
   }
   // Called by the walker once the pose is final (see walker.pose): the gun is put in the hand.
   place(walker) {
-    const k = this.key; if (!k || this.draw < 0.35) return; const m = this.models[k], o = this.W.out, rig = walker.rig;
-    _w.copy(o.palm); rig.torso.localToWorld(_w); rig.torso.getWorldQuaternion(_q); _q.multiply(o.q);
-    // The gun sits in the real hand: a little way along from the wrist toward the knuckles, wherever the arm actually ended up.
-    if (walker.person) { walker.person.worldPos('Bip01_R_Hand', _v); walker.person.worldPos('Bip01_R_Finger2', _aim); _v.lerp(_aim, 0.5); _w.lerp(_v, 0.85); }
-    m.position.copy(_w); m.quaternion.copy(_q); m.scale.setScalar(lerp(0.6, 1, clamp((this.draw - 0.35) / 0.65, 0, 1)));
-    m.updateMatrixWorld(true);
+    const k = this.key; if (!k || this.draw < 0.35) return;
+    placeGun(walker, this.models[k], this.W, this.draw);
   }
 
   // --- Shooting ----------------------------------------------------------------------------------------------------------------------
@@ -286,6 +297,7 @@ export class Arsenal {
     const test = (x, y, z) => { _v.set(x - o.x, y - o.y, z - o.z); const l = _v.length(); if (l < 4 || l > 90) return; _v.multiplyScalar(1 / l); const ang = Math.acos(clamp(_v.dot(d), -1, 1)); if (ang < best) { best = ang; tx = _v.x; ty = _v.y; tz = _v.z; found = true; } };
     if (police && police.active) for (const c of police.cops) if (!c.wreck) test(c.x, c.y + 0.9, c.z);
     for (const t of traffic.cars) if (t.active && t.pts && t.mode !== 'wreck') test(t.x, (t.y || 0) + 0.8, t.z);
+    if (this.env.officers) for (const o of this.env.officers.list) if (!o.dead) test(o.walker.x, o.walker.y + 1.2, o.walker.z);
     if (found) { d.x = lerp(d.x, tx, 0.7); d.y = lerp(d.y, ty, 0.7); d.z = lerp(d.z, tz, 0.7); d.normalize(); }
   }
   // One bullet (or pellet): a ray, a tracer, and what it hit.
@@ -297,6 +309,11 @@ export class Arsenal {
     const spark = n => { for (let s = 0; s < n; s++) fx.spark(ex, ey, ez, (Math.random() - 0.5) * 7, Math.random() * 5, (Math.random() - 0.5) * 7, 0.3); };
     if (r.type === HIT.cop) { police.damageCop(r.ref, w.dmg * fall); spark(3); this.hitT = 0.15; this.env.heat(0.015); }
     else if (r.type === HIT.car) { const c = r.ref; if (traffic.damage(c, w.dmg * fall)) { police.civilians++; this.env.heat(0.12); fx.explosion(c.x, (c.y || 0) + 0.5, c.z, 0.7); this.env.boom(c.x, c.z, 0.7); hud.toast('CAR DESTROYED', 1.1); } spark(3); this.hitT = 0.15; }
+    else if (r.type === HIT.officer) {
+      const o = r.ref, head = r.y - o.walker.y > (o.crouched ? 1.05 : 1.5), killed = this.env.officers.damage(o, w.dmg * fall * (head ? 2.3 : 1), head);
+      spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = head ? 0.3 : 0.15; this.env.heat(0.02);
+      if (killed) { hud.toast(head ? 'HEADSHOT: OFFICER DOWN' : 'OFFICER DOWN', 1.3); this.env.heat(0.3); }
+    }
     else if (r.type === HIT.parked) { spark(2); this.env.audio.clang(3); }
     else if (r.type === HIT.wall || r.type === HIT.ground) { spark(2); fx.puff(ex, ey, ez, 0, 0.4, 0, 0.35, 0.8, 0.5, 0.3, 1.2); }
   }
@@ -337,7 +354,7 @@ export class Arsenal {
       const nx = g.x + g.vx * dt, ny = g.y + g.vy * dt, nz = g.z + g.vz * dt, gy = groundAt(nx, nz).y + 0.04;
       // Bounce off the ground and off walls/cars.
       const sp = Math.hypot(g.vx, g.vy, g.vz) || 1, hit = this.trace(g.x, g.y, g.z, g.vx / sp, g.vy / sp, g.vz / sp, sp * dt + 0.05);
-      if (hit.type === HIT.wall || hit.type === HIT.cop || hit.type === HIT.car || hit.type === HIT.parked) { g.vx *= -0.35; g.vz *= -0.35; g.vy *= 0.5; } else { g.x = nx; g.z = nz; g.y = ny; }
+      if (hit.type === HIT.wall || hit.type === HIT.cop || hit.type === HIT.car || hit.type === HIT.parked || hit.type === HIT.officer) { g.vx *= -0.35; g.vz *= -0.35; g.vy *= 0.5; } else { g.x = nx; g.z = nz; g.y = ny; }
       if (g.y < gy) { g.y = gy; if (g.vy < -2) audio.clang(2); g.vy = -g.vy * 0.38; g.vx *= 0.62; g.vz *= 0.62; }
       g.spin += dt * 9;
       if (g.age > 2.1) { boom(g.x, g.y, g.z, 1.5, 14, 240); this.env.heat(0.1); this.grenades[i] = this.grenades[this.grenades.length - 1]; this.grenades.pop(); continue; }
