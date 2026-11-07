@@ -251,8 +251,8 @@ async function build() {
   // shadows and reflections and their shaders compile now rather than in the middle of a chase.
   gtMesh = makeGT(); gtMesh.visible = false; scene.add(gtMesh);
   police = new PoliceChase(scene); police.beams = null;
-  police.onBoom = (x, z, power) => { peds.scare(x, z, 70, 7); audio.boom(power * clamp(1.1 - Math.hypot(x - car.x, z - car.z) / 380, 0.12, 1)); };
-  police.onCopGun = v => audio.copShot(v);
+  police.onBoom = (x, z, power) => { peds.scare(x, z, 70, 7); audio.boom(Math.max(0.5, power), x, groundAt(x, z).y + 1, z); };
+  police.onCopGun = (v, x, y, z) => audio.copShot(v, x, y, z);
   police.onGun = () => audio.gun(); police.onMissile = () => audio.whoosh(); police.onBeep = f => audio.beep(f, 0.12, 0.22);
   police.onCrash = j => { const k = Math.min(1, j / 25000); audio.thump(0.2 + k); game.shake = Math.max(game.shake, k * 0.6); };
   fx = new FX(scene);
@@ -272,7 +272,7 @@ async function build() {
   });
   walker.placeWeapon = w => arsenal.place(w);
   // Police officers on foot (officers.js): they step out of cruisers that pull up near you, and shoot back.
-  officers = new Officers({ scene, police, walker, audio, quality: Q.name, shadows: !!Q.shadows, hud: { toast: (t, s) => hud.toast(t, s) }, obstacles, onFoot: () => !!game.onFoot && game.state === 'free', shake: v => { game.shake = Math.max(game.shake, v); } });
+  officers = new Officers({ scene, police, walker, audio, quality: Q.name, blocked: (ox, oy, oz, tx, ty, tz) => arsenal.blockedBetween(ox, oy, oz, tx, ty, tz), drop: (x, y, z, k) => arsenal.pickups.drop(x, y, z, k), shadows: !!Q.shadows, hud: { toast: (t, s) => hud.toast(t, s) }, obstacles, onFoot: () => !!game.onFoot && game.state === 'free', shake: v => { game.shake = Math.max(game.shake, v); } });
   police.officers = officers; setTimeout(() => officers.prepare(), 12000);
   hud = new HUD();
   car.reset(START.x, START.z, START.h);
@@ -478,7 +478,7 @@ function footUpdate(dt, raw) {
   footCamStep(dt, f, false); setAimRay(arsenal.cur >= 0 ? raw.arms.cursor : null);
   arsenal.update(dt, raw.arms, walker, camera, true);
   // The boot of the car is an armoury: walk up to it and the guns are topped up.
-  const near = nearCar(); if (near && !arsenal.nearCar && arsenal.needsStock()) arsenal.restock(); arsenal.nearCar = near;
+  const near = nearCar(); if (near && !arsenal.nearCar && arsenal.needsStock()) arsenal.bootRestock(); arsenal.nearCar = near;
   walker.sight = walker.crouching ? 55 : walker.speed > 5 ? 150 : 100;
   for (const t of traffic.cars) {                                       // a car that hits you knocks you down
     if (!t.active || !t.pts || t.mode === 'wreck') continue; const dx = walker.x - t.x, dz = walker.z - t.z; if (dx * dx + dz * dz > 36) continue;
@@ -1097,6 +1097,7 @@ function tickBody(dt) {
   }
   prof.mark('effects');
   updateProbe(pose);
+  audio.setListener(camera);
   audio.hum(st === 'menu' || st === 'loading' ? 0.012 : foot ? 0.05 : 0.018);
   audio.update(car, (st === 'free' && !foot) || st === 'race' || st === 'countdown' || st === 'finish' || st === 'chaseEnd');
   if (st === 'free' || st === 'race' || st === 'countdown') {

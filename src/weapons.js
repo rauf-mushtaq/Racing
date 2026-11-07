@@ -8,6 +8,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { groundAt } from './world.js';
 import { raycastStatic } from './police.js';
+import { queryColliders } from './city.js';
 import { clamp, lerp, wrapAngle } from './util.js';
 
 // ---- The guns ---------------------------------------------------------------------------------------------------------------------
@@ -124,10 +125,79 @@ export function placeGun(walker, m, W, draw = 1) {
   m.updateMatrixWorld(true);
 }
 
+// ---- Bullet holes and glass cracks ---------------------------------------------------------------------------------------------
+// Flat dark discs stuck to whatever a bullet hit (walls, the ground, cars), and star-shaped cracks where it hit glass higher up: two ring buffers
+// of instanced quads, so the last 200 shots stay where they landed.
+const markTex = glass => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); g.translate(32, 32);
+  if (!glass) { const gr = g.createRadialGradient(0, 0, 1, 0, 0, 14); gr.addColorStop(0, 'rgba(0,0,0,0.95)'); gr.addColorStop(0.45, 'rgba(10,8,8,0.75)'); gr.addColorStop(1, 'rgba(30,25,22,0)'); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 15, 0, 6.283); g.fill(); }
+  else {
+    g.strokeStyle = 'rgba(235,245,250,0.9)'; g.lineCap = 'round';
+    for (let i = 0; i < 9; i++) { const a = i / 9 * 6.283 + (i % 2) * 0.2, l = 12 + (i * 37 % 17); g.lineWidth = 1.4; g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(a) * l, Math.sin(a) * l); g.stroke(); g.lineWidth = 0.8; g.beginPath(); g.moveTo(Math.cos(a) * l * 0.6, Math.sin(a) * l * 0.6); g.lineTo(Math.cos(a + 0.5) * l * 0.85, Math.sin(a + 0.5) * l * 0.85); g.stroke(); }
+    g.fillStyle = 'rgba(20,24,30,0.8)'; g.beginPath(); g.arc(0, 0, 3.2, 0, 6.283); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+};
+class BulletMarks {
+  constructor(scene, n = 200) {
+    this.n = n; this.i = 0; this.meshes = [false, true].map(glass => {
+      const m = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: markTex(glass), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: true }), n);
+      m.count = 0; m.frustumCulled = false; m.renderOrder = 2; scene.add(m); m.userData = { next: 0 }; return m;
+    });
+    this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.sc = new THREE.Vector3(); this.z = new THREE.Vector3(0, 0, 1); this.nv = new THREE.Vector3();
+  }
+  add(x, y, z, nx, ny, nz, size = 0.14, glass = false) {
+    const m = this.meshes[glass ? 1 : 0], u = m.userData, k = u.next++ % this.n; m.count = Math.min(this.n, m.count + 1);
+    this.nv.set(nx, ny, nz).normalize(); this.q.setFromUnitVectors(this.z, this.nv); this.q.multiply(_roll.setFromAxisAngle(this.z, Math.random() * 6.283));
+    this.v.set(x + this.nv.x * 0.012, y + this.nv.y * 0.012, z + this.nv.z * 0.012); this.sc.setScalar(size * (glass ? 3 : 1));
+    this.m4.compose(this.v, this.q, this.sc); m.setMatrixAt(k, this.m4); m.instanceMatrix.needsUpdate = true;
+  }
+  clear() { for (const m of this.meshes) { m.count = 0; m.userData.next = 0; } }
+}
+const _roll = new THREE.Quaternion();
+// Which way a building's wall faces at a point where a bullet hit it (the nearest face of the box it hit), turned against the way the bullet was going.
+const _found = [];
+function wallNormal(x, z, dx, dz, out) {
+  queryColliders(x, z, 0.6, _found); let best = 0.12, nx = -dx, nz = -dz;
+  for (const c of _found) {
+    if (c.type !== 'box') continue;
+    const faces = [[Math.abs(x - c.x0), -1, 0], [Math.abs(x - c.x1), 1, 0], [Math.abs(z - c.z0), 0, -1], [Math.abs(z - c.z1), 0, 1]];
+    for (const f of faces) if (f[0] < best && x > c.x0 - 0.2 && x < c.x1 + 0.2 && z > c.z0 - 0.2 && z < c.z1 + 0.2) { best = f[0]; nx = f[1]; nz = f[2]; }
+  }
+  if (nx * dx + nz * dz > 0) { nx = -nx; nz = -nz; }
+  return out.set(nx, 0, nz);
+}
+
+// ---- Things dropped by officers: a box of ammunition (and now and then a body-armour kit) ----------------------------------------
+class Pickups {
+  constructor(scene) {
+    this.list = []; this.scene = scene;
+    const ammo = new THREE.Group(); ammo.add(new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.22), new THREE.MeshStandardMaterial({ color: 0x4d5a2c, roughness: 0.7 })), new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.05, 0.12), new THREE.MeshStandardMaterial({ color: 0xe8c42a, roughness: 0.6, emissive: 0x6b5200, emissiveIntensity: 0.5 })));
+    const armour = new THREE.Group(); armour.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.34, 0.12), new THREE.MeshStandardMaterial({ color: 0x1f4f9a, roughness: 0.6, emissive: 0x0a2a60, emissiveIntensity: 0.6 })), new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.13), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x777777, emissiveIntensity: 0.5 })), new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.13), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x777777, emissiveIntensity: 0.5 })));
+    this.proto = { ammo, armour };
+  }
+  drop(x, y, z, kind) {
+    if (this.list.length >= 8) this.remove(0);
+    const m = this.proto[kind].clone(true); m.position.set(x, y + 0.35, z); this.scene.add(m); this.list.push({ kind, x, z, y, m, age: 0 });
+  }
+  remove(i) { const p = this.list[i]; this.scene.remove(p.m); this.list.splice(i, 1); }
+  clear() { while (this.list.length) this.remove(0); }
+  // Walk over one to take it. take(kind) returns true if it was used (not full already).
+  update(dt, walker, take) {
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const p = this.list[i]; p.age += dt; p.m.rotation.y += dt * 1.6; p.m.position.y = p.y + 0.4 + Math.sin(p.age * 3) * 0.05;
+      p.m.visible = p.age < 40 || Math.floor(p.age * 6) % 2 === 0;
+      if (p.age > 50) { this.remove(i); continue; }
+      if (walker.active && Math.hypot(walker.x - p.x, walker.z - p.z) < 1.3 && take(p.kind)) this.remove(i);
+    }
+  }
+}
+
 // ---- The arsenal ------------------------------------------------------------------------------------------------------------------
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _aim = new THREE.Vector3(), _mz = new THREE.Vector3(), _dir = new THREE.Vector3(), _q = new THREE.Quaternion();
 const HIT = { none: 0, wall: 1, ground: 2, cop: 3, car: 4, parked: 5, officer: 6 };
-const hitOut = { t: 0, type: 0, ref: null };
+const hitOut = { t: 0, type: 0, ref: null }, officerOut = { t: 0, type: 0, ref: null };
+const BOOT_COOLDOWN = 90;
 
 export class Arsenal {
   // env: { scene, fx (the particle system), police, traffic, city, peds, audio, camera, hud (toast), crime (kind), walker }
@@ -146,11 +216,25 @@ export class Arsenal {
     this.cur = -1; this.draw = 0; this.aimK = 0; this.aimHeld = false; this.aimToggle = false; this.fireT = 0; this.reloadT = 0; this.reloadTotal = 1; this.swapT = 0; this.pending = -1; this.recoil = 0; this.hitT = 0; this.shots = 0; this.lastFire = 99; this.wasFiring = false; this.last = 0;
     this.W = { draw: 0, aimK: 0, twist: 0, pitch: 0, recoil: 0, reload: 0, cfg: WEAPONS.pistol.cfg, out: { palm: new THREE.Vector3(), q: new THREE.Quaternion(), palmL: new THREE.Vector3() } };
     this.aimPoint = new THREE.Vector3(); this.aimDist = 100; this.aimKind = 0; this.nearCar = false; this.fresh = 0;
+    this.marks = new BulletMarks(scene); this.pickups = new Pickups(scene); this.bootT = 0; this.nrm = new THREE.Vector3();
+  }
+  // The boot of the car holds one resupply, then it takes a while to find more (the rest comes from what the police drop).
+  bootRestock() {
+    if (this.bootT > 0) { this.env.hud.toast(`THE BOOT IS EMPTY: ${Math.ceil(this.bootT)} S UNTIL MORE`, 1.4); return false; }
+    this.restock(); this.bootT = BOOT_COOLDOWN; return true;
+  }
+  // Taking what an officer dropped: half a load of ammunition, or armour.
+  take(kind) {
+    if (kind === 'armour') { const P = this.env.police; if (P.health >= 100) return false; P.health = Math.min(100, P.health + 40); this.env.hud.toast('BODY ARMOUR: +40', 1.3); this.env.audio.beep(900, 0.08, 0.2); return true; }
+    let any = false; for (const k of ORDER) { const a = this.ammo[k], w = WEAPONS[k], max = w.reserve + w.mag; const add = Math.ceil(w.reserve * 0.5); if (a.reserve + a.mag < max) { a.reserve = Math.min(w.reserve, a.reserve + add); any = true; } }
+    if (this.gren < GRENADES) { this.gren = Math.min(GRENADES, this.gren + 1); any = true; }
+    if (any) { this.env.hud.toast('AMMUNITION PICKED UP', 1.3); this.env.audio.beep(700, 0.06, 0.2); setTimeout(() => this.env.audio.beep(1100, 0.06, 0.2), 70); }
+    return any;
   }
   needsStock() { return this.gren < GRENADES || ORDER.some(k => this.ammo[k].mag < WEAPONS[k].mag || this.ammo[k].reserve < WEAPONS[k].reserve); }
   restock(silent) {
     for (const k of ORDER) this.ammo[k] = { mag: WEAPONS[k].mag, reserve: WEAPONS[k].reserve };
-    this.gren = GRENADES; this.reloadT = 0;
+    this.gren = GRENADES; this.reloadT = 0; if (silent) this.bootT = 0;
     if (!silent) { this.env.hud.toast('RESTOCKED FROM THE BOOT', 1.6); this.env.audio.beep(660, 0.08, 0.2); setTimeout(() => this.env.audio.beep(990, 0.1, 0.2), 90); }
   }
   get key() { return this.cur >= 0 ? ORDER[this.cur] : null; }
@@ -176,7 +260,7 @@ export class Arsenal {
 
   // --- Seeing what is in the way ---------------------------------------------------------------------------------------------------
   // The first thing along a ray: a building, the ground, a police car, a car in the traffic, or a parked car.
-  trace(ox, oy, oz, dx, dy, dz, maxD, out = hitOut) {
+  trace(ox, oy, oz, dx, dy, dz, maxD, out = hitOut, skipOfficers = false) {
     const { police, traffic, city } = this.env; let best = maxD, type = HIT.none, ref = null;
     const hl = Math.hypot(dx, dz);
     if (hl > 1e-4) { const th = raycastStatic(ox, oz, dx / hl, dz / hl, maxD * hl), t = th / hl; if (t < best) { best = t; type = HIT.wall; } }
@@ -203,7 +287,7 @@ export class Arsenal {
       const tf = [Math.sin(t0.h), Math.cos(t0.h)];
       for (const to of [-t0.len * 0.28, t0.len * 0.28]) { const t = circ(t0.x + tf[0] * to, t0.z + tf[1] * to, t0.y || groundAt(t0.x, t0.z).y, (t0.rad || 0.95) + 0.1, 1.6); if (t >= 0 && t < best) { best = t; type = HIT.car; ref = t0; } }
     }
-    if (this.env.officers) for (const o of this.env.officers.list) {
+    if (this.env.officers && !skipOfficers) for (const o of this.env.officers.list) {
       if (o.dead) continue; const w = o.walker, ex = w.x - ox, ez = w.z - oz; if (ex * ex + ez * ez > (maxD + 8) ** 2) continue;
       const t = circ(w.x, w.z, w.y, 0.42, o.crouched ? 1.3 : 1.85); if (t >= 0 && t < best) { best = t; type = HIT.officer; ref = o; }
     }
@@ -213,6 +297,13 @@ export class Arsenal {
       for (const to of [-1.1, 1.1]) { const t = circ(p.x + pf[0] * to, p.z + pf[1] * to, groundAt(p.x, p.z).y, 1.0, 1.5); if (t >= 0 && t < best) { best = t; type = HIT.parked; ref = p; } }
     }
     out.t = best; out.type = type; out.ref = ref; out.y = oy + dy * best; return out;
+  }
+
+  // Is something in the way between a point and a target (for an officer's shot)? A building, a car (any kind) or the ground. Officers do not shoot each other.
+  blockedBetween(ox, oy, oz, tx, ty, tz) {
+    const dx = tx - ox, dy = ty - oy, dz = tz - oz, d = Math.hypot(dx, dy, dz); if (d < 1) return null;
+    const r = this.trace(ox + dx / d * 0.4, oy + dy / d * 0.4, oz + dz / d * 0.4, dx / d, dy / d, dz / d, d - 0.9, officerOut, true);
+    return r.type === HIT.none ? null : r;
   }
 
   // --- Every frame -------------------------------------------------------------------------------------------------------------------
@@ -226,6 +317,7 @@ export class Arsenal {
     if (!drawn && this.draw < 0.02) this.draw = 0;
     const wantAim = (a.aim || this.aimToggle) && drawn && !a.sprint;
     this.aimK += ((wantAim ? 1 : 0) - this.aimK) * Math.min(1, dt * 11);
+    this.bootT = Math.max(0, this.bootT - dt); if (active) this.pickups.update(dt, walker, k => this.take(k));
     this.fireT -= dt; this.lastFire += dt; this.recoil = Math.max(0, this.recoil - dt * 7); this.hitT = Math.max(0, this.hitT - dt); this.fresh = Math.max(0, this.fresh - dt);
     if (this.reloadT > 0) { this.reloadT -= dt; if (this.reloadT <= 0) { const k = this.key, ammo = this.ammo[k], w = WEAPONS[k], n = Math.min(w.mag - ammo.mag, ammo.reserve); ammo.mag += n; ammo.reserve -= n; } }
     // The crosshair: where does the camera's centre line meet the world?
@@ -308,14 +400,19 @@ export class Arsenal {
     const fall = w.pellets > 1 ? clamp(1.25 - t / 38, 0.15, 1) : 1;      // pellets lose their punch with distance
     const spark = n => { for (let s = 0; s < n; s++) fx.spark(ex, ey, ez, (Math.random() - 0.5) * 7, Math.random() * 5, (Math.random() - 0.5) * 7, 0.3); };
     if (r.type === HIT.cop) { police.damageCop(r.ref, w.dmg * fall); spark(3); this.hitT = 0.15; this.env.heat(0.015); }
-    else if (r.type === HIT.car) { const c = r.ref; if (traffic.damage(c, w.dmg * fall)) { police.civilians++; this.env.heat(0.12); fx.explosion(c.x, (c.y || 0) + 0.5, c.z, 0.7); this.env.boom(c.x, c.z, 0.7); hud.toast('CAR DESTROYED', 1.1); } spark(3); this.hitT = 0.15; }
+    else if (r.type === HIT.car) { const c = r.ref; this.marks.add(ex, ey, ez, -d.x, -d.y, -d.z, 0.1); if (traffic.damage(c, w.dmg * fall)) { police.civilians++; this.env.heat(0.12); fx.explosion(c.x, (c.y || 0) + 0.5, c.z, 0.7); this.env.boom(c.x, c.z, 0.7); hud.toast('CAR DESTROYED', 1.1); } spark(3); this.hitT = 0.15; }
     else if (r.type === HIT.officer) {
       const o = r.ref, head = r.y - o.walker.y > (o.crouched ? 1.05 : 1.5), killed = this.env.officers.damage(o, w.dmg * fall * (head ? 2.3 : 1), head);
       spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = head ? 0.3 : 0.15; this.env.heat(0.02);
       if (killed) { hud.toast(head ? 'HEADSHOT: OFFICER DOWN' : 'OFFICER DOWN', 1.3); this.env.heat(0.3); }
     }
-    else if (r.type === HIT.parked) { spark(2); this.env.audio.clang(3); }
-    else if (r.type === HIT.wall || r.type === HIT.ground) { spark(2); fx.puff(ex, ey, ez, 0, 0.4, 0, 0.35, 0.8, 0.5, 0.3, 1.2); }
+    else if (r.type === HIT.parked) { spark(2); this.env.audio.clang(3); this.marks.add(ex, ey, ez, -d.x, -d.y, -d.z, 0.1); }
+    else if (r.type === HIT.wall) {
+      const n = wallNormal(ex, ez, d.x, d.z, this.nrm), glassy = ey > 2.4 && ey < 60; spark(glassy ? 4 : 2); fx.puff(ex, ey, ez, 0, 0.4, 0, 0.35, 0.8, glassy ? 0.7 : 0.5, 0.3, 1.2);
+      this.marks.add(ex, ey, ez, n.x, 0, n.z, glassy ? 0.1 : 0.14, glassy);
+      if (glassy && w.pellets < 2) for (let s = 0; s < 3; s++) fx.spark(ex, ey, ez, n.x * 2 + (Math.random() - 0.5) * 3, -1 - Math.random() * 2, n.z * 2 + (Math.random() - 0.5) * 3, 0.9);       // (glass falling)
+    }
+    else if (r.type === HIT.ground) { spark(2); fx.puff(ex, ey, ez, 0, 0.4, 0, 0.35, 0.8, 0.5, 0.3, 1.2); this.marks.add(ex, ey, ez, 0, 1, 0, 0.12); }
   }
 
   // --- Rockets and grenades ------------------------------------------------------------------------------------------------------
@@ -364,7 +461,7 @@ export class Arsenal {
     for (let i = 0; i < this.grenadeMeshes.length; i++) { const g = this.grenades[i], m = this.grenadeMeshes[i]; m.visible = !!g; if (g) { m.position.set(g.x, g.y, g.z); m.rotation.set(g.spin, g.spin * 0.7, 0); } }
   }
 
-  clear() { this.rockets.length = 0; this.grenades.length = 0; for (const m of this.rocketMeshes) m.visible = false; for (const m of this.grenadeMeshes) m.visible = false; this.holder.visible = false; this.draw = 0; }
+  clear() { this.pickups.clear(); this.rockets.length = 0; this.grenades.length = 0; for (const m of this.rocketMeshes) m.visible = false; for (const m of this.grenadeMeshes) m.visible = false; this.holder.visible = false; this.draw = 0; }
   // What the HUD shows.
   get hud() {
     const k = this.key, a = k ? this.ammo[k] : null;

@@ -1,6 +1,10 @@
 // Synthesised sound: a V12 engine (harmonics of the firing rate through a
 // filter and a little distortion), tyre squeal, wind, impacts and the nitro.
 // Starts on the first key press or tap, as browsers require.
+//
+// Gunfire, explosions and impacts that happen somewhere (an officer's shot, a car gun, a blast) are placed in the street: each comes from its own
+// position through a panner (so it is louder and on the right side as it gets closer, quieter and more echoey as it gets further), with a send to a
+// city-sized reverb (a synthetic impulse response: a short, bright, fast-fading tail) that grows with the distance. The listener is the camera.
 export class AudioEngine {
   constructor() { this.ctx = null; this.vol = 0.8; this.enabled = true; }
   init() {
@@ -35,7 +39,11 @@ export class AudioEngine {
       const sirenO = ctx.createOscillator(); sirenO.type = 'sawtooth'; sirenO.frequency.value = 650;
       const sirenF = ctx.createBiquadFilter(); sirenF.type = 'bandpass'; sirenF.frequency.value = 1100; sirenF.Q.value = 0.9;
       const sirenG = ctx.createGain(); sirenG.gain.value = 0; sirenO.connect(sirenF); sirenF.connect(sirenG); sirenG.connect(comp); sirenO.start();
-      Object.assign(this, { ctx, master, eGain, eFilt, oscs, tyre, wind, intake, nitro, city, rainN, buf, comp, sirenO, sirenG });
+      // The city's echo: a 1.4 s tail of noise that fades quickly and loses its highs as it goes.
+      const irLen = Math.floor(ctx.sampleRate * 1.4), ir = ctx.createBuffer(2, irLen, ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) { const d2 = ir.getChannelData(ch); let lp = 0; for (let i = 0; i < irLen; i++) { const k = i / irLen, a = 0.12 + 0.8 * k; lp += ((Math.random() * 2 - 1) - lp) * a; d2[i] = lp * Math.pow(1 - k, 3.4) * (i < 400 ? i / 400 : 1); } }
+      const verb = ctx.createConvolver(); verb.buffer = ir; const verbG = ctx.createGain(); verbG.gain.value = 0.55; verb.connect(verbG); verbG.connect(comp);
+      Object.assign(this, { ctx, master, eGain, eFilt, oscs, tyre, wind, intake, nitro, city, rainN, buf, comp, sirenO, sirenG, verb });
     } catch (e) { this.ctx = null; }
   }
   setVolume(v, enabled) {
@@ -69,13 +77,27 @@ export class AudioEngine {
     this.sirenO.frequency.setTargetAtTime(Math.floor(clock * 2.1) % 2 ? 880 : 640, t, 0.025);
     this.sirenG.gain.setTargetAtTime(level * 0.11, t, 0.12);
   }
-  // A short noise burst through a filter: the building block of the gunfire, explosions and the missile.
-  burst(f0, f1, dur, vol, type = 'bandpass', q = 1) {
+  // Where the listener is (the camera): call once a frame.
+  setListener(camera) {
+    if (!this.ctx) return; const L = this.ctx.listener, p = camera.position, e = camera.matrixWorld.elements;
+    const fx = -e[8], fy = -e[9], fz = -e[10], ux = e[4], uy = e[5], uz = e[6];
+    if (L.positionX) { L.positionX.value = p.x; L.positionY.value = p.y; L.positionZ.value = p.z; L.forwardX.value = fx; L.forwardY.value = fy; L.forwardZ.value = fz; L.upX.value = ux; L.upY.value = uy; L.upZ.value = uz; }
+    else if (L.setPosition) { L.setPosition(p.x, p.y, p.z); L.setOrientation(fx, fy, fz, ux, uy, uz); }
+    this.lx = p.x; this.ly = p.y; this.lz = p.z;
+  }
+  // A short noise burst through a filter: the building block of the gunfire, explosions and the missile. `at` = [x, y, z] puts it in the street.
+  burst(f0, f1, dur, vol, type = 'bandpass', q = 1, at = null) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime, src = this.ctx.createBufferSource(); src.buffer = this.buf;
     const f = this.ctx.createBiquadFilter(); f.type = type; f.Q.value = q; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
     const g = this.ctx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    src.connect(f); f.connect(g); g.connect(this.comp); src.start(t, Math.random()); src.stop(t + dur + 0.02);
+    src.connect(f); f.connect(g); src.start(t, Math.random()); src.stop(t + dur + 0.02);
+    if (!at) { g.connect(this.comp); return; }
+    // In the street: panned and softened by distance, with more echo the further away it is.
+    const pn = this.ctx.createPanner(); pn.panningModel = 'equalpower'; pn.distanceModel = 'inverse'; pn.refDistance = 10; pn.rolloffFactor = 1.15; pn.maxDistance = 600;
+    if (pn.positionX) { pn.positionX.value = at[0]; pn.positionY.value = at[1]; pn.positionZ.value = at[2]; } else pn.setPosition(at[0], at[1], at[2]);
+    g.connect(pn); pn.connect(this.comp);
+    const dist = Math.hypot(at[0] - (this.lx || 0), at[1] - (this.ly || 0), at[2] - (this.lz || 0)), send = this.ctx.createGain(); send.gain.value = Math.min(0.8, 0.12 + dist / 120); g.connect(send); send.connect(this.verb);
   }
   gun() { const t = this.ctx && this.ctx.currentTime; if (!t || t - (this.lastGun || 0) < 0.045) return; this.lastGun = t; this.burst(2400, 700, 0.07, 0.3, 'bandpass', 0.8); }
   whoosh() { this.burst(500, 4000, 0.6, 0.3, 'bandpass', 0.6); }
@@ -87,19 +109,19 @@ export class AudioEngine {
     else if (key === 'shotgun') { this.burst(2200, 160, 0.34, 0.75, 'lowpass', 0.8); this.burst(3800, 700, 0.14, 0.42, 'bandpass', 0.7); setTimeout(() => { this.burst(900, 500, 0.04, 0.2, 'bandpass', 3); setTimeout(() => this.burst(1400, 700, 0.05, 0.2, 'bandpass', 3), 110); }, 380); }
   }
   // An officer's pistol or submachine gun: louder and sharper than yours (it is not silenced), quieter the further away.
-  copShot(vol = 1) { if (!this.ctx) return; const t = this.ctx.currentTime; if (t - (this.lastCop || 0) < 0.05) return; this.lastCop = t; this.burst(2600, 520, 0.08, 0.34 * vol, 'bandpass', 0.9); this.burst(280, 90, 0.1, 0.32 * vol, 'lowpass', 1); }
+  copShot(vol = 1, x, y, z) { if (!this.ctx) return; const t = this.ctx.currentTime; if (t - (this.lastCop || 0) < 0.035) return; this.lastCop = t; const at = x === undefined ? null : [x, y, z]; this.burst(2600, 520, 0.08, 0.34 * vol, 'bandpass', 0.9, at); this.burst(280, 90, 0.1, 0.32 * vol, 'lowpass', 1, at); }
   rocketSound() { this.burst(300, 3500, 0.9, 0.45, 'bandpass', 0.5); this.burst(500, 70, 0.5, 0.6, 'lowpass', 0.8); }
   reloadSound(dur, key) {
     if (!this.ctx) return; const click = (d, f = 3200) => setTimeout(() => this.burst(f, f * 0.6, 0.035, 0.22, 'bandpass', 4), d * 1000);
     if (key === 'shotgun') for (let i = 0; i < 6; i++) click(0.2 + i * (dur - 0.5) / 6, 2400); else { click(0.25, 2200); click(dur * 0.55, 3600); click(dur - 0.15, 2800); }
   }
-  boom(power = 1) {
-    if (!this.ctx) return;
-    this.burst(900 * power, 60, 0.9 + power * 0.5, 0.9, 'lowpass', 0.7);
+  boom(power = 1, x, y, z) {
+    if (!this.ctx) return; const at = x === undefined ? null : [x, y, z];
+    this.burst(900 * power, 60, 0.9 + power * 0.5, 0.9, 'lowpass', 0.7, at);
     const t = this.ctx.currentTime, o = this.ctx.createOscillator(), g = this.ctx.createGain();
     o.type = 'sine'; o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(28, t + 0.7);
     g.gain.setValueAtTime(0.7 * Math.min(1.2, power), t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
-    o.connect(g); g.connect(this.comp); o.start(t); o.stop(t + 0.85);
+    o.connect(g); if (at) { const pn = this.ctx.createPanner(); pn.panningModel = 'equalpower'; pn.distanceModel = 'inverse'; pn.refDistance = 14; pn.rolloffFactor = 0.9; pn.maxDistance = 900; if (pn.positionX) { pn.positionX.value = x; pn.positionY.value = y; pn.positionZ.value = z; } else pn.setPosition(x, y, z); g.connect(pn); pn.connect(this.comp); } else g.connect(this.comp); o.start(t); o.stop(t + 0.85);
   }
   thump(strength) {
     if (!this.ctx) return;
@@ -121,7 +143,7 @@ export class AudioEngine {
     const f = kind === 'grass' ? 420 : kind === 'sand' || kind === 'gravel' ? 900 : 1500;
     this.burst(f, f * 0.45, 0.07, 0.16 * v, 'bandpass', 0.9); this.burst(180, 90, 0.06, 0.12 * v, 'lowpass', 1);
   }
-  clang(v = 1) { const k = Math.min(1, v / 8); this.burst(2600, 900, 0.25, 0.22 + 0.3 * k, 'bandpass', 4); this.burst(900, 300, 0.18, 0.2 * k + 0.05, 'bandpass', 2); }
+  clang(v = 1, x, y, z) { const k = Math.min(1, v / 8), at = x === undefined ? null : [x, y, z]; this.burst(2600, 900, 0.25, 0.22 + 0.3 * k, 'bandpass', 4, at); this.burst(900, 300, 0.18, 0.2 * k + 0.05, 'bandpass', 2, at); }
   door() { this.burst(420, 70, 0.22, 0.55, 'lowpass', 1.2); setTimeout(() => this.burst(2200, 900, 0.05, 0.14, 'bandpass', 1.5), 70); }
   suspend() { if (this.ctx && this.ctx.state === 'running') this.ctx.suspend(); }
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }

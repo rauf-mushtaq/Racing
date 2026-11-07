@@ -105,7 +105,7 @@ export class PoliceChase {
     const hit = this.rnd() < clamp(0.3 - dist / 160 - Math.min(0.12, (p.speed || 0) * 0.006), 0.04, 0.3);
     if (!hit) { const k = 1.2 + this.rnd() * 2.6; tx += (this.rnd() - 0.5) * 2 * k; tz += (this.rnd() - 0.5) * 2 * k; ty += (this.rnd() - 0.5) * 1.2; }
     this.fx.tracer(mx, my, mz, tx, ty, tz, 0.025, 0.05); this.fx.flash(mx, my, mz, 0.12, 0.04, 3);
-    this.onCopGun && this.onCopGun(clamp(1.2 - dist / 70, 0.15, 0.8));
+    this.onCopGun && this.onCopGun(0.8, mx, my, mz);
     if (hit) {
       const dmg = (c.kind ? 2.0 : 1.2) * (this.shieldT > 0 ? 0.3 : 1); this.health -= dmg; this.damageFlash = Math.min(1, this.damageFlash + 0.06); this.shake = Math.min(1, this.shake + 0.02);
       if (this.officers) this.officers.sinceHit = 0; for (let i = 0; i < 2; i++) this.fx.spark(tx, ty, tz, (this.rnd() - 0.5) * 5, this.rnd() * 3, (this.rnd() - 0.5) * 5, 0.25);
@@ -466,11 +466,14 @@ export class PoliceChase {
     // Wrecks of civilian cars burn too.
     for (const t of traffic.cars) if (t.mode === 'wreck' && t.burn < 20 && (t.x - p.x) ** 2 + (t.z - p.z) ** 2 < 260 * 260) this.fx.burn(t.x, t.y || 0, t.z, dt * 0.7);
     // Win or lose.
-    let close = 0, grab = 0; for (const c of this.cops) if (!c.wreck) { const d = Math.hypot(c.x - p.x, c.z - p.z); if (d < 9) close++; if (d < 6.5) grab++; }
-    if (this.officers) { const n = this.officers.nearCount(p, 3.4); grab += n; close += n; }        // an officer right beside you arrests you too
+    let close = 0, grab = 0; const gr = p.onFoot ? 4.5 : 6.5; for (const c of this.cops) if (!c.wreck) { const d = Math.hypot(c.x - p.x, c.z - p.z); if (d < 9) close++; if (d < gr) grab++; }
+    if (this.officers) { const n = this.officers.nearCount(p, 2.8); grab += n; close += n; }        // an officer right beside you arrests you too
     // In a car you are caught when boxed in and stopped; on foot, when a cop is right beside you for a couple of seconds.
-    if (p.onFoot ? grab >= 1 && pspeed < 5.6 : pspeed < 2.5 && close >= 2) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt * 2);
-    if (this.bustT > (p.onFoot ? 2.4 : 4)) { this.result = 'busted'; this.messages.push('BUSTED'); }
+    // Walking or standing still beside them lets them cuff you; a jog (about 4 m/s) or a sprint breaks away, and the progress drains twice as fast as it fills.
+    this.bustMax = p.onFoot ? 3.4 : 4;
+    if (p.onFoot ? grab >= 1 && pspeed < 3.0 : pspeed < 2.5 && close >= 2) { if (this.bustT <= 0.001) this.messages.push(p.onFoot ? 'POLICE: STOP! HANDS WHERE WE CAN SEE THEM' : 'BOXED IN: BREAK OUT'); this.bustT += dt; } else this.bustT = Math.max(0, this.bustT - dt * 2);
+    this.bustFrac = clamp(this.bustT / this.bustMax, 0, 1);
+    if (this.bustT > this.bustMax) { this.result = 'busted'; this.messages.push('BUSTED'); }
     if (this.health <= 0) { this.health = 0; this.result = 'wrecked'; this.messages.push('WRECKED'); this.fx.explosion(p.x, y0, p.z, 1.2); this.onBoom && this.onBoom(p.x, p.z, 1.2); }
     if (this.health < 35 && rnd() < dt * 18) this.fx.puff(p.x + fx * 1.6, y0 + 0.9, p.z + fz * 1.6, 0, 1.0, 0, 0.6, 1.6, this.health < 15 ? 0.1 : 0.35, 0.6, 1.6);
     if (this.health < 15 && rnd() < dt * 14) this.fx.fire(p.x + fx * 1.7, y0 + 0.8, p.z + fz * 1.7, 0, 1.0, 0, 0.35, 0.4);

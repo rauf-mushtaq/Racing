@@ -11,6 +11,10 @@
 // shot to the head hurts more); when the last officer of a car is down, or has gone back to it, that car drives on. If you get back in your
 // car the officers run back to theirs and the cars give chase again. Your armour (police.health) is what their bullets take, and it creeps
 // back when you are left alone.
+//
+// Cars (and buildings) are cover, for both sides: an officer who is hurt or reloading takes cover behind the nearest car, crouches there,
+// and stands up to fire in short bursts; his shots, like yours, stop at the first car or wall in the way. A dead officer drops a box of
+// ammunition (now and then body armour) that you can pick up. An officer who is stuck behind something sidesteps it for a couple of seconds.
 import * as THREE from 'three';
 import { Walker } from './walker.js';
 import { COPS, preload } from './people.js';
@@ -44,6 +48,7 @@ class Officer {
     this.mag = this.kind.mag; this.reloadT = 0; this.reloadTotal = 1;                                  // ammunition
     this.radioT = 0; this.callKind = null; this.wantCall = null; this.calledContact = false; this.calledWounded = false;      // the radio
     this.vault = null; this.stuckT = 0; this.probeT = 0; this.vaultCd = 0;                            // climbing
+    this.hurtT = 99; this.cover = null; this.coverT = 0; this.peek = 0; this.peekUp = false; this.coverCd = 0; this.detour = null;      // cover, and going round things
   }
   get x() { return this.walker.x; } get z() { return this.walker.z; }
   get crouched() { return this.walker.crouch > 0.5; }
@@ -81,12 +86,23 @@ class Officer {
       else if (!this.calledContact && this.los && this.t > 3) { this.calledContact = true; if (Math.random() < 0.6) m.requestCall(this, 'contact'); }
     }
 
+    this.hurtT += dt; this.coverCd = Math.max(0, this.coverCd - dt);
+    // Cover: hurt, reloading or low on ammunition, and holding a distance (not rushing): find a car to get behind.
+    if (this.cover) { this.coverT -= dt; if (this.coverT <= 0 || this.retreat || d < 4.5 || !running) { this.cover = null; this.coverCd = 2.5; } }
+    if (!this.cover && this.style === 'hold' && this.coverCd <= 0 && !calling && !this.retreat && running && this.exitT <= 0 && this.los && d > 6 && (this.hurtT < 4 || reloading || this.mag <= 3)) {
+      this.cover = m.findCover(this, P, env); this.coverCd = this.cover ? 0 : 1.2; if (this.cover) { this.coverT = 5 + Math.random() * 4; this.peek = 0.8 + Math.random(); this.peekUp = false; }
+    }
     let tx = this.lx || P.x, tz = this.lz || P.z, move = 0, sprint = false, crouch = false, back = false;
     if (this.retreat) {                                                                // you got back in your car: back to theirs
       tx = this.car.x; tz = this.car.z; move = 1; this.retreatT += dt;
       if (Math.hypot(tx - w.x, tz - w.z) < 2.6 || this.retreatT > 6) { this.remove = true; return; }
     } else if (this.exitT > 0 || !running) move = 0;
     else if (calling) { move = 0; crouch = true; }                                     // (standing still to talk: crouched, and not firing)
+    else if (this.cover) {
+      const cd = Math.hypot(this.cover.x - w.x, this.cover.z - w.z);
+      if (cd > 0.9) { move = 1; sprint = cd > 5; tx = this.cover.x; tz = this.cover.z; }                         // run to the spot behind the car
+      else { this.peek -= dt; if (this.peek <= 0) { this.peekUp = !this.peekUp; this.peek = this.peekUp ? 1.1 + Math.random() * 0.9 : (reloading ? this.reloadT + 0.3 : 1.2 + Math.random() * 1.6); } crouch = !this.peekUp || reloading; }      // down behind it, then up to fire
+    }
     else if (this.style === 'rush') {
       if (d > 2.6) { move = 1; sprint = d > 16 || (!this.los && d > 8); }
       if (reloading) sprint = false;
@@ -104,8 +120,14 @@ class Officer {
     if (back) { ax = -dx / d; az = -dz / d; }
     if (move > 0) {
       const ahead = raycastStatic(w.x, w.z, ax, az, 5);
-      if (ahead < 4) {
-        const l = raycastStatic(w.x, w.z, ax * Math.cos(0.8) - az * Math.sin(0.8), ax * Math.sin(0.8) + az * Math.cos(0.8), 6), r = raycastStatic(w.x, w.z, ax * Math.cos(-0.8) - az * Math.sin(-0.8), ax * Math.sin(-0.8) + az * Math.cos(-0.8), 6), a = l > r ? 0.9 : -0.9;
+      if (this.detour) { this.detour.t -= dt; if (this.detour.t <= 0) this.detour = null; }
+      if (ahead < 4 || this.detour) {
+        // Round whatever is ahead: the clearer side, and then keep to that side for a while (so he does not dither in front of a wall).
+        if (!this.detour) {
+          const l = raycastStatic(w.x, w.z, ax * Math.cos(0.8) - az * Math.sin(0.8), ax * Math.sin(0.8) + az * Math.cos(0.8), 8), r = raycastStatic(w.x, w.z, ax * Math.cos(-0.8) - az * Math.sin(-0.8), ax * Math.sin(-0.8) + az * Math.cos(-0.8), 8);
+          if (this.stuckT > 0.7) this.detour = { a: (l > r ? 1 : -1) * 1.45, t: 2 + Math.random() * 1.2 }; else this.detour0 = l > r ? 0.9 : -0.9;
+        }
+        const a = this.detour ? this.detour.a : this.detour0;
         const nx = ax * Math.cos(a) - az * Math.sin(a), nz = ax * Math.sin(a) + az * Math.cos(a); ax = nx; az = nz;
       }
       for (const o of m.list) { if (o === this || o.dead) continue; const ex = w.x - o.x, ez = w.z - o.z, ed = Math.hypot(ex, ez); if (ed < 1.4 && ed > 1e-3) { ax += ex / ed * 0.6; az += ez / ed * 0.6; } }
@@ -116,7 +138,7 @@ class Officer {
       this.stuckT = w.speed < 0.6 ? this.stuckT + dt : Math.max(0, this.stuckT - dt * 2); this.probeT -= dt;
       if (this.probeT <= 0) {
         this.probeT = 0.1; if (this.vaultCd > 0) this.vaultCd -= 0.1;
-        else if (m.climbableAhead(w.x, w.z, ax, az, env)) {
+        else if (m.climbableAhead(w.x, w.z, ax, az, env) && raycastStatic(w.x, w.z, ax, az, 4.2) >= 4.2) {          // (and nothing solid where he would land)
           if (this.stuckT > 0.25 || Math.random() < 0.85) { this.vault = { t: 0, dx: ax, dz: az }; w.noClip = true; w.vx = ax * 3.8; w.vz = az * 3.8; w.vy = 6.0; w.grounded = false; w.faceYaw = null; w.h = Math.atan2(ax, az); this.vaultCd = 1.5; return; }
           this.vaultCd = 1.5;
         }
@@ -124,7 +146,8 @@ class Officer {
     } else this.stuckT = Math.max(0, this.stuckT - dt * 2);
 
     // Where the gun points, and whether it is up.
-    const aimWanted = !this.retreat && running && this.exitT <= 0.25 && this.los && d < 48 && (this.style === 'hold' || d < 15) && !calling && !reloading;
+    const hidden = this.cover && Math.hypot(this.cover.x - w.x, this.cover.z - w.z) <= 0.9 && !this.peekUp && !reloading;           // (crouched behind a car between bursts)
+    const aimWanted = !this.retreat && running && this.exitT <= 0.25 && this.los && d < 48 && (this.style === 'hold' || d < 15) && !calling && !reloading && !hidden;
     W.draw = damp(W.draw, this.exitT > 0.45 ? 0 : 1, 7, dt); W.aimK = damp(W.aimK, aimWanted ? 1 : 0, 6, dt); W.recoil = Math.max(0, W.recoil - dt * 7);
     const chestY = w.y + 1.35, tY = P.y + 1.25 - (P.crouch || 0) * 0.45;
     W.pitch = clamp(Math.atan2(tY - chestY, Math.max(d, 2)), -0.8, 0.8); W.twist = wrapAngle(yaw - w.h);
@@ -148,6 +171,15 @@ class Officer {
   shoot(P, d, dx, dz, tY) {
     const m = this.mgr, env = m.env, fx = env.police.fx, g = this.gun, W = this.W;
     g.updateMatrixWorld(true); _v.copy(g.userData.muzzle).applyMatrix4(g.matrixWorld); const mx = _v.x, my = _v.y, mz = _v.z;
+    // Something in the way (a car, a wall)? The bullet stops there.
+    const blk = env.blocked ? env.blocked(mx, my, mz, P.x, tY, P.z) : null;
+    if (blk) {
+      const L = Math.hypot(P.x - mx, tY - my, P.z - mz) || 1, bt = 0.4 + blk.t, bx = mx + (P.x - mx) / L * bt, by = my + (tY - my) / L * bt, bz = mz + (P.z - mz) / L * bt;
+      fx.tracer(mx, my, mz, bx, by, bz, 0.035, 0.06); fx.flash(mx, my, mz, 0.16, 0.05, 3.5); W.recoil = Math.min(1.2, W.recoil + 0.45);
+      for (let i = 0; i < 3; i++) fx.spark(bx, by, bz, (Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6, 0.3);
+      env.audio.copShot(1, mx, my, mz); env.audio.clang(2, bx, by, bz);
+      return;
+    }
     // Does it hit? Worse the further you are, the faster you run and the lower you crouch, and a little worse for the first moments.
     let p = 0.5 - d / 85 - (P.crouching ? 0.12 : 0) - Math.min(0.2, (P.speed || 0) * 0.04) + (this.kind === KINDS.smg ? 0.05 : 0);
     p = clamp(p, 0.06, 0.62) * (this.t < 1.8 ? 0.5 : 1);
@@ -157,7 +189,7 @@ class Officer {
     fx.tracer(mx, my, mz, ex, ey, ez, 0.035, 0.06); fx.flash(mx, my, mz, 0.16, 0.05, 3.5);
     for (let i = 0; i < 2; i++) fx.spark(mx, my, mz, (ex - mx) / d * (6 + Math.random() * 10) + (Math.random() - 0.5) * 3, Math.random() * 2, (ez - mz) / d * (6 + Math.random() * 10) + (Math.random() - 0.5) * 3, 0.2);
     W.recoil = Math.min(1.2, W.recoil + 0.45);
-    env.audio.copShot(clamp(1.2 - d / 110, 0.18, 1));
+    env.audio.copShot(1, mx, my, mz);
     if (hit) m.hitPlayer(this.kind.dmg, this);
     else if (d < 30) fx.spark(ex, Math.max(ey, 0.05), ez, 0, 2, 0, 0.25);
   }
@@ -203,6 +235,22 @@ export class Officers {
     return false;
   }
 
+  // A spot behind a car, away from the player: the nearest one within about 14 m that is free of other cars and other officers.
+  findCover(o, P, env) {
+    const list = env.obstacles(o.x, o.z); let best = null, bd = 1e9;
+    for (const c of list) {
+      if (c.r < 0.8) continue;                                                           // cars (the walker's list also has people and poles)
+      const px = c.x - P.x, pz = c.z - P.z, pl = Math.hypot(px, pz) || 1, bx = c.x + px / pl * (c.r + 0.8), bz = c.z + pz / pl * (c.r + 0.8);
+      if (Math.hypot(bx - P.x, bz - P.z) < 5) continue;
+      let free = true; for (const q of list) if (Math.hypot(q.x - bx, q.z - bz) < q.r + 0.45) { free = false; break; }
+      if (free) for (const q of this.list) if (q !== o && !q.dead && Math.hypot(q.x - bx, q.z - bz) < 1.2) { free = false; break; }
+      if (!free) continue;
+      const d = Math.hypot(bx - o.x, bz - o.z); if (d > 14 || d < 1.2) continue;
+      if (raycastStatic(o.x, o.z, (bx - o.x) / d, (bz - o.z) / d, d) < d - 0.3) continue;      // (a wall between)
+      if (d < bd) { bd = d; best = { x: bx, z: bz }; }
+    }
+    return best;
+  }
   // The radio. An officer asks (it takes a moment, during which he stands still and open to a shot), and the call goes out when he is done.
   requestCall(o, kind) {
     if (this.backupT > 0 || o.dead || o.retreat || o.radioT > 0) return false;
@@ -238,13 +286,14 @@ export class Officers {
 
   // A bullet hurts an officer: true if it kills.
   damage(o, amount, head) {
-    if (o.dead) return false; o.hp -= amount; o.retreat = false; o.style = 'hold';
+    if (o.dead) return false; o.hp -= amount; o.retreat = false; o.style = 'hold'; o.hurtT = 0;
     if (o.hp > 0) { if (o.hp < o.maxHp * 0.5 && !o.calledWounded) { o.calledWounded = true; o.wantCall = 'wounded'; } return false; }
     this.kill(o, this.env.walker.x, this.env.walker.z, 2.2); return true;
   }
   kill(o, fromX, fromZ, power) {
     if (o.dead) return; o.dead = true; o.deadT = 0; o.hp = 0; const w = o.walker, dx = w.x - fromX, dz = w.z - fromZ, d = Math.hypot(dx, dz) || 1;
     if (o.radioT > 0) { o.radioT = 0; this.backupT = 0; }                              // killed with the radio in his hand: no call
+    if (this.env.drop) { const r = this.rnd(); if (r < (o.kind === KINDS.smg ? 0.9 : 0.62)) this.env.drop(w.x, w.y, w.z, 'ammo'); else if (r > 0.82) this.env.drop(w.x + 0.5, w.y, w.z + 0.3, 'armour'); }
     o.vault = null; w.noClip = false;
     w.knockDown(dx / d * power, dz / d * power); w.downT = 1e9; this.env.police.officersDown = (this.env.police.officersDown || 0) + 1;
     const c = o.car; if (c) { c.officers = Math.max(0, (c.officers || 1) - 1); if (c.officers === 0) c.spentT = 4; }
@@ -256,7 +305,7 @@ export class Officers {
   blast(x, z, y, radius, dmg) {
     for (const o of this.list) {
       if (o.dead) continue; const d = Math.hypot(o.x - x, o.z - z); if (d > radius) continue; const fall = 1 - d / radius;
-      o.hp -= dmg * fall * 0.9; if (o.hp <= 0) this.kill(o, x, z, 6 * fall + 2); else { o.vault = null; o.walker.noClip = false; o.walker.knockDown((o.x - x) / (d || 1) * 5 * fall, (o.z - z) / (d || 1) * 5 * fall); if (o.hp < o.maxHp * 0.5 && !o.calledWounded) { o.calledWounded = true; o.wantCall = 'wounded'; } }
+      o.hp -= dmg * fall * 0.9; o.hurtT = 0; if (o.hp <= 0) this.kill(o, x, z, 6 * fall + 2); else { o.vault = null; o.walker.noClip = false; o.walker.knockDown((o.x - x) / (d || 1) * 5 * fall, (o.z - z) / (d || 1) * 5 * fall); if (o.hp < o.maxHp * 0.5 && !o.calledWounded) { o.calledWounded = true; o.wantCall = 'wounded'; } }
     }
   }
   hitPlayer(dmg, o) {

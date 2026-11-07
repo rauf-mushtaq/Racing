@@ -137,6 +137,7 @@
   #c-stars i.on { background: #ffd23f; } #c-stars i.on.hot { background: #fff3b0; }
   #c-status { position: absolute; top: calc(max(14px, env(safe-area-inset-top)) + 38px); left: 50%; transform: translateX(-50%); font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-weight: 800; font-size: 20px; letter-spacing: 2px; text-shadow: 0 2px 8px rgba(0,0,0,0.8); white-space: nowrap; }
   #c-status.seen { color: #ff6a5a; } #c-status.hid { color: #7ff0a6; } #c-status.bust { color: #ff3d7f; animation: pulse .35s infinite alternate; }
+  #c-status.bust { padding: 2px 14px; border-radius: 6px; background: linear-gradient(90deg, rgba(255,61,127,0.55) calc(var(--p, 0) * 100%), rgba(0,0,0,0.45) calc(var(--p, 0) * 100%)); color: #fff; }
   @keyframes pulse { from { opacity: 1; } to { opacity: 0.45; } }
   #c-bars { position: absolute; top: calc(max(14px, env(safe-area-inset-top)) + 70px); left: 50%; transform: translateX(-50%); width: min(300px, 60vw); display: grid; gap: 5px; }
   .cbar { display: grid; grid-template-columns: 62px 1fr; white-space: nowrap; align-items: center; gap: 8px; font-weight: 700; font-size: 11px; letter-spacing: 1.5px; text-shadow: 0 1px 4px #000; }

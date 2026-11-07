@@ -160,6 +160,7 @@ export class HUD {
     const txt = P.bustT > 0.4 ? 'BEING ARRESTED' : P.spotted ? 'SPOTTED' : P.hidden > 0.5 ? 'OUT OF SIGHT' : 'SEARCHING FOR YOU';
     if (C.status.textContent !== txt) C.status.textContent = txt;
     C.status.className = P.bustT > 0.4 ? 'bust' : P.spotted ? 'seen' : 'hid';
+    C.status.style.setProperty('--p', (P.bustT > 0.4 ? clamp(P.bustFrac || 0, 0, 1) : 0).toFixed(3));        // (the arrest fills the label)
     // The minute: red and full while they can see you, counting down in green while you are hidden.
     if (!C.timer) { C.timer = $('c-timer'); C.time = $('c-time'); C.timeL = $('c-time-l'); }
     const left = Math.max(0, P.hiddenNeeded - P.hidden), sec = Math.ceil(left - 0.001), tt = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;

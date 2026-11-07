@@ -79,6 +79,18 @@ try {
   await step(P, 60 * 25);
   const off = await P.evaluate(() => { const g = window.__game; return { chase: g.game.chaseOn, cops: g.police.cops.length, officers: g.officers.list.length, living: g.officers.living, ended: g.game.state }; });
   check('police arrive when wanted', off.chase && off.cops > 0, JSON.stringify(off));
+  const cmb = await P.evaluate(async () => {
+    const g = window.__game, w = g.walker, A = g.arsenal, V = g.camera.position.constructor, WP = (await import('./src/weapons.js')).WEAPONS;
+    let found = null; for (let a = 0; a < 6.28 && !found; a += 0.2) { const r = A.trace(w.x, w.y + 1.4, w.z, Math.sin(a), 0, Math.cos(a), 40); if (r.type === 1 && r.t > 2 && r.t < 35) found = { dx: Math.sin(a), dz: Math.cos(a) }; }
+    const before = A.marks.meshes.map(m => m.count).reduce((a, b) => a + b, 0);
+    if (found) for (let i = 0; i < 4; i++) A.bullet(new V(w.x, w.y + 1.4, w.z), new V(found.dx, 0.01 * i, found.dz).normalize(), WP.smg);
+    const after = A.marks.meshes.map(m => m.count).reduce((a, b) => a + b, 0);
+    A.ammo.smg.reserve = 0; const took = A.take('ammo') && A.ammo.smg.reserve > 0;
+    A.bootT = 0; const boot1 = A.bootRestock(), boot2 = A.bootRestock();
+    return { found: !!found, marks: after - before, took, boot1, boot2 };
+  });
+  check('bullets leave marks on what they hit', cmb.found && cmb.marks >= 4, JSON.stringify(cmb));
+  check('officers\' drops can be picked up, and the boot only restocks once in a while', cmb.took && cmb.boot1 && !cmb.boot2, JSON.stringify(cmb));
   const lad = await P.evaluate(() => {
     const g = window.__game, d0 = g.Q.detailR, cap0 = g.officers.cap, full = g.officers.fullCap, n0 = g.peds.count ?? null;
     for (let i = 1; i <= g.GPU_LADDER.length; i++) { g.guard.gpu = i; g.applyGuard('gpu-down'); }
