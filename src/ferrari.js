@@ -39,8 +39,8 @@ export async function loadFerrari(paintKey = 'pearl', lite = false) {
     carpet: new THREE.MeshStandardMaterial({ color: 0x1a1a1b, roughness: 1.0 }),
     carbon: new THREE.MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.3, metalness: 0.6, envMapIntensity: 0.9 }),
     interiorLight: new THREE.MeshStandardMaterial({ color: 0x777777, emissive: 0x6a7480, emissiveIntensity: 0.4, roughness: 0.6 }),
-    blue: new THREE.MeshStandardMaterial({ color: 0x1e90ff, roughness: 0.5, metalness: 0.2, emissive: 0x0a3a80, emissiveIntensity: 0.6 }),
-    yellow: new THREE.MeshStandardMaterial({ color: 0xf8cc00, roughness: 0.45, metalness: 0.2 }),
+    blue: new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.35, metalness: 0.9, envMapIntensity: 1.0 }),
+    yellow: new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.35, metalness: 0.9, envMapIntensity: 1.0 }),   // (the model's yellow shield badges, wheel and steering-wheel centres: dark metal, so the car carries no real maker's crest)
   };
   // Ray-traced reflections (see ssr.js) on the glossy parts: the road, the street and the other cars show in the paint and glass.
   for (const k of ['paint', 'glass', 'lens', 'chrome', 'rim', 'carbon', 'metal']) attachSSR(mats[k], { range: 70, rough: k === 'paint' || k === 'carbon' ? 0.5 : 0.4, view: 120 });

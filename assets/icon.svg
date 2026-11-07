@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b1747"/><stop offset="0.55" stop-color="#c2386e"/><stop offset="1" stop-color="#ff8a4c"/></linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe08a"/><stop offset="0.55" stop-color="#ff7a2a"/><stop offset="1" stop-color="#ff3d7f"/></linearGradient>
+    <clipPath id="disc"><circle cx="256" cy="268" r="132"/></clipPath>
+  </defs>
+  <rect width="512" height="512" fill="url(#sky)"/>
+  <circle cx="256" cy="268" r="132" fill="url(#sun)"/>
+  <g clip-path="url(#disc)" fill="#3b1747"><rect x="100" y="286" width="320" height="8"/><rect x="100" y="314" width="320" height="12"/><rect x="100" y="344" width="320" height="16"/></g>
+  <path d="M0 372 L512 372 L512 512 L0 512 Z" fill="#120c18"/>
+  <path d="M236 372 L276 372 L330 512 L182 512 Z" fill="#2a1a36"/>
+  <path d="M254 386 L258 386 L260 410 L252 410 Z M252 430 L260 430 L263 462 L249 462 Z" fill="#ffd27a"/>
+</svg>

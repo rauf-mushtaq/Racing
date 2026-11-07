@@ -1,0 +1,15 @@
+{
+  "name": "sunset-city",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sunset City: an open-world driving game that runs in the browser (Three.js).",
+  "scripts": {
+    "serve": "python3 -m http.server 8765",
+    "precache": "node tools/gen-precache.js",
+    "test": "node tests/smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.50.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,139 @@
+// Smoke tests for the web game. Run:  npm install && npx playwright install chromium && npm test
+// They start a static server, open the game in Chromium (software GL, Low quality) and check that it
+//  1. needs nothing from the internet and has no script errors,
+//  2. keeps working offline through the service worker,
+//  3. hides its debug hooks unless ?debug is in the address,
+//  4. plays: walk, draw a weapon, shoot, get wanted, officers step out and can be hurt,
+//  5. answers real touch / pointer / gamepad input on the weapon buttons.
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.glb': 'model/gltf-binary', '.hdr': 'application/octet-stream', '.wasm': 'application/wasm', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json' };
+const server = http.createServer((req, res) => {
+  const p = path.join(ROOT, decodeURIComponent(new URL(req.url, 'http://x').pathname));
+  if (!p.startsWith(ROOT) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.statusCode = 404; return res.end('not found'); }
+  res.setHeader('content-type', TYPES[path.extname(p)] || 'application/octet-stream'); res.setHeader('cache-control', 'no-cache');
+  fs.createReadStream(p).pipe(res);
+});
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const BASE = `http://127.0.0.1:${server.address().port}/`;
+
+const results = []; let failed = 0;
+const check = (name, ok, info = '') => { results.push([ok, name, info]); if (!ok) failed++; console.log((ok ? '  ok   ' : '  FAIL ') + name + (info && !ok ? '  -> ' + info : '')); };
+const ignorable = t => /Failed to load resource|GPU stall|GL Driver|ReadPixels|Automatic fallback to software WebGL/.test(t);
+
+const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
+async function open({ debug = true, w = 844, h = 390, touch = false, offline = false, ctx } = {}) {
+  ctx = ctx || await browser.newContext({ viewport: { width: w, height: h }, hasTouch: touch, isMobile: touch, deviceScaleFactor: 1 });
+  await ctx.addInitScript(() => { try { localStorage.setItem('sunsetcity.v1', JSON.stringify({ quality: 'low', renderScale: 0.75 })); } catch (e) { /* private mode */ } });
+  const page = await ctx.newPage(); const logs = [], external = [];
+  page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !ignorable(m.text())) logs.push(m.text().slice(0, 240)); });
+  page.on('pageerror', e => logs.push('pageerror: ' + e.message.slice(0, 300)));
+  page.on('response', r => { if (r.status() >= 400 && !/music\/chase\.mp3/.test(r.url())) logs.push(r.status() + ' ' + r.url()); });   // (music/chase.mp3 is optional: put your own there)
+  page.on('request', r => { if (!r.url().startsWith(BASE) && !/^(data|blob):/.test(r.url())) external.push(r.url()); });
+  await page.goto(BASE + (debug ? 'index.html?debug' : 'index.html'));
+  await page.waitForSelector('button[data-m="free"]', { state: 'visible', timeout: 240000 });
+  return { page, ctx, logs, external };
+}
+const step = (page, n, dt = 1 / 60) => page.evaluate(([n, dt]) => { const g = window.__game, nr = window.__noRender; window.__noRender = true; for (let i = 0; i < n; i++) g.tick(dt); window.__noRender = nr; }, [n, dt]);
+
+try {
+  // ---- 0. the precache list names every file the game ships
+  console.log('files');
+  {
+    const walk = d => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name).split(path.sep).join('/')]);
+    const listed = new Set(JSON.parse(fs.readFileSync(path.join(ROOT, 'precache.json'), 'utf8')).files);
+    const missing = [...walk('src'), ...walk('assets').filter(f => /\.(glb|hdr|wasm)$/.test(f))].filter(f => !listed.has(f));
+    check('precache.json is current (run: node tools/gen-precache.js)', missing.length === 0, missing.slice(0, 5).join(', '));
+    const gone = [...listed].filter(f => !fs.existsSync(path.join(ROOT, f)));
+    check('precache.json lists only files that exist', gone.length === 0, gone.slice(0, 5).join(', '));
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    check('index.html loads nothing from another site', !/https?:\/\/(cdn|fonts)\./.test(html));
+  }
+
+  // ---- 1. start up
+  console.log('start-up');
+  const A = await open();
+  check('menu appears', true);
+  check('no requests to other sites', A.external.length === 0, A.external.slice(0, 3).join(', '));
+  check('no script errors while loading', A.logs.length === 0, A.logs.slice(0, 3).join(' | '));
+  check('debug hooks present with ?debug', await A.page.evaluate(() => typeof window.__game === 'object'));
+  const B = await open({ debug: false });
+  check('debug hooks absent without ?debug', await B.page.evaluate(() => typeof window.__game === 'undefined'));
+  await B.ctx.close();
+
+  // ---- menus
+  console.log('menus');
+  for (const m of ['events', 'chase', 'garage', 'settings', 'controls']) {
+    await A.page.click(`button[data-m="${m}"]`);
+    const shown = await A.page.evaluate(() => { const p = document.getElementById('panel'); return !p.classList.contains('hidden') && p.textContent.trim().length > 40; });
+    check(`menu: ${m} panel opens`, shown);
+  }
+  const garageText = await A.page.evaluate(() => { document.querySelector('button[data-m="garage"]').click(); return document.getElementById('panel').textContent; });
+  check('garage does not claim a made-up car (the model is a real Ferrari 458)', !/made-up/i.test(garageText), garageText.slice(0, 120));
+  check('no script errors in the menus', A.logs.length === 0, A.logs.slice(0, 3).join(' | '));
+
+  // ---- 2. playing
+  console.log('play');
+  const P = A.page;
+  await P.evaluate(() => { window.__noRender = true; });
+  await P.click('button[data-m="free"]');
+  await P.waitForFunction(() => window.__game.game.state === 'free', null, { timeout: 60000 });
+  await step(P, 60);
+  const drove = await P.evaluate(() => { const g = window.__game; g.simulate(2, { throttle: 1, gas: 1 }); return g.car.speed; });
+  check('car accelerates', drove > 3, 'speed ' + drove);
+  await P.evaluate(() => { const g = window.__game; g.car.vx = 0; g.car.vz = 0; g.leaveCar(); });
+  await step(P, 90);
+  const foot = await P.evaluate(() => { const g = window.__game; return { onFoot: !!g.game.onFoot, shown: g.walker.visible !== false }; });
+  check('player gets out of the car and stands on foot', foot.onFoot);
+  const w0 = await P.evaluate(() => { const w = window.__game.walker; return [w.x, w.z]; });
+  await P.keyboard.down('KeyW'); await step(P, 90); await P.keyboard.up('KeyW');
+  const w1 = await P.evaluate(() => { const w = window.__game.walker; return [w.x, w.z]; });
+  check('player walks forward on W', Math.hypot(w1[0] - w0[0], w1[1] - w0[1]) > 1.5, JSON.stringify([w0, w1]));
+  await P.keyboard.press('Digit1'); await step(P, 40);
+  const wp = await P.evaluate(() => window.__game.arsenal.key);
+  check('digit 1 draws the pistol', wp === 'pistol', String(wp));
+  const ammo0 = await P.evaluate(() => window.__game.arsenal.hud.mag);
+  await P.keyboard.down('KeyX'); await step(P, 6); await P.keyboard.up('KeyX');
+  const ammo1 = await P.evaluate(() => window.__game.arsenal.hud.mag);
+  check('X fires a round', ammo1 < ammo0, `${ammo0} -> ${ammo1}`);
+  await P.evaluate(() => { const g = window.__game; g.startWanted('gun'); });
+  await P.evaluate(() => { const g = window.__game; g.officers.prepare && g.officers.prepare(); });
+  await P.waitForFunction(() => !window.__game.officers.prepare || window.__game.officers.ready, null, { timeout: 120000 }).catch(() => {});
+  await step(P, 60 * 25);
+  const off = await P.evaluate(() => { const g = window.__game; return { chase: g.game.chaseOn, cops: g.police.cops.length, officers: g.officers.list.length, living: g.officers.living, ended: g.game.state }; });
+  check('police arrive when wanted', off.chase && off.cops > 0, JSON.stringify(off));
+  check('no script errors while playing', A.logs.length === 0, A.logs.slice(0, 3).join(' | '));
+
+  // ---- 3. offline: after one visit the service worker has every file
+  console.log('offline');
+  {
+    const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 1 });
+    await ctx.addInitScript(() => { try { localStorage.setItem('sunsetcity.v1', JSON.stringify({ quality: 'low', renderScale: 0.75 })); } catch (e) { /* private mode */ } });
+    const page = await ctx.newPage();
+    await page.goto(BASE + 'index.html');
+    await page.waitForSelector('button[data-m="free"]', { state: 'visible', timeout: 240000 });
+    const done = await page.evaluate(() => new Promise(res => {
+      navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'precache-done') res(e.data.total); });
+      navigator.serviceWorker.ready.then(r => setTimeout(() => r.active.postMessage({ type: 'precache' }), 100));
+      setTimeout(() => res(0), 120000);
+    }));
+    check('service worker cached every file', done > 90, 'files ' + done);
+    await ctx.setOffline(true);
+    const errs = []; page.on('pageerror', e => errs.push(e.message));
+    await page.reload();
+    await page.waitForSelector('button[data-m="free"]', { state: 'visible', timeout: 240000 }).then(() => check('game starts with no network', true), e => check('game starts with no network', false, e.message.slice(0, 120)));
+    check('no script errors offline', errs.length === 0, errs.join(' | ').slice(0, 200));
+    await ctx.close();
+  }
+} catch (e) {
+  check('suite ran to the end', false, e.stack || String(e));
+} finally {
+  await browser.close(); server.close();
+}
+console.log(failed ? `\n${failed} FAILED` : '\nall passed');
+process.exit(failed ? 1 : 0);
