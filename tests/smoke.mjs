@@ -92,7 +92,7 @@ try {
   check('bullets leave marks on what they hit', cmb.found && cmb.marks >= 4, JSON.stringify(cmb));
   check('officers\' drops can be picked up, and the boot only restocks once in a while', cmb.took && cmb.boot1 && !cmb.boot2, JSON.stringify(cmb));
   const hel = await P.evaluate(async () => {
-    const g = window.__game, H = g.heli; g.police.heat = 3.6; g.police.minHeat = 3; const out = {};
+    const g = window.__game, H = g.heli; g.police.stop(); g.officers.clear(); g.game.chaseOn = false; g.game.wanted = false; g.setState('free'); g.startWanted('gun'); g.police.heat = 3.6; g.police.minHeat = 3; const out = {};
     for (let i = 0; i < 60 * 16; i++) { g.police.health = 100; g.police.bustT = 0; g.tick(1 / 60); if (H.alive) break; }
     out.came = H.alive; for (let i = 0; i < 60 * 14; i++) { g.police.health = 100; g.police.bustT = 0; g.tick(1 / 60); } out.sees = g.police.heliSees; out.near = Math.hypot(H.x - g.walker.x, H.z - g.walker.z) < 120;
     out.killed = H.damage(1000); for (let i = 0; i < 60 * 6; i++) { g.police.health = 100; g.police.bustT = 0; g.tick(1 / 60); } out.gone = !H.alive && H.coolT > 0;
