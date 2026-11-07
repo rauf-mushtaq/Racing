@@ -79,6 +79,18 @@ export class AudioEngine {
   }
   gun() { const t = this.ctx && this.ctx.currentTime; if (!t || t - (this.lastGun || 0) < 0.045) return; this.lastGun = t; this.burst(2400, 700, 0.07, 0.3, 'bandpass', 0.8); }
   whoosh() { this.burst(500, 4000, 0.6, 0.3, 'bandpass', 0.6); }
+  // The weapons on foot: each a crack through a band-pass plus a low thump (the pistol is silenced: a soft cough instead of a bang).
+  shot(key) {
+    if (!this.ctx) return; const t = this.ctx.currentTime;
+    if (key === 'pistol') { this.burst(1800, 500, 0.06, 0.2, 'bandpass', 1.2); this.burst(260, 90, 0.07, 0.25, 'lowpass', 1); }
+    else if (key === 'smg') { if (t - (this.lastSmg || 0) < 0.04) return; this.lastSmg = t; this.burst(2600, 600, 0.05, 0.22, 'bandpass', 1); this.burst(300, 100, 0.06, 0.22, 'lowpass', 1); }
+    else if (key === 'shotgun') { this.burst(2200, 160, 0.34, 0.75, 'lowpass', 0.8); this.burst(3800, 700, 0.14, 0.42, 'bandpass', 0.7); setTimeout(() => { this.burst(900, 500, 0.04, 0.2, 'bandpass', 3); setTimeout(() => this.burst(1400, 700, 0.05, 0.2, 'bandpass', 3), 110); }, 380); }
+  }
+  rocketSound() { this.burst(300, 3500, 0.9, 0.45, 'bandpass', 0.5); this.burst(500, 70, 0.5, 0.6, 'lowpass', 0.8); }
+  reloadSound(dur, key) {
+    if (!this.ctx) return; const click = (d, f = 3200) => setTimeout(() => this.burst(f, f * 0.6, 0.035, 0.22, 'bandpass', 4), d * 1000);
+    if (key === 'shotgun') for (let i = 0; i < 6; i++) click(0.2 + i * (dur - 0.5) / 6, 2400); else { click(0.25, 2200); click(dur * 0.55, 3600); click(dur - 0.15, 2800); }
+  }
   boom(power = 1) {
     if (!this.ctx) return;
     this.burst(900 * power, 60, 0.9 + power * 0.5, 0.9, 'lowpass', 0.7);

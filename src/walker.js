@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { animate, PERSON_H } from './person.js';
 import { makeSmoothFigure } from './figure.js';
+import { loadPerson, personKey } from './people.js';
 import { groundAt, isWater, coastX, WORLD_LIM } from './world.js';
 import { queryColliders, EDGE } from './city.js';
 import { clamp, damp, lerp, wrapAngle } from './util.js';
@@ -24,11 +25,24 @@ export class Walker {
     this.x = 0; this.z = 0; this.y = 0; this.h = 0; this.vx = 0; this.vz = 0; this.vy = 0; this.speed = 0; this.phase = 0; this.t = Math.random() * 10;
     this.crouch = 0; this.crouching = false; this.run = 0; this.air = 0; this.grounded = true; this.turn = 0; this.look = 0;
     this.down = 0; this.downT = 0; this.stepAcc = 0; this.jumpHeld = false; this.sight = 110; this.onFoot = true;
-    this.kind = 'asphalt'; this.px = 0; this.pz = 0; this.onStep = null;
+    this.kind = 'asphalt'; this.px = 0; this.pz = 0; this.onStep = null; this.person = null;
+    this.arms = null; this.faceYaw = null; this.placeWeapon = null;      // (a weapon in hand: see weapons.js)
+    this.setOutfit(outfit);
   }
   get bodyY() { return this.y + 0.9; }
   worldVel() { return [this.vx, this.vz]; }
-  setOutfit(key) { this.rig.rebuild(key); }
+  // The character: one of the real people (people.js). The stick figure animates; until the real model has loaded (or if it cannot be loaded)
+  // the smooth made-up figure stands in.
+  attachPerson(p) {
+    if (this.person && this.person !== p) { this.rig.root.remove(this.person.root); for (const k in this.person.mats) { const m = this.person.mats[k]; for (const t of [m.map, m.normalMap, m.roughnessMap]) t && t.dispose(); } }
+    this.person = p; this.rig.root.add(p.root);
+    for (const m of this.rig.meshes) m.visible = false;
+    this.pose(0);
+  }
+  async setOutfit(key) {
+    key = personKey(key); if (this.person && this.person.key === key) return; this.want = key;
+    try { const p = await loadPerson(key); if (this.want === key) this.attachPerson(p); } catch (e) { console.warn('character model not loaded', e); }
+  }
 
   // Stand somewhere, facing a way.
   place(x, z, h) {
@@ -54,10 +68,11 @@ export class Walker {
     let mx = knocked ? 0 : f.mx, my = knocked ? 0 : f.my; const mag = Math.min(1, Math.hypot(mx, my));
     // Crouch toggles on while held.
     this.crouching = !!f.crouch && !knocked; this.crouch = damp(this.crouch, this.crouching ? 1 : 0, 10, dt);
-    const sprint = !!f.sprint && !this.crouching && mag > 0.1;
+    const armed = !!this.arms && this.arms.draw > 0.5, aiming = armed && this.faceYaw != null;      // (with a gun up you face where it points, and you cannot sprint)
+    const sprint = !!f.sprint && !this.crouching && mag > 0.1 && !aiming;
     // The speed asked for: an analogue stick walks gently and runs fully; the keyboard is a jog; Shift sprints.
     let want = sprint ? SPEED.sprint : this.crouching ? SPEED.crouch : lerp(SPEED.walk, SPEED.jog, clamp((mag - 0.35) / 0.55, 0, 1));
-    want *= mag > 0.05 ? Math.min(1, mag * 1.6) : 0;
+    want *= mag > 0.05 ? Math.min(1, mag * 1.6) : 0; if (aiming) want = Math.min(want, this.crouching ? SPEED.crouch : SPEED.walk * 1.1);
     const sn = Math.sin(camYaw), cs = Math.cos(camYaw);
     let dx = sn * my - cs * mx, dz = cs * my + sn * mx;                  // forward is (sin, cos); right is (-cos, sin)
     const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
@@ -67,7 +82,8 @@ export class Walker {
     else { const k = Math.exp(-3.2 * dt); this.vx *= k; this.vz *= k; }
     // Face the way we are going.
     const sp = Math.hypot(this.vx, this.vz);
-    if (sp > 0.4 && !knocked) { const target = Math.atan2(this.vx, this.vz), d = wrapAngle(target - this.h); this.h += d * Math.min(1, dt * (sprint ? 9 : 12)); this.turn = damp(this.turn, clamp(d * 1.2, -1, 1), 8, dt); }
+    if (aiming && !knocked) { const d = wrapAngle(this.faceYaw - this.h); this.h += d * Math.min(1, dt * 13); this.turn = damp(this.turn, clamp(d * 0.8, -1, 1), 8, dt); }
+    else if (sp > 0.4 && !knocked) { const target = Math.atan2(this.vx, this.vz), d = wrapAngle(target - this.h); this.h += d * Math.min(1, dt * (sprint ? 9 : 12)); this.turn = damp(this.turn, clamp(d * 1.2, -1, 1), 8, dt); }
     else this.turn = damp(this.turn, 0, 8, dt);
     // Jump.
     if (f.jump && !this.jumpHeld && this.grounded && !knocked && !this.crouching) { this.vy = JUMP; this.grounded = false; }
@@ -90,16 +106,19 @@ export class Walker {
     // Animation.
     this.run = clamp((this.speed - 1.6) / 4.8, 0, 1);
     const stride = lerp(1.35, 2.55, this.run);
-    const before = this.phase; this.phase += this.speed * dt / stride * Math.PI * 2 * (this.grounded ? 1 : 0.35);
+    const back = aiming && (this.vx * Math.sin(this.h) + this.vz * Math.cos(this.h)) < -0.2 ? -1 : 1;       // backing away: the stride runs the other way
+    const before = this.phase; this.phase += back * this.speed * dt / stride * Math.PI * 2 * (this.grounded ? 1 : 0.35);
     if (this.grounded && this.speed > 0.6 && Math.floor(before / Math.PI) !== Math.floor(this.phase / Math.PI) && this.onStep) this.onStep(clamp(0.25 + this.speed * 0.1, 0.2, 0.9) * (this.crouching ? 0.45 : 1), this.kind);
     this.pose(dt);
   }
 
   pose(dt) {
-    const B = this.rig;
-    animate(B, { phase: this.phase, speed: this.speed, run: this.run, crouch: this.crouch, air: this.air, t: this.t, turn: this.turn, down: this.down, look: this.look });
+    const B = this.rig, armed = this.arms && this.arms.draw > 0.001;
+    animate(B, { phase: this.phase, speed: this.speed, run: this.run, crouch: this.crouch, air: this.air, t: this.t, turn: this.turn, down: this.down, look: this.look, weapon: armed ? this.arms : null });
+    if (this.person) { this.person.pose(B); this.person.grip('R', armed ? 1 : 0); this.person.grip('L', armed && !this.arms.cfg.one ? 1 : 0); }
     this.mesh.position.set(this.x, this.y + this.down * 0.13, this.z);
     this.mesh.rotation.y = this.h;
+    if (armed && this.placeWeapon) { this.mesh.updateMatrixWorld(true); this.placeWeapon(this); }      // the gun goes where the hand is
     this.blob.position.set(this.x, this.y + 0.04, this.z); this.blob.scale.setScalar(1 + this.down * 1.2); this.blob.material.opacity = this.grounded ? 1 : clamp(1 - (this.y - groundAt(this.x, this.z).y) * 0.5, 0.3, 1);
   }
 
@@ -145,12 +164,14 @@ export class FootCamera {
     // Behind you when you run forward and are not looking about.
     if (this.idle > 1.2 && move.my > 0.2 && w.speed > 1) this.yaw += wrapAngle(w.h - this.yaw) * Math.min(1, dt * 1.7 * move.my);
     const crouchK = w.crouch * 0.45, zoom = clamp(o.zoom, 0.55, 2.2);
-    const dist = (this.dist + w.run * 0.5) * zoom, hy = (this.height - crouchK) + (w.down * -0.8);
+    const aim = this.aimK = damp(this.aimK || 0, o.aim || 0, 9, dt);                       // aiming: in close over the right shoulder, looking where the crosshair points
+    const dist = (this.dist + w.run * 0.5) * zoom * (1 - 0.52 * aim), hy = (this.height - crouchK) + (w.down * -0.8);
+    const shoulder = lerp(this.shoulder, 0.62, aim);
     _t.set(w.x, w.y + hy, w.z);
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch), sn = Math.sin(this.yaw), cs = Math.cos(this.yaw);
     // The point behind and above, a little to the right (over the shoulder).
     const bx = -sn * cp * dist, bz = -cs * cp * dist;
-    const rx = -cs * this.shoulder, rz = sn * this.shoulder;
+    const rx = -cs * shoulder, rz = sn * shoulder;
     let k = 1;
     for (let i = 0; i <= 8; i++) {                                          // walk out along the line, stopping short of anything solid
       const t = i / 8, px = _t.x + (bx + rx) * t, pz = _t.z + (bz + rz) * t, py = _t.y + sp * dist * t;
@@ -164,7 +185,11 @@ export class FootCamera {
     _p.set(_t.x + (bx + rx) * c, Math.max(_t.y + sp * dist * c, groundAt(_t.x + (bx + rx) * c, _t.z + (bz + rz) * c).y + 0.3), _t.z + (bz + rz) * c);
     camera.position.copy(_p);
     // Look at the character's shoulders, a bit ahead of where they are going.
-    camera.lookAt(_t.x + sn * 0.0 + (rx * -0.5) + Math.sin(this.yaw) * 2.2, w.y + 1.28 - crouchK - Math.sin(this.pitch) * 0.2 + w.down * -0.8, _t.z + (rz * -0.5) + Math.cos(this.yaw) * 2.2);
-    camera.fov = damp(camera.fov, 60 + w.run * 6 + (w.speed > 5.5 ? 2 : 0), 4, dt); camera.updateProjectionMatrix();
+    let lx = _t.x + sn * 0.0 + (rx * -0.5) + Math.sin(this.yaw) * 2.2, ly = w.y + 1.28 - crouchK - Math.sin(this.pitch) * 0.2 + w.down * -0.8, lz = _t.z + (rz * -0.5) + Math.cos(this.yaw) * 2.2;
+    if (aim > 0.001) {                                                                      // aimed: look straight along the line that runs through the character's head
+      lx = lerp(lx, _p.x + sn * cp * 14, aim); ly = lerp(ly, _p.y - sp * 14, aim); lz = lerp(lz, _p.z + cs * cp * 14, aim);
+    }
+    camera.lookAt(lx, ly, lz);
+    camera.fov = damp(camera.fov, lerp(60 + w.run * 6 + (w.speed > 5.5 ? 2 : 0), 47, aim), 5, dt); camera.updateProjectionMatrix();
   }
 }

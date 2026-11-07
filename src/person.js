@@ -142,6 +142,51 @@ export function personMaterials() {
   };
 }
 
+// ---- Holding a weapon ----------------------------------------------------------------------------------------------
+// Two-bone arm IK in the chest's own frame (x to the character's left, y up, z forward; the character's right shoulder is at -x). The shoulder
+// is turned so the upper arm points at the elbow, with its local z axis along the way the forearm bends, and the elbow is then a simple hinge
+// about local x: the forearm lies in the plane of shoulder, elbow and hand, like a real arm.
+const _S = new THREE.Vector3(), _T = new THREE.Vector3(), _d = new THREE.Vector3(), _E = new THREE.Vector3(), _pv = new THREE.Vector3(), _dU = new THREE.Vector3(), _dF = new THREE.Vector3();
+const _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _M = new THREE.Matrix4(), _Q1 = new THREE.Quaternion(), _Q2 = new THREE.Quaternion(), _pole = new THREE.Vector3();
+const _right = new THREE.Vector3(), _up = new THREE.Vector3(), _fwd = new THREE.Vector3(), _palmR = new THREE.Vector3(), _palmL = new THREE.Vector3(), _o0 = new THREE.Vector3();
+function solveArm(B, joint, shoulder, elbow, target, pole, k) {
+  const u = J.uArm, f = J.fArm;
+  _S.set(shoulder[0], shoulder[1], shoulder[2]); _d.copy(target).sub(_S); let len = _d.length(); const dir = _d.multiplyScalar(1 / (len || 1));
+  len = clamp(len, 0.14, u + f - 0.004);
+  const a = (u * u - f * f + len * len) / (2 * len), h = Math.sqrt(Math.max(0, u * u - a * a));
+  _pv.copy(pole).addScaledVector(dir, -pole.dot(dir)); if (_pv.lengthSq() < 1e-6) _pv.set(0, -1, 0); _pv.normalize();
+  _E.copy(_S).addScaledVector(dir, a).addScaledVector(_pv, h);
+  _dU.copy(_E).sub(_S).normalize(); _T.copy(_S).addScaledVector(dir, len); _dF.copy(_T).sub(_E).normalize();
+  const cosE = clamp(_dU.dot(_dF), -1, 1), e = Math.acos(cosE);
+  _bz.copy(_dF).addScaledVector(_dU, -cosE); if (_bz.lengthSq() < 1e-6) _bz.copy(_pv).negate(); _bz.normalize();
+  _by.copy(_dU).negate(); _bx.crossVectors(_by, _bz);
+  _M.makeBasis(_bx, _by, _bz); _Q1.setFromRotationMatrix(_M);
+  _Q2.setFromAxisAngle(_bx.set(1, 0, 0), -e);
+  B[shoulder_name(joint)].quaternion.slerp(_Q1, k); B[elbow].quaternion.slerp(_Q2, k);
+}
+const shoulder_name = j => 'shoulder' + j;
+// W: { draw, aimK, pitch (up +), recoil, reload (0..1), cfg: { rx, ry, rz (right palm: to the right, up, forward, in the aim frame), lx, ly, lz (left palm, from the right one), one }, out: filled in }
+function aimArms(B, W, k) {
+  const cfg = W.cfg, low = 1 - W.aimK, rl = Math.sin(W.reload * Math.PI);
+  // The gun's direction: aimed along the crosshair, or (ready, not aimed) angled down across the belt.
+  const pAim = W.pitch + W.recoil * 0.05 - rl * 0.3, pLow = -0.5 - rl * 0.3;
+  _Q1.setFromAxisAngle(_bx.set(1, 0, 0), -pAim); _Q2.setFromAxisAngle(_bx.set(1, 0, 0), -pLow);
+  _Q1.slerp(_Q2, low);
+  _right.set(-1, 0, 0).applyQuaternion(_Q1); _up.set(0, 1, 0).applyQuaternion(_Q1); _fwd.set(0, 0, 1).applyQuaternion(_Q1);
+  // Where the right palm goes: aimed, out in front of the chest; ready, low in front of the belt.
+  _o0.set(0, J.shoulderY - 0.02, 0);
+  _palmR.copy(_o0).addScaledVector(_right, cfg.rx).addScaledVector(_up, cfg.ry).addScaledVector(_fwd, cfg.rz - W.recoil * (cfg.kick ?? 0.05));
+  if (low > 0.001) { _palmL.set(-cfg.rx * 0.6, cfg.lowY ?? 0.2, cfg.lowZ ?? 0.3); _palmR.lerp(_palmL, low); }
+  _palmL.copy(_palmR).addScaledVector(_right, cfg.lx).addScaledVector(_up, cfg.ly).addScaledVector(_fwd, cfg.lz);
+  _palmL.y -= 0.2 * rl; _palmL.addScaledVector(_fwd, -0.1 * rl);
+  if (W.out) { W.out.palm.copy(_palmR); W.out.q.copy(_Q1); W.out.palmL.copy(_palmL); }
+  // The character's right arm is the stick figure's 'L' joint (it stands at -x); its left arm is 'R'.
+  _T.copy(_palmR).addScaledVector(_fwd, -0.075); _pole.set(-0.5, -1, -0.15);
+  solveArm(B, 'L', [-J.shoulderX, J.shoulderY, 0], 'elbowL', _T, _pole, k);
+  if (!cfg.one) { _T.copy(_palmL).addScaledVector(_fwd, -0.07); _pole.set(0.5, -1, -0.15); solveArm(B, 'R', [J.shoulderX, J.shoulderY, 0], 'elbowR', _T, _pole, k); }
+  B.wristL.rotation.set(-0.1, 0, 0); B.wristR.rotation.set(-0.1, 0, 0);
+}
+
 // ---- Animation -----------------------------------------------------------------------------------------------------
 // a: { phase (radians, advances with distance walked), speed (m/s), run (0 walking .. 1 sprinting), crouch (0..1), air (-1 rising .. 1 falling; 0 on the ground),
 //      t (seconds, for the idle motion), turn (turning rate, for the lean), down (0..1: knocked flat), look (head yaw) }
@@ -160,6 +205,13 @@ export function animate(B, a) {
   B.torso.rotation.set(lean * 0.65 + 0.012 * breathe * idle + crouch * 0.1, -Math.sin(f) * 0.17 * w * lerp(1, 1.8, run) + turn * 0.18, -Math.sin(f) * 0.03 * w + turn * -0.07);
   B.torso.scale.set(1 + 0.006 * breathe * idle, 1, 1 + 0.012 * breathe * idle);
   B.head.rotation.set(-lean * 0.55 + Math.sin(t * 0.7) * 0.025 * idle, look - B.torso.rotation.y * 0.7 + Math.sin(t * 0.31) * 0.2 * idle * (1 - crouch), -B.torso.rotation.z * 0.6);
+  // A weapon in hand: the chest turns to where the gun points, the head looks along it (the arms follow below).
+  const W = a.weapon, wk = W ? W.draw * (1 - Math.abs(air) * 0.85) * (1 - down) : 0;
+  if (wk > 0.001) {
+    B.torso.rotation.y = lerp(B.torso.rotation.y, W.twist - B.hips.rotation.y, wk * W.aimK);
+    B.torso.rotation.x += (-W.pitch * 0.38 - 0.03) * wk;
+    B.head.rotation.y = lerp(B.head.rotation.y, look, wk * 0.8); B.head.rotation.x = lerp(B.head.rotation.x, -W.pitch * 0.55 + 0.02, wk);
+  }
   // Legs. (Crouching folds both: the thighs forward and the knees back by about the same, so the feet stay under the hips.)
   const c = crouch;
   const kL = flex(f) + c * 1.75, kR = flex(f + Math.PI) + c * 1.75;
@@ -173,6 +225,7 @@ export function animate(B, a) {
   B.shoulderL.rotation.z = -hang - 0.04 * w; B.shoulderR.rotation.z = hang + 0.04 * w;
   B.elbowL.rotation.x = -eL; B.elbowR.rotation.x = -eR; B.elbowL.rotation.z = 0.06 * w; B.elbowR.rotation.z = -0.06 * w;
   B.wristL.rotation.x = -0.1; B.wristR.rotation.x = -0.1;
+  if (wk > 0.001) aimArms(B, W, wk);
   // In the air: a stride held in the legs, the arms thrown up; falling spreads them.
   if (air) {
     const k = Math.abs(air), up = air < 0 ? 1 : 0.6;

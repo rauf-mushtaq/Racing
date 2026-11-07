@@ -31,7 +31,7 @@ function pushOutStatic(x, z, r) {
   _push.pen = best[0]; _push.nx = best[1]; _push.nz = best[2]; return _push;
 }
 // Distance along a ray (a direction, not necessarily a unit one) to the first building, or maxD.
-function raycastStatic(ax, az, dx, dz, maxD) {
+export function raycastStatic(ax, az, dx, dz, maxD) {
   const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
   if (blockRectAt(ax, az, 0)) return 0;
   for (let t = 3; t < maxD; t += 3) if (blockRectAt(ax + dx * t, az + dz * t, 0)) return t - 1.5;
@@ -319,8 +319,8 @@ export class PoliceChase {
     this.shake = Math.min(1, Math.max(this.shake, power * 0.9 / (1 + d * 0.04)));
   }
   muzzle(p, side) {
-    const f = Math.sin(p.h), g = Math.cos(p.h), lx = Math.cos(p.h), lz = -Math.sin(p.h);
-    return [p.x + f * 2.46 + lx * side * 0.42, p.bodyY + 0.5, p.z + g * 2.46 + lz * side * 0.42];
+    const f = Math.sin(p.h), g = Math.cos(p.h), lx = Math.cos(p.h), lz = -Math.sin(p.h), d = p.muzzleZ ?? 2.5;   // (d: from the centre of mass to the nose, set for each car in main.js)
+    return [p.x + f * d + lx * side * 0.42, p.bodyY + 0.5, p.z + g * d + lz * side * 0.42];
   }
   fireGuns(dt, p, traffic) {
     this.fireT += dt; const RATE = 1 / 16, rnd = () => this.rnd();

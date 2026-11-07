@@ -10,6 +10,7 @@ import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeom
 import { PAINTS, HERO_DIMS } from './carModel.js';
 import { glowTex } from './textures.js';
 import { attachSSR } from './ssr.js';
+import { addGadgets } from './gadgets.js';
 
 const URL = 'assets/cars/ferrari.glb', URL_LITE = 'assets/cars/ferrari_lite.glb';   // the lite one has about 40% of the triangles, for tablets and lower settings
 
@@ -117,13 +118,15 @@ export async function loadFerrari(paintKey = 'pearl', lite = false) {
   }
   const flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, color: 0x5aa8ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
   flame.position.set(0, 0.42, zr - 0.3); flame.scale.set(0.6, 0.45, 1); body.add(flame);
+  // The police-chase hardware: guns that slide out of the nose, and an armour plate behind the cabin (see gadgets.js).
+  const gad = addGadgets(body, { zf, zr, x: 0.6, y: 0.4, plateZ: zr + 1.2, plateY: 0.5, plateW: 1.2, plateH: 0.4 });
   const cs = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glow, color: 0x000000, transparent: true, opacity: 0.7, depthWrite: false }));
   cs.position.y = 0.02; cs.renderOrder = 2; root.add(cs);
 
   // What the game's camera and gauges need from a cockpit: where the driver's eyes are, and something to do each frame.
   const eye = new THREE.Vector3(spos.x, spos.y + 0.3, spos.z - 0.56);
   const cockpit = { eye, style: 'real', group: body, update(st) { steerBase.quaternion.setFromAxisAngle(steerAxis, -st.wheelAngle); } };
-  root.userData = { body, wheels, paint: mats.paint, tail: mats.tail, tailGlow, headGlow, flame, cockpit, real: true, tris, stats, zr, zf };
+  root.userData = { body, wheels, paint: mats.paint, tail: mats.tail, tailGlow, headGlow, flame, cockpit, real: true, tris, stats, zr, zf, guns: gad.guns, shield: gad.shield };
   return root;
 }
 

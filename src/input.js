@@ -8,7 +8,8 @@ const WHEEL_RE = /wheel|racing|g29|g920|g923|g27|g25|t300|t150|t248|t128|tmx|t50
 export class Input {
   constructor() {
     this.keys = new Set();
-    this.touch = { left: false, right: false, gas: false, brake: false, hand: false, nitro: false, fire: false, missile: false, bomb: false, oil: false, smoke: false, shield: false, jump: false, sprint: false, crouch: false };
+    this.touch = { left: false, right: false, gas: false, brake: false, hand: false, nitro: false, fire: false, missile: false, bomb: false, oil: false, smoke: false, shield: false, jump: false, sprint: false, crouch: false, afire: false };
+    this.mouse = { left: false, right: false };       // the mouse buttons (on foot: left fires, right aims)
     this.stick = { x: 0, y: 0 };            // the on-screen walking stick (-1..1)
     this.orbit = { dyaw: 0, dpitch: 0 };    // camera turning since the last read, for the camera on foot
     this.footMode = false; this.footZoom = 1;
@@ -20,8 +21,8 @@ export class Input {
     this.wheelSeen = false;
     // Mouse: drag (either button) on the game to look around the car, wheel to zoom.
     this.look = { yaw: 0, pitch: 0, zoom: 1, idle: 0 }; this.dragging = false;
-    addEventListener('mousedown', e => { if (e.target && e.target.id === 'c') { this.dragging = true; this.lastDevice = 'keyboard'; } });
-    addEventListener('mouseup', () => { this.dragging = false; });
+    addEventListener('mousedown', e => { if (e.target && e.target.id === 'c') { this.dragging = true; this.lastDevice = 'keyboard'; if (e.button === 0) this.mouse.left = true; if (e.button === 2) this.mouse.right = true; } });
+    addEventListener('mouseup', e => { this.dragging = false; if (e.button === 0) this.mouse.left = false; if (e.button === 2) this.mouse.right = false; });
     addEventListener('mousemove', e => {
       if (this.footMode && (this.dragging || document.pointerLockElement)) { this.orbit.dyaw += e.movementX * 0.0045; this.orbit.dpitch += e.movementY * 0.0035; }
       if (!this.dragging) return;
@@ -38,7 +39,7 @@ export class Input {
       this.emit('any');
     });
     addEventListener('keyup', e => this.keys.delete(e.code));
-    addEventListener('blur', () => this.keys.clear());
+    addEventListener('blur', () => { this.keys.clear(); this.mouse.left = this.mouse.right = false; });
   }
   on(name, fn) { (this.handlers[name] ||= []).push(fn); }
   emit(name, ...a) { for (const f of this.handlers[name] || []) f(...a); }
@@ -46,6 +47,8 @@ export class Input {
     // F gets in and out of the car (Shift+F is the fullscreen toggle now).
     const map = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'pause', KeyE: 'shiftUp', KeyQ: 'shiftDown', Enter: 'confirm', KeyU: 'mute', KeyM: 'map', Tab: 'map', KeyF: e && e.shiftKey ? 'fullscreen' : 'use' };
     if (map[code]) this.emit(map[code]);
+    // The weapons on foot (the game ignores these in the car): R reloads, G throws a grenade, 1 to 4 choose a gun, 0 puts it away.
+    if (code === 'KeyR') this.emit('reload'); else if (code === 'KeyG') this.emit('grenade'); else if (/^Digit[0-4]$/.test(code)) this.emit('weapon', +code.slice(5));
   }
 
   // --- Touch ----------------------------------------------------------------
@@ -181,6 +184,9 @@ export class Input {
     const dyaw = this.orbit.dyaw, dpitch = this.orbit.dpitch; this.orbit.dyaw = this.orbit.dpitch = 0; let kyaw = 0, kpitch = 0;
     if (k('KeyJ') && this.footMode) kyaw -= 1.7 * dt; if (k('KeyL') && this.footMode) kyaw += 1.7 * dt; if (k('KeyI') && this.footMode) kpitch -= 1.2 * dt; if (k('KeyK') && this.footMode) kpitch += 1.2 * dt;
     foot.dyaw = dyaw - kyaw; foot.dpitch = dpitch + kpitch; foot.zoom = this.footZoom;
+    // On foot with a gun: X or the left mouse button fires (the mouse needs the pointer captured, which the first click does); V or the right mouse button aims.
+    const locked = !!document.pointerLockElement;
+    const arms = { fire: k('KeyX') || (this.mouse.left && locked) || this.touch.afire, aim: k('KeyV') || (this.mouse.right && locked), sprint: foot.sprint };
     this.pollLearn();
     const W = settings.wheel || {};
     for (const p of this.pads()) {
@@ -211,18 +217,19 @@ export class Input {
         const dz = v => (Math.abs(v) > 0.16 ? (v - Math.sign(v) * 0.16) / 0.84 : 0), lx = dz(p.axes[0] || 0), ly = dz(p.axes[1] || 0), rx = dz(p.axes[2] || 0), ry = dz(p.axes[3] || 0);
         if (lx || ly) { foot.mx = lx; foot.my = -ly; }
         foot.dyaw += rx * 2.6 * dt; foot.dpitch += ry * 1.8 * dt;
-        if (pb(0)) foot.jump = true; if (pb(1)) foot.crouch = true; if (pb(6) || pb(7) || pb(10)) foot.sprint = true;
+        if (pb(0)) foot.jump = true; if (pb(1)) foot.crouch = true; if (pb(6) || pb(10)) foot.sprint = true;
+        if (this.footMode) { if (pb(7)) { arms.fire = true; used = true; } if (pb(4)) arms.aim = true; this.padEdge(p, 2, 'reload'); this.padEdge(p, 11, 'grenade'); }
         this.padEdge(p, 10, 'use');
         if (pb(1)) { gadgets.fire = true; used = true; } if (pb(5)) gadgets.missile = true; if (pb(4)) gadgets.bomb = true;
         if (pb(12)) gadgets.oil = true; if (pb(13)) gadgets.smoke = true; if (pb(11)) gadgets.shield = true;
         if (p.buttons[14] && p.buttons[14].pressed) steer = -1;
         if (p.buttons[15] && p.buttons[15].pressed) steer = 1;
-        this.padEdge(p, 3, 'camera'); this.padEdge(p, 5, 'shiftUp'); this.padEdge(p, 4, 'shiftDown');
+        this.padEdge(p, 3, this.footMode ? 'weaponNext' : 'camera'); this.padEdge(p, 5, 'shiftUp'); if (!this.footMode) this.padEdge(p, 4, 'shiftDown');
         this.padEdge(p, 9, 'pause'); this.padEdge(p, 8, 'reset'); this.padEdge(p, 1, 'back');
         this.padEdge(p, 12, 'navUp'); this.padEdge(p, 13, 'navDown');
       }
       if (used) { this.lastDevice = isWheel ? 'wheel' : 'pad'; this.emit('any'); }
     }
-    return { steer, gas, brake, handbrake, nitro, analog, sens: settings.sens, digital, gadgets, foot, device: this.lastDevice === 'touch' && !(digital.steer === false) ? 'touch' : this.lastDevice };
+    return { steer, gas, brake, handbrake, nitro, analog, sens: settings.sens, digital, gadgets, foot, arms, device: this.lastDevice === 'touch' && !(digital.steer === false) ? 'touch' : this.lastDevice };
   }
 }

@@ -20,7 +20,7 @@ const defaults = {
   camera: 0,
   touchSteer: 'buttons', // buttons | tilt
   color: 'pearl',
-  outfit: 'street',      // the character's clothes (see person.js)
+  outfit: 'agent',       // which person you play (see people.js)
   bests: {},
   found: [],            // secret places you've discovered (shown on the map)
   wheel: null,          // learned steering wheel / pedal mapping

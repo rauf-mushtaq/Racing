@@ -7,6 +7,7 @@ import { curve, lerp, clamp } from './util.js';
 import { plateTex, glowTex } from './textures.js';
 import { mergeGeoms } from './geom.js';
 import { buildCockpit } from './cockpit.js';
+import { addGadgets } from './gadgets.js';
 
 const HALF = 15; // points per half section
 
@@ -280,7 +281,8 @@ export function makeHeroCar(paintKey = 'pearl') {
   mergeByMaterial(body, shell);
   const cockpit = buildCockpit(body, bodyGeo);
   for (const w of wheels) mergeByMaterial(w.spin);
-  root.userData = { body, wheels, paint, tail, tailGlow, headGlow, flame, cockpit };
+  const gad = addGadgets(body, { zf: HERO.zf, zr: HERO.zr, x: 0.58, y: 0.42, plateZ: HERO.zr + 1.1, plateY: 0.5, plateW: 1.2, plateH: 0.4 });   // (after the merge, so they can move)
+  root.userData = { body, wheels, paint, tail, tailGlow, headGlow, flame, cockpit, guns: gad.guns, shield: gad.shield };
   return root;
 }
 
