@@ -31,6 +31,7 @@ export class Walker {
     this.crouch = 0; this.crouching = false; this.run = 0; this.air = 0; this.grounded = true; this.turn = 0; this.look = 0;
     this.down = 0; this.downT = 0; this.stepAcc = 0; this.jumpHeld = false; this.sight = 110; this.onFoot = true;
     this.kind = 'asphalt'; this.px = 0; this.pz = 0; this.onStep = null; this.person = null;
+    this.noClip = false;                                              // (true while an officer vaults an obstacle)
     this.arms = null; this.faceYaw = null; this.placeWeapon = null;      // (a weapon in hand: see weapons.js)
     this.setOutfit(outfit);
   }
@@ -95,7 +96,7 @@ export class Walker {
     this.jumpHeld = !!f.jump;
     // Move in small steps so nothing is skipped over.
     const n = Math.max(1, Math.ceil(sp * dt / 0.12));
-    for (let i = 0; i < n; i++) { this.x += this.vx * dt / n; this.z += this.vz * dt / n; this.collide(obstacles); }
+    for (let i = 0; i < n; i++) { this.x += this.vx * dt / n; this.z += this.vz * dt / n; if (!this.noClip) this.collide(obstacles); }
     this.speed = Math.hypot((this.x - this.px) / dt, (this.z - this.pz) / dt) || 0; if (this.speed < 0.05) this.speed = 0;
     // Vertical: step onto kerbs, fall off ledges, land.
     const gy = groundAt(this.x, this.z);

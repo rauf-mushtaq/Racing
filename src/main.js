@@ -208,6 +208,7 @@ async function build() {
   gtMesh = makeGT(); gtMesh.visible = false; scene.add(gtMesh);
   police = new PoliceChase(scene); police.beams = null;
   police.onBoom = (x, z, power) => { peds.scare(x, z, 70, 7); audio.boom(power * clamp(1.1 - Math.hypot(x - car.x, z - car.z) / 380, 0.12, 1)); };
+  police.onCopGun = v => audio.copShot(v);
   police.onGun = () => audio.gun(); police.onMissile = () => audio.whoosh(); police.onBeep = f => audio.beep(f, 0.12, 0.22);
   police.onCrash = j => { const k = Math.min(1, j / 25000); audio.thump(0.2 + k); game.shake = Math.max(game.shake, k * 0.6); };
   fx = new FX(scene);

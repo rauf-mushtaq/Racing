@@ -179,6 +179,7 @@ function aimArms(B, W, k) {
   if (low > 0.001) { _palmL.set(-cfg.rx * 0.6, cfg.lowY ?? 0.2, cfg.lowZ ?? 0.3); _palmR.lerp(_palmL, low); }
   _palmL.copy(_palmR).addScaledVector(_right, cfg.lx).addScaledVector(_up, cfg.ly).addScaledVector(_fwd, cfg.lz);
   _palmL.y -= 0.2 * rl; _palmL.addScaledVector(_fwd, -0.1 * rl);
+  if (W.radio > 0.01) { _o0.set(0.14, 0.6, 0.1); _palmL.lerp(_o0, W.radio); }                       // the left hand up to the radio on the shoulder
   if (W.out) { W.out.palm.copy(_palmR); W.out.q.copy(_Q1); W.out.palmL.copy(_palmL); }
   // The character's right arm is the stick figure's 'L' joint (it stands at -x); its left arm is 'R'.
   _T.copy(_palmR).addScaledVector(_fwd, -0.075); _pole.set(-0.5, -1, -0.15);

@@ -88,11 +88,36 @@ export class PoliceChase {
   // Far more police than before: a single star already sends a squad, and five stars is a small army.
   desiredCops() { return [0, 6, 10, 15, 20, 26][this.stars]; }
   addHeat(a) { this.heat = Math.min(5.99, this.heat + a); }
+  // An officer's radio call: extra cars (and a pursuit truck if asked) come from 150 to 260 metres away.
+  callBackup(p, n, truck) {
+    for (let i = 0; i < n && this.cops.length < CAP; i++) this.spawnCop(p, truck && i === 0 ? 1 : 0, false);
+    this.addHeat(0.1 * n); this.messages.push('BACKUP ON THE WAY');
+  }
+  // The weak guns on the cars: short bursts from the roof at a car or a person in sight and within about 45 metres. They are poor shots (worse
+  // the further away and the faster you go), do little harm each (armour helps), and only a few cars shoot at once; the cars still ram you.
+  carFire(c, dt, p) {
+    if (c.wreck || c.air || c.slip > 0 || c.held || !c.sees) return;
+    const dx = p.x - c.x, dz = p.z - c.z, dist = Math.hypot(dx, dz); if (dist < 5 || dist > 45) return;
+    c.gunT = (c.gunT ?? 1 + this.rnd() * 2) - dt; if (c.gunT > 0) return;
+    if (!(c.burst > 0)) { if (this._firers >= 2 + this.stars) { c.gunT = 0.4; return; } c.burst = c.kind ? 5 : 3; this._firers++; }
+    const f = [Math.sin(c.h), Math.cos(c.h)], mx = c.x + f[0] * c.len * 0.15, mz = c.z + f[1] * c.len * 0.15, my = c.y + (c.kind ? 2.0 : 1.5);
+    let tx = p.x, tz = p.z, ty = p.onFoot ? p.y + 1.2 : (p.bodyY ?? 0.6) + 0.3;
+    const hit = this.rnd() < clamp(0.3 - dist / 160 - Math.min(0.12, (p.speed || 0) * 0.006), 0.04, 0.3);
+    if (!hit) { const k = 1.2 + this.rnd() * 2.6; tx += (this.rnd() - 0.5) * 2 * k; tz += (this.rnd() - 0.5) * 2 * k; ty += (this.rnd() - 0.5) * 1.2; }
+    this.fx.tracer(mx, my, mz, tx, ty, tz, 0.025, 0.05); this.fx.flash(mx, my, mz, 0.12, 0.04, 3);
+    this.onCopGun && this.onCopGun(clamp(1.2 - dist / 70, 0.15, 0.8));
+    if (hit) {
+      const dmg = (c.kind ? 2.0 : 1.2) * (this.shieldT > 0 ? 0.3 : 1); this.health -= dmg; this.damageFlash = Math.min(1, this.damageFlash + 0.06); this.shake = Math.min(1, this.shake + 0.02);
+      if (this.officers) this.officers.sinceHit = 0; for (let i = 0; i < 2; i++) this.fx.spark(tx, ty, tz, (this.rnd() - 0.5) * 5, this.rnd() * 3, (this.rnd() - 0.5) * 5, 0.25);
+    }
+    if (!this.shotAt) { this.shotAt = true; this.messages.push('THE POLICE ARE SHOOTING'); }
+    if (--c.burst <= 0) c.gunT = 1.8 + this.rnd() * 2.6; else c.gunT = 0.14;
+  }
 
   reset() {
     Object.assign(this, {
       result: 'running', health: 100, heat: 2.0, time: 0, hidden: 0, hiddenNeeded: 60, spotAcc: 0, nearest: 1e9, shake: 0, damageFlash: 0, bustT: 0,
-      ammoMissile: 6, ammoBomb: 4, kills: 0, officersDown: 0, civilians: 0, maxStars: 2, spotted: true,
+      ammoMissile: 6, ammoBomb: 4, kills: 0, officersDown: 0, shotAt: false, civilians: 0, maxStars: 2, spotted: true,
       gunHeat: 0, cdOil: 0, cdSmoke: 0, cdShield: 0, shieldT: 0, gunOut: 0, jammed: false,
       lastSeenX: 0, lastSeenZ: 0, spawnT: 0, fireT: 1 / 16, regenMissile: 0, regenBomb: 0, endT: 0, spotCool: 0, wasSpotted: true, lastStars: 2, alt: 0, pulse: 0, shieldK: 0,
     });
@@ -369,6 +394,7 @@ export class PoliceChase {
     if (this.spotted) { this.spotAcc += dt; if (this.spotAcc > 0.5) this.hidden = 0; } else { this.spotAcc = Math.max(0, this.spotAcc - dt * 2); this.hidden += dt; }
     if (this.hidden >= this.hiddenNeeded) { this.result = 'escaped'; this.messages.push('YOU LOST THEM'); return; }
     // Cops: spawn up to the wanted level, drive, retire the wrecks.
+    this._firers = 0; for (const c of this.cops) if (c.burst > 0 && !c.wreck) this._firers++;
     this.spawnT -= dt; let alive = 0, trucks = 0; for (const c of this.cops) if (!c.wreck) { alive++; if (c.kind) trucks++; }
     if (this.spawnT <= 0 && alive < this.desiredCops() && this.cops.length < CAP) { this.spawnCop(p, (this.stars >= 4 && trucks < this.stars - 1) ? 1 : 0, this.spotted); this.spawnT = this.spotted ? 0.7 : 2.0; }
     for (let i = 0; i < this.cops.length;) {
@@ -379,6 +405,7 @@ export class PoliceChase {
         if (c.roam > 0 && c.rx !== 0) { gx = c.rx; gz = c.rz; }
       }
       this.updateCop(c, dt, p, traffic, gx, gz, this.spotted);
+      if (this.spotted) this.carFire(c, dt, p);
       const farAway = Math.hypot(c.x - p.x, c.z - p.z) > 480, dead = c.wreck && c.burn > 24;
       if (dead || (!c.wreck && (farAway || c.stuck > 3))) {
         if (c.wreck) { this.cops[i] = this.cops[this.cops.length - 1]; this.cops.pop(); continue; }
