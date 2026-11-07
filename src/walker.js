@@ -12,7 +12,7 @@ import { clamp, damp, lerp, wrapAngle } from './util.js';
 
 export const SPEED = { walk: 1.9, jog: 3.9, sprint: 6.7, crouch: 1.45 };
 const RAD = 0.34, GRAV = 15, JUMP = 5.0;
-const found = [];
+const found = [], _fp = new THREE.Vector3();
 
 let blobMat = null, blobGeo = null;
 export class Walker {
@@ -124,7 +124,8 @@ export class Walker {
     const B = this.rig, armed = this.arms && this.arms.draw > 0.001;
     animate(B, { phase: this.phase, speed: this.speed, run: this.run, crouch: this.crouch, air: this.air, t: this.t, turn: this.turn, down: this.down, look: this.look, weapon: armed ? this.arms : null });
     if (this.person) {
-      this.person.grip('R', armed ? 1 : 0); this.person.grip('L', armed && !this.arms.cfg.one ? 1 : 0);
+      const lnch = armed && this.arms.cfg.launcher;                                                  // (a pistol grip has a trigger finger lying along the guard; a launcher's grip is fully closed)
+      this.person.grip('R', armed ? 1 : 0, armed && !lnch ? 0.38 : 1); this.person.grip('L', armed && !this.arms.cfg.one ? 1 : 0);
       // Recorded walking, running and standing; the stick skeleton takes over the legs when crouching, in the air or knocked down, and the arms and spine with a gun up.
       const air = Math.abs(this.air), wk = armed ? this.arms.draw * (1 - air * 0.85) * (1 - this.down) : 0;
       const pLegs = clamp(this.crouch * 1.3 + air * 1.3 + this.down * 3, 0, 1), pUpper = clamp(wk + air * 1.3 + this.down * 3 + this.crouch * 0.9, 0, 1);
@@ -133,6 +134,13 @@ export class Walker {
     }
     this.mesh.position.set(this.x, this.y + this.down * 0.13, this.z);
     this.mesh.rotation.y = this.h;
+    // Feet on a slope or a kerb: if either ankle would sink into the ground, the whole body is lifted by that much (smoothed).
+    if (this.person && this.grounded && this.down < 0.1 && dt > 0) {
+      this.mesh.updateMatrixWorld(true); let lift = 0;
+      for (const n of ['Bip01_L_Foot', 'Bip01_R_Foot']) { this.person.worldPos(n, _fp); lift = Math.max(lift, groundAt(_fp.x, _fp.z).y + this.person.ankleH - 0.025 - _fp.y); }
+      this.footLift = damp(this.footLift || 0, clamp(lift, 0, 0.35), lift > (this.footLift || 0) ? 28 : 7, dt);
+      this.mesh.position.y += this.footLift;
+    } else this.footLift = damp(this.footLift || 0, 0, 10, dt || 1 / 60);
     if (armed && this.placeWeapon) { this.mesh.updateMatrixWorld(true); this.placeWeapon(this); }      // the gun goes where the hand is
     this.blob.position.set(this.x, this.y + 0.04, this.z); this.blob.scale.setScalar(1 + this.down * 1.2); this.blob.material.opacity = this.grounded ? 1 : clamp(1 - (this.y - groundAt(this.x, this.z).y) * 0.5, 0.3, 1);
   }
@@ -175,7 +183,7 @@ export class FootCamera {
   // o: { dyaw, dpitch, zoom } from the input; w: the walker; move: { my } forward amount.
   update(dt, camera, w, o, move) {
     if (o.dyaw || o.dpitch) this.idle = 0; else this.idle += dt;
-    this.yaw -= o.dyaw; this.pitch = clamp(this.pitch + o.dpitch, -0.35, 1.15);
+    this.yaw -= o.dyaw; this.pitch = clamp(this.pitch + o.dpitch, -0.5, 1.15);
     // Behind you when you run forward and are not looking about.
     if (this.idle > 1.2 && move.my > 0.2 && w.speed > 1) this.yaw += wrapAngle(w.h - this.yaw) * Math.min(1, dt * 1.7 * move.my);
     const crouchK = w.crouch * 0.45, zoom = clamp(o.zoom, 0.55, 2.2);

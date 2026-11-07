@@ -16,7 +16,7 @@ export const WEAPONS = {
   pistol:   { name: 'SILENCED PISTOL', slot: 1, mag: 12, reserve: 96, rate: 4.2, dmg: 17, pellets: 1, spread: 0.006, kick: 0.5, reload: 1.25, range: 140, cfg: { rx: 0.03, ry: -0.04, rz: 0.46, lx: -0.035, ly: -0.015, lz: 0.0, kick: 0.06 }, hold: 0.55 },
   smg:      { name: 'SUBMACHINE GUN',  slot: 2, mag: 30, reserve: 210, rate: 13, dmg: 7.5, pellets: 1, spread: 0.024, kick: 0.22, reload: 1.9, range: 130, cfg: { rx: 0.09, ry: -0.06, rz: 0.30, lx: 0.0, ly: 0.02, lz: 0.17, kick: 0.035 }, hold: 0.6 },
   shotgun:  { name: 'PUMP SHOTGUN',    slot: 3, mag: 6, reserve: 30, rate: 1.15, dmg: 12, pellets: 9, spread: 0.055, kick: 1.0, reload: 2.4, range: 60, cfg: { rx: 0.09, ry: -0.07, rz: 0.28, lx: 0.0, ly: 0.01, lz: 0.19, kick: 0.09 }, hold: 0.6 },
-  launcher: { name: 'ROCKET LAUNCHER', slot: 4, mag: 1, reserve: 5, rate: 0.7, dmg: 0, pellets: 0, spread: 0.0, kick: 1.0, reload: 2.6, range: 400, cfg: { rx: 0.14, ry: -0.05, rz: 0.26, lx: -0.02, ly: 0.0, lz: 0.2, kick: 0.12 }, hold: 0.7 },
+  launcher: { name: 'ROCKET LAUNCHER', slot: 4, mag: 1, reserve: 5, rate: 0.7, dmg: 0, pellets: 0, spread: 0.0, kick: 1.0, reload: 2.6, range: 400, cfg: { launcher: true, rx: 0.14, ry: -0.05, rz: 0.26, lx: -0.02, ly: 0.0, lz: 0.2, kick: 0.12 }, hold: 0.7 },
 };
 export const ORDER = ['pistol', 'smg', 'shotgun', 'launcher'];
 const GRENADES = 4;

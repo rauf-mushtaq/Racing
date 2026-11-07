@@ -84,10 +84,11 @@ export class Person {
       this.rest[name] = e; this.order.push(e);
     }
     this.hipY0 = this.bones.Bip01.position.y; this.height = this.heightNow();
+    this.ankleH = Math.max(0.04, wp('Bip01_L_Foot').y);                         // (how high the ankle bones stand above the sole, standing)
     this.fingers = {}; for (const s of ['L', 'R']) this.fingers[s] = [0, 1, 2, 3, 4].map(f => [f ? `Bip01_${s}_Finger${f}` : `Bip01_${s}_Finger0`, f ? `Bip01_${s}_Finger${f}1` : `Bip01_${s}_Finger01`, f ? `Bip01_${s}_Finger${f}2` : `Bip01_${s}_Finger02`].map(n => this.bones[n]).filter(Boolean));
     this.restFingers = new Map(); for (const s of ['L', 'R']) for (const chain of this.fingers[s]) for (const b of chain) this.restFingers.set(b, b.quaternion.clone());
     this.D = {}; for (const n of ['pelvis', 'spine', 'spine1', 'spine2', 'torso', 'neck', 'head', 'shL', 'elL', 'wrL', 'shR', 'elR', 'wrR', 'hipL', 'knL', 'anL', 'hipR', 'knR', 'anR']) this.D[n] = new THREE.Quaternion();
-    this.curl = { L: 0, R: 0 }; this.curlPose = { L: null, R: null };
+    this.curl = { L: 0, R: 0 }; this.indexK = { L: 1, R: 1 }; this.curlPose = { L: null, R: null };
     // The face: eyelids and eyeballs. Each is moved in the face's own directions (found once, in the rest pose), so it works whichever way the head is turned.
     this.face = {}; this.blinkIn = 1 + Math.random() * 3; this.blinkT = 9; this.gazeIn = 0.5; this.gaze = { x: 0, y: 0, tx: 0, ty: 0 }; this.faceOn = true;
     for (const n of ['Bip01_LEyeBlinkTop', 'Bip01_REyeBlinkTop', 'Bip01_LEyeBlinkBottom', 'Bip01_REyeBlinkBottom', 'Bip01_LEye', 'Bip01_REye']) {
@@ -199,11 +200,11 @@ export class Person {
   curlFingers() {
     for (const s of ['L', 'R']) {
       const k = this.curl[s]; if (!k) continue;
-      this.fingers[s].forEach((chain, f) => chain.forEach((b, j) => { const a = (f === 0 ? [0.25, 0.5, 0.45] : [0.95, 1.25, 0.85])[j] * k; _q.setFromAxisAngle(_v.set(0, 0, 1), a); b.quaternion.multiply(_q); }));
+      this.fingers[s].forEach((chain, f) => chain.forEach((b, j) => { const a = (f === 0 ? [0.25, 0.5, 0.45] : [0.95, 1.25, 0.85])[j] * k * (f === 1 ? this.indexK[s] : 1); _q.setFromAxisAngle(_v.set(0, 0, 1), a); b.quaternion.multiply(_q); }));
     }
   }
   // Curl the fingers of a hand: k 0 (open) to 1 (gripping).
-  grip(side, k) { this.curl[side] = k; }
+  grip(side, k, indexK = 1) { this.curl[side] = k; this.indexK[side] = indexK; }               // (indexK: how far the index finger curls: less on a trigger hand, so it lies along the guard)
   gripFingers() {
     for (const s of ['L', 'R']) {
       const k = this.curl[s]; if (k === this.curlPose[s]) continue; this.curlPose[s] = k;
