@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { Mocap } from './mocap.js';
 
 export const PEOPLE = {
   agent:   { name: 'Agent',   file: 'assets/people/agent.glb',   sw: [0x202022, 0x1a1a1c] },
@@ -29,7 +30,8 @@ export const COPS = {
 export const DEFAULT_PERSON = 'agent';
 export const personKey = k => (PEOPLE[k] ? k : DEFAULT_PERSON);
 
-const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), DOWN = new THREE.Vector3(0, -1, 0);
+const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), DOWN = new THREE.Vector3(0, -1, 0), _w = new THREE.Quaternion(), _qm = new THREE.Quaternion(), _I = new THREE.Quaternion();
+const LEGS = new Set(['Bip01', 'Bip01_Pelvis', 'Bip01_L_Thigh', 'Bip01_L_Calf', 'Bip01_L_Foot', 'Bip01_L_Toe0', 'Bip01_R_Thigh', 'Bip01_R_Calf', 'Bip01_R_Foot', 'Bip01_R_Toe0']);
 const templates = new Map();         // key -> Promise of the loaded scene (cloned for each person)
 let aniso = 4;
 export function setPeopleAnisotropy(n) { aniso = n; }
@@ -39,8 +41,8 @@ function template(key) {
   if (!templates.has(key)) templates.set(key, new GLTFLoader().loadAsync(def.file).then(g => g.scene).catch(e => { templates.delete(key); throw e; }));
   return templates.get(key);
 }
-export const preload = key => template(key);
-export async function loadPerson(key) { key = COPS[key] ? key : personKey(key); const t = await template(key); return new Person(key, cloneSkinned(t)); }
+export const preload = key => { Mocap.load(); return template(key); };
+export async function loadPerson(key) { key = COPS[key] ? key : personKey(key); const [t] = await Promise.all([template(key), Mocap.load()]); return new Person(key, cloneSkinned(t)); }
 
 // The real bones, parents first: [bone, the child it points at (to find its rest direction), which stick joint drives it, straighten (an arm)].
 const ARMS = ['L', 'R'].flatMap(s => [[`Bip01_${s}_UpperArm`, `Bip01_${s}_Forearm`], [`Bip01_${s}_Forearm`, `Bip01_${s}_Hand`], [`Bip01_${s}_Hand`, `Bip01_${s}_Finger2`]]);
@@ -86,6 +88,28 @@ export class Person {
     this.restFingers = new Map(); for (const s of ['L', 'R']) for (const chain of this.fingers[s]) for (const b of chain) this.restFingers.set(b, b.quaternion.clone());
     this.D = {}; for (const n of ['pelvis', 'spine', 'spine1', 'spine2', 'torso', 'neck', 'head', 'shL', 'elL', 'wrL', 'shR', 'elR', 'wrR', 'hipL', 'knL', 'anL', 'hipR', 'knR', 'anR']) this.D[n] = new THREE.Quaternion();
     this.curl = { L: 0, R: 0 }; this.curlPose = { L: null, R: null };
+    // The face: eyelids and eyeballs. Each is moved in the face's own directions (found once, in the rest pose), so it works whichever way the head is turned.
+    this.face = {}; this.blinkIn = 1 + Math.random() * 3; this.blinkT = 9; this.gazeIn = 0.5; this.gaze = { x: 0, y: 0, tx: 0, ty: 0 }; this.faceOn = true;
+    for (const n of ['Bip01_LEyeBlinkTop', 'Bip01_REyeBlinkTop', 'Bip01_LEyeBlinkBottom', 'Bip01_REyeBlinkBottom', 'Bip01_LEye', 'Bip01_REye']) {
+      const b = this.bones[n]; if (!b || !b.parent) continue;
+      const pq = b.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+      this.face[n] = { b, p0: b.position.clone(), q0: b.quaternion.clone(), down: new THREE.Vector3(0, -1, 0).applyQuaternion(pq), yaw: new THREE.Vector3(0, 1, 0).applyQuaternion(pq), pitch: new THREE.Vector3(1, 0, 0).applyQuaternion(pq) };
+    }
+  }
+  // Blinking (every few seconds, sometimes twice) and the eyes moving about a little. dt in seconds.
+  updateFace(dt) {
+    if (!this.faceOn) return;
+    this.blinkIn -= dt; if (this.blinkIn <= 0) { this.blinkT = 0; this.blinkIn = 2.2 + Math.random() * 4.5; if (Math.random() < 0.18) this.blinkIn = 0.35; }
+    this.blinkT += dt;
+    const c = this.blinkT < 0.07 ? this.blinkT / 0.07 : this.blinkT < 0.19 ? 1 - (this.blinkT - 0.07) / 0.12 : 0;           // lids: down in 70 ms, up in 120 ms
+    this.gazeIn -= dt; if (this.gazeIn <= 0) { this.gazeIn = 0.7 + Math.random() * 2.2; this.gaze.tx = (Math.random() - 0.5) * 0.28; this.gaze.ty = (Math.random() - 0.5) * 0.14; }
+    const k = 1 - Math.exp(-dt * 22); this.gaze.x += (this.gaze.tx - this.gaze.x) * k; this.gaze.y += (this.gaze.ty - this.gaze.y) * k;
+    for (const n in this.face) {
+      const f = this.face[n];
+      if (/Top$/.test(n)) f.b.position.copy(f.p0).addScaledVector(f.down, 0.85 * c);
+      else if (/Bottom$/.test(n)) f.b.position.copy(f.p0).addScaledVector(f.down, -0.4 * c);
+      else { _q.setFromAxisAngle(f.yaw, this.gaze.x * (1 - 0.6 * c)); _qm.setFromAxisAngle(f.pitch, this.gaze.y); f.b.quaternion.copy(_q).multiply(_qm).multiply(f.q0); }
+    }
   }
   heightNow() { const box = new THREE.Box3(); box.setFromObject(this.scene, true); return box.max.y - box.min.y; }
 
@@ -115,6 +139,68 @@ export class Person {
     // The hips rise and fall with the stick figure (its legs are a little longer, so scaled down).
     this.bones.Bip01.position.y = this.hipY0 + (B.hips.position.y - 0.93) * 89;
     this.gripFingers();
+  }
+  // The stick skeleton's rotation for a bone, as the real bone's world orientation (shared by pose and poseMocap).
+  proxyWorld(e, dOf) {
+    const d = dOf[e.name], W = _w; if (d) W.copy(d); else W.identity();
+    if (e.S) W.multiply(e.S);
+    return W.multiply(e.R);
+  }
+  setupD(B) {
+    const D = this.D, lh = B.hips.quaternion, lt = B.torso.quaternion, lhd = B.head.quaternion;
+    D.pelvis.copy(lh); D.torso.copy(lh).multiply(lt);
+    D.spine.copy(lh).multiply(_q.identity().slerp(lt, 0.34)); D.spine1.copy(lh).multiply(_q.identity().slerp(lt, 0.67)); D.spine2.copy(D.torso);
+    D.neck.copy(D.torso).multiply(_q.identity().slerp(lhd, 0.4)); D.head.copy(D.torso).multiply(lhd);
+    for (const s of ['L', 'R']) {
+      const j = s === 'L' ? 'R' : 'L';
+      D['sh' + s].copy(D.torso).multiply(B['shoulder' + j].quaternion); D['el' + s].copy(D['sh' + s]).multiply(B['elbow' + j].quaternion); D['wr' + s].copy(D['el' + s]).multiply(B['wrist' + j].quaternion);
+      D['hip' + s].copy(lh).multiply(B['hipJ' + j].quaternion); D['kn' + s].copy(D['hip' + s]).multiply(B['knee' + j].quaternion); D['an' + s].copy(D['kn' + s]).multiply(B['ankle' + j].quaternion);
+    }
+    const D2 = this.D;
+    return {
+      Bip01: null, Bip01_Pelvis: D2.pelvis, Bip01_Spine: D2.spine, Bip01_Spine1: D2.spine1, Bip01_Spine2: D2.spine2, Bip01_Neck: D2.neck, Bip01_Head: D2.head, Bip01_L_Clavicle: D2.torso, Bip01_R_Clavicle: D2.torso,
+      Bip01_L_UpperArm: D2.shL, Bip01_L_Forearm: D2.elL, Bip01_L_Hand: D2.wrL, Bip01_R_UpperArm: D2.shR, Bip01_R_Forearm: D2.elR, Bip01_R_Hand: D2.wrR,
+      Bip01_L_Thigh: D2.hipL, Bip01_L_Calf: D2.knL, Bip01_L_Foot: D2.anL, Bip01_L_Toe0: D2.anL, Bip01_R_Thigh: D2.hipR, Bip01_R_Calf: D2.knR, Bip01_R_Foot: D2.anR, Bip01_R_Toe0: D2.anR,
+    };
+  }
+  // Pose with recorded motion (mocap.js) underneath and the stick skeleton laid over it where the game needs to be in charge:
+  //   o.speed (m/s), o.phase (cycles), o.t (seconds): which recorded cycles, and where in them;
+  //   o.pLegs (0..1): how much of the legs, hips and root come from the stick skeleton instead (crouching, in the air, knocked down);
+  //   o.pUpper (0..1): the same for the spine, head, shoulders and arms (aiming a weapon, and so on).
+  poseMocap(B, o) {
+    if (!Mocap.ready) { this.pose(B); return false; }
+    const nB = Mocap.bones.length;
+    if (!this.mq) { this.mq = new Float32Array(nB * 4); this.mroot = new Float32Array(3); this.mbones = Mocap.bones.map(n => this.bones[n] || null); this.driven = new Set(this.order.map(e => e.name)); this.mi = {}; Mocap.bones.forEach((n, i) => { this.mi[n] = i; }); }
+    Mocap.evaluate(this.mq, this.mroot, o.speed, o.phase, o.t); this.curlPose.L = this.curlPose.R = null;
+    const dOf = this.setupD(B), pL = o.pLegs, pU = o.pUpper;
+    for (const e of this.order) {
+      const n = e.name, k = this.mi[n], qm = k !== undefined ? _qm.fromArray(this.mq, k * 4) : _qm.copy(e.local0);
+      const upper = !LEGS.has(n), pw = n === 'Bip01' ? pL : upper ? pU : pL;
+      const Wp = e.parent ? this.rest[e.parent].W : _I;
+      if (pw > 0.001) {
+        const wp = this.proxyWorld(e, dOf);
+        _q.copy(Wp).invert().multiply(wp);                                  // the stick skeleton's rotation, relative to the real parent
+        if (pw < 0.999) qm.slerp(_q, pw); else qm.copy(_q);
+      }
+      e.b.quaternion.copy(qm); e.W.copy(Wp).multiply(qm);
+    }
+    // The hip bone's position: the recorded bounce and sway, or the stick skeleton's height.
+    const proxyY = this.hipY0 + (B.hips.position.y - 0.93) * 89, mocapY = this.mroot[1] * this.hipScale();
+    this.bones.Bip01.position.set(this.mroot[0] * (1 - pL), proxyY * pL + mocapY * (1 - pL), this.mroot[2] * (1 - pL));
+    // The fingers: the relaxed hand of the recording, curled round whatever is held.
+    for (let i = 0; i < nB; i++) {
+      const b = this.mbones[i]; if (!b || this.driven.has(Mocap.bones[i])) continue;
+      b.quaternion.fromArray(this.mq, i * 4);
+    }
+    this.curlFingers();
+    return true;
+  }
+  hipScale() { return this._hs || (this._hs = this.hipY0 / 89.5); }
+  curlFingers() {
+    for (const s of ['L', 'R']) {
+      const k = this.curl[s]; if (!k) continue;
+      this.fingers[s].forEach((chain, f) => chain.forEach((b, j) => { const a = (f === 0 ? [0.25, 0.5, 0.45] : [0.95, 1.25, 0.85])[j] * k; _q.setFromAxisAngle(_v.set(0, 0, 1), a); b.quaternion.multiply(_q); }));
+    }
   }
   // Curl the fingers of a hand: k 0 (open) to 1 (gripping).
   grip(side, k) { this.curl[side] = k; }

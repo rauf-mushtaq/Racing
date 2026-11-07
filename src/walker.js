@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { animate, buildRig, PERSON_H } from './person.js';
 import { makeSmoothFigure } from './figure.js';
 import { loadPerson, personKey, COPS } from './people.js';
+import { Mocap } from './mocap.js';
 import { groundAt, isWater, coastX, WORLD_LIM } from './world.js';
 import { queryColliders, EDGE } from './city.js';
 import { clamp, damp, lerp, wrapAngle } from './util.js';
@@ -111,17 +112,25 @@ export class Walker {
     if (this.grounded) this.air = damp(this.air, 0, 18, dt); else { const a = clamp(Math.abs(this.vy) / 5, 0.45, 1); this.air = this.vy > 0 ? -a : a; }
     // Animation.
     this.run = clamp((this.speed - 1.6) / 4.8, 0, 1);
-    const stride = lerp(1.35, 2.55, this.run);
+    this.vs = damp(this.vs || 0, this.speed, 9, dt);                                          // (the speed the recorded cycles are chosen by: smoothed)
+    const stride = Mocap.ready ? Mocap.strideAt(this.vs) : lerp(1.35, 2.55, this.run);
     const back = aiming && (this.vx * Math.sin(this.h) + this.vz * Math.cos(this.h)) < -0.2 ? -1 : 1;       // backing away: the stride runs the other way
     const before = this.phase; this.phase += back * this.speed * dt / stride * Math.PI * 2 * (this.grounded ? 1 : 0.35);
-    if (this.grounded && this.speed > 0.6 && Math.floor(before / Math.PI) !== Math.floor(this.phase / Math.PI) && this.onStep) this.onStep(clamp(0.25 + this.speed * 0.1, 0.2, 0.9) * (this.crouching ? 0.45 : 1), this.kind);
+    if (this.grounded && this.speed > 0.6 && Math.floor((before - Math.PI / 2) / Math.PI) !== Math.floor((this.phase - Math.PI / 2) / Math.PI) && this.onStep) this.onStep(clamp(0.25 + this.speed * 0.1, 0.2, 0.9) * (this.crouching ? 0.45 : 1), this.kind);
     this.pose(dt);
   }
 
   pose(dt) {
     const B = this.rig, armed = this.arms && this.arms.draw > 0.001;
     animate(B, { phase: this.phase, speed: this.speed, run: this.run, crouch: this.crouch, air: this.air, t: this.t, turn: this.turn, down: this.down, look: this.look, weapon: armed ? this.arms : null });
-    if (this.person) { this.person.pose(B); this.person.grip('R', armed ? 1 : 0); this.person.grip('L', armed && !this.arms.cfg.one ? 1 : 0); }
+    if (this.person) {
+      this.person.grip('R', armed ? 1 : 0); this.person.grip('L', armed && !this.arms.cfg.one ? 1 : 0);
+      // Recorded walking, running and standing; the stick skeleton takes over the legs when crouching, in the air or knocked down, and the arms and spine with a gun up.
+      const air = Math.abs(this.air), wk = armed ? this.arms.draw * (1 - air * 0.85) * (1 - this.down) : 0;
+      const pLegs = clamp(this.crouch * 1.3 + air * 1.3 + this.down * 3, 0, 1), pUpper = clamp(wk + air * 1.3 + this.down * 3 + this.crouch * 0.9, 0, 1);
+      this.person.poseMocap(B, { speed: this.vs || 0, phase: this.phase / (Math.PI * 2), t: this.t, pLegs, pUpper });
+      this.person.updateFace(dt);
+    }
     this.mesh.position.set(this.x, this.y + this.down * 0.13, this.z);
     this.mesh.rotation.y = this.h;
     if (armed && this.placeWeapon) { this.mesh.updateMatrixWorld(true); this.placeWeapon(this); }      // the gun goes where the hand is
