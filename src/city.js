@@ -46,6 +46,7 @@ function removeColliders(list) {
   for (const c of list) cellsOf(c, k => { const a = grid.get(k); if (!a) return; const i = a.indexOf(c); if (i >= 0) a.splice(i, 1); if (!a.length) grid.delete(k); });
 }
 export { addCollider, removeColliders };
+export const colliderCount = () => { let n = 0; for (const a of grid.values()) n += a.length; return n; };       // (for the tests: nothing may be left in the street by a region that is gone)
 // Street furniture that can be smashed. Each such collider carries `brk` (what it is and which instance of its instanced mesh);
 // breaking one hides that instance, removes the collider and remembers it, so it stays broken when the region streams back in.
 const BROKEN = new Set();
@@ -330,7 +331,7 @@ export class City {
     for (let ri = Math.max(0, pi - radius); ri <= Math.min(NR - 1, pi + radius); ri++)
       for (let rj = Math.max(0, pj - radius); rj <= Math.min(NR - 1, pj + radius); rj++) list.push([ri, rj, Math.hypot(ri - pi, rj - pj)]);
     list.sort((a, b) => a[2] - b[2]);
-    this.deadline = Infinity;
+    this.deadline = Infinity; this.dropJob();
     for (let k = 0; k < list.length; k++) {
       const [ri, rj] = list[k];
       if (!this.regions.has(ri + ',' + rj)) { const gen = this.genRegion(ri, rj); let r; do { r = gen.next(); } while (!r.done); this.finish(ri, rj, r.value); }
@@ -341,7 +342,7 @@ export class City {
 
   // The same, all at once (a short hitch): for jumping to somewhere far away.
   loadNow(x, z, radius) {
-    const [pi, pj] = this.regionAt(x, z); this.deadline = Infinity;
+    const [pi, pj] = this.regionAt(x, z); this.deadline = Infinity; this.dropJob();
     for (let ri = Math.max(0, pi - radius); ri <= Math.min(NR - 1, pi + radius); ri++) for (let rj = Math.max(0, pj - radius); rj <= Math.min(NR - 1, pj + radius); rj++) {
       if (this.regions.has(ri + ',' + rj)) continue;
       const gen = this.genRegion(ri, rj); let r; do { r = gen.next(); } while (!r.done); this.finish(ri, rj, r.value);
@@ -358,7 +359,7 @@ export class City {
         r.detail.visible = dist < Q.detailR; r.trees.visible = dist < Q.treeR;
       }
     }
-    if (this.job && Math.max(Math.abs(this.job.ri - pi), Math.abs(this.job.rj - pj)) > lr + 1) this.job = null;
+    if (this.job && Math.max(Math.abs(this.job.ri - pi), Math.abs(this.job.rj - pj)) > lr + 1) this.dropJob();
     const t0 = performance.now(); this.deadline = t0 + budget;
     while (performance.now() < this.deadline) {
       if (!this.job) {
@@ -368,12 +369,17 @@ export class City {
           const d = Math.hypot(ri - pi, rj - pj); if (d < bd) { bd = d; best = [ri, rj]; }
         }
         if (!best) return;
-        this.job = { ri: best[0], rj: best[1], gen: this.genRegion(best[0], best[1]) };
+        const ctx = this.newCtx(best[0], best[1]);
+        this.job = { ri: best[0], rj: best[1], ctx, gen: this.genRegion(best[0], best[1], ctx), made: false };
       }
       const r = this.job.gen.next();
-      if (r.done) { this.finish(this.job.ri, this.job.rj, r.value); this.job = null; }
+      if (!r.done) continue;
+      if (!this.job.made) { this.job.made = true; this.job.gen = this.finishGen(this.job.ri, this.job.rj, this.job.ctx); }       // (the pieces are built, now hand them to the scene: in steps too)
+      else this.job = null;
     }
   }
+  // Give up on the region being built (the player has gone far from it): its colliders were already put in the street, so take them out.
+  dropJob() { if (this.job) { removeColliders(this.job.ctx.colliders); this.job = null; } }
 
   unload(k, r) {
     this.group.remove(r.group);
@@ -392,17 +398,22 @@ export class City {
   }
 
   // --- Making a region ---------------------------------------------------------------
-  *genRegion(ri, rj) {
-    const x0 = -N * SP + ri * REGION, z0 = -N * SP + rj * REGION, ctx = new Ctx(hillyArea(x0, z0, x0 + REGION, z0 + REGION));
+  newCtx(ri, rj) { const x0 = -N * SP + ri * REGION, z0 = -N * SP + rj * REGION; return new Ctx(hillyArea(x0, z0, x0 + REGION, z0 + REGION)); }
+  *genRegion(ri, rj, ctx = this.newCtx(ri, rj)) {
     for (let bi = 0; bi < R; bi++) for (let bj = 0; bj < R; bj++) {
       yield* this.genBlock(ctx, -N + ri * R + bi, -N + rj * R + bj);
       yield;
     }
-    this.avenues(ctx, ri, rj);
+    yield* this.avenues(ctx, ri, rj);
     return ctx;
   }
 
-  finish(ri, rj, ctx) {
+  finish(ri, rj, ctx) { const g = this.finishGen(ri, rj, ctx); while (!g.next().done); }
+  // Hand a built region to the scene. Turning the pieces into meshes and instanced props is a few milliseconds of work (more on a tablet), so it is
+  // done in steps too, with a look at the clock between them (`this.deadline` is Infinity when everything is wanted at once).
+  *finishGen(ri, rj, ctx) {
+    const over = () => performance.now() > this.deadline;
+    if (this.regions.has(ri + ',' + rj)) this.unload(ri + ',' + rj, this.regions.get(ri + ',' + rj));         // (never two of the same region)
     const [cx, cz] = this.regionCenter(ri, rj);
     const region = { ri, rj, group: new THREE.Group(), far: new THREE.Group(), detail: new THREE.Group(), trees: new THREE.Group(), colliders: ctx.colliders, parked: ctx.L.parked, lamps: { Z: {}, X: {} } };
     region.group.add(region.far, region.detail, region.trees);
@@ -416,8 +427,8 @@ export class City {
     if (ctx.hilly) region.far.add(this.hillGround(ri, rj));
     const rx0 = -N * SP + ri * REGION, rz0 = -N * SP + rj * REGION;
     const set = this.matCut && this.nearRiver(ri, rj) ? this.matCut : this.matRoad && nearAvenueArea(rx0, rz0, rx0 + REGION, rz0 + REGION) ? this.matRoad : null;       // (only regions by the river or a road across the grid need materials that cut it away)
-    for (const k of FAR_KEYS) mesh(k, region.far, true, set);
-    for (const k of DETAIL_KEYS) mesh(k, region.detail, false);
+    for (const k of FAR_KEYS) { mesh(k, region.far, true, set); if (over()) yield; }
+    for (const k of DETAIL_KEYS) { mesh(k, region.detail, false); if (over()) yield; }
     const P = this.props, L = ctx.L;
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
     const inst = (geom, mat, list, place, cast, grp, tint) => {
@@ -439,6 +450,7 @@ export class City {
     inst(P.geo.bushCards, P.mat.treeCards, L.bushes, placeTree, false, region.trees, leaf);
     inst(P.geo.palmTrunk, P.mat.palmTrunk, L.palms, placeTree, true, region.trees);
     inst(P.geo.palmFronds, P.mat.palmFronds, L.palms, placeTree, true, region.trees, leaf);
+    if (over()) yield;
     const placeYaw = it => at(it[0], it[3], it[1], it[2], 1);
     const ims = { lamp: [], pole: [], hydrant: [], bin: [], bench: [] };
     const keep = (k, im) => { if (im) ims[k].push(im); return im; };
@@ -450,6 +462,7 @@ export class City {
     keep('hydrant', inst(P.geo.hydrant, P.mat.hydrant, L.hydrants, placeYaw, false, region.detail));
     keep('bin', inst(P.geo.bin, P.mat.bin, L.bins, placeYaw, false, region.detail));
     keep('bench', inst(P.geo.bench, P.mat.bench, L.benches, placeYaw, false, region.detail));
+    if (over()) yield;
     inst(P.geo.billFrame, P.mat.billFrame, L.bills, it => atN(it.x, it.y, it.z, it.yaw, 1), true, region.far);
     inst(P.geo.billFace, P.mat.billFace, L.bills, it => atN(it.x, it.y, it.z, it.yaw, 1), false, region.far);
     // Wires between neighbouring poles on the same pavement.
@@ -467,6 +480,7 @@ export class City {
         }
       }
     }
+    if (over()) yield;
     if (pts.length) { const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); region.detail.add(new THREE.LineSegments(wg, P.mat.wire)); }
     // Traffic signals: a pole and arm, two heads, and a red, amber and green lamp on each.
     const all = [...L.sigZ, ...L.sigX];
@@ -504,6 +518,7 @@ export class City {
     gb.walk.cap(pad, CURB, 6, WHITE);
     gb.curb.extrude(pad, 0, CURB, 4.5, 4.5, WHITE, 0, true);
     this.outerStrip(ctx, i, j, b, rnd);
+    if (performance.now() > this.deadline) yield;
 
     // Street furniture along the four sides of the block.
     const sides = [
@@ -512,7 +527,8 @@ export class City {
       { line: j, axis: 'z', c: b.z0, from: b.x0, to: b.x1, out: -1 },
       { line: j + 1, axis: 'z', c: b.z1, from: b.x0, to: b.x1, out: 1 },
     ];
-    sides.forEach((s, si) => {
+    for (const [si, s] of sides.entries()) {
+      if (performance.now() > this.deadline) yield;
       const blvd = isBlvd(s.line), len = s.to - s.from, nLamps = Math.max(2, Math.round(len / 34));
       for (let n = 0; n < nLamps; n++) {
         const t = s.from + 8 + (len - 16) * (n / (nLamps - 1)), p = s.c + s.out * -0.8;
@@ -538,11 +554,13 @@ export class City {
           else if (rnd() < 0.8) this.tree(ctx, tx, tz, 0.85 + rnd() * 0.5, CURB, false);
         }
       }
-    });
+    }
 
     // The roads this block owns: the avenue on its west side, the street on its
     // north side, and (on the far edge of the map) the ring roads.
+    if (performance.now() > this.deadline) yield;
     this.segment(ctx, 'x', i, j, rnd); this.segment(ctx, 'z', j, i, rnd);
+    if (performance.now() > this.deadline) yield;
     if (i === N - 1) this.segment(ctx, 'x', N, j, rnd);
     if (j === N - 1) this.segment(ctx, 'z', N, i, rnd);
     this.junction(ctx, i, j);
@@ -582,7 +600,7 @@ export class City {
     for (const lot of lots) {
       ctx.setLot(lot);
       if (this.nearWater(lot)) { this.riverLot(ctx, lot, rnd); continue; }
-      if (this.avenueLot(ctx, lot, zone, d, rnd)) continue;
+      if (yield* this.avenueLot(ctx, lot, zone, d, rnd)) continue;
       const faces = [];
       if (lot.x0 - ix0 < 0.5) faces.push({ dir: [-1, 0], line: i, axis: 'x' });
       if (ix1 - lot.x1 < 0.5) faces.push({ dir: [1, 0], line: i + 1, axis: 'x' });
@@ -939,12 +957,13 @@ export class City {
   // --- The roads that are not on the grid (avenues.js) -------------------------------------------------------------------
   // The kerb along each edge, the markings down the middle and along the lanes, lamps and trees along the pavements. Each stretch is made by the
   // region its middle is in.
-  avenues(ctx, ri, rj) {
+  *avenues(ctx, ri, rj) {
     const x0 = -N * SP + ri * REGION, z0 = -N * SP + rj * REGION, x1 = x0 + REGION, z1 = z0 + REGION, G = ctx.gb, L = ctx.L, rnd = mulberry32(Math.imul(ri + 11, 7919) ^ Math.imul(rj + 7, 104729));
     const lineW = new THREE.Color(0.9, 0.9, 0.86), lineY = new THREE.Color(0.92, 0.7, 0.2), uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
     const onGrid = (x, z) => { const kx = clamp(Math.round(x / SP), -N, N), kz = clamp(Math.round(z / SP), -N, N); return Math.abs(x - kx * SP) < hw(kx) + 2 || Math.abs(z - kz * SP) < hw(kz) + 2; };
     for (const A of AVENUES) for (let i = 0; i < A.n - 1; i++) {
       const mx = (A.x[i] + A.x[i + 1]) / 2, mz = (A.z[i] + A.z[i + 1]) / 2; if (mx < x0 || mx >= x1 || mz < z0 || mz >= z1) continue;
+      if (performance.now() > this.deadline) yield;
       const ax = A.x[i], az = A.z[i], bx = A.x[i + 1], bz = A.z[i + 1], nx = -A.tz[i], nz = A.tx[i], len = Math.hypot(bx - ax, bz - az), s0 = A.s[i];
       const P = (o, f, y) => [ax + (bx - ax) * f + nx * o, y, az + (bz - az) * f + nz * o];
       const strip = (o0, o1, col, f0 = 0, f1 = 1) => quadToward(G.amark, P(o0, f0, 0.012), P(o0, f1, 0.012), P(o1, f1, 0.012), P(o1, f0, 0.012), uv, col, [0, 1, 0]);
@@ -969,14 +988,14 @@ export class City {
   }
   // A lot that a road across the grid goes through or by. A diagonal cuts it into wedges: a building on each (shaped to it), or a little park where
   // too small. A winding road just turns it to lawn.
-  avenueLot(ctx, lot, zone, d, rnd) {
+  *avenueLot(ctx, lot, zone, d, rnd) {
     const hit = lotAvenue(lot, 1.5); if (!hit) return false;
     if (hit.a.kind === 'hill') { if (hit.d < hit.a.W + 7) { this.riverLot(ctx, lot, rnd); return true; } return false; }
     const rect = { x0: lot.x0, z0: lot.z0, x1: lot.x1, z1: lot.z1 };
     for (const poly of clipLot(rect, hit)) {
       const inner = offsetPoly(poly, -(1.1 + rnd() * 1.1)), a = polyArea(inner), per = inner.reduce((s, p, k) => s + Math.hypot(p[0] - inner[(k + 1) % inner.length][0], p[1] - inner[(k + 1) % inner.length][1]), 0);
       if (inner.length < 3 || a < 330 || 2 * a / per < 4.6 || polyArea(poly) < 80) this.pocketPark(ctx, poly, rnd); else this.polyBuilding(ctx, ccw(inner), zone, d, rnd);
-      if (performance.now() > this.deadline) break;
+      if (performance.now() > this.deadline) yield;
     }
     return true;
   }

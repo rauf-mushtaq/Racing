@@ -109,6 +109,9 @@
     background: rgba(12,10,20,0.55); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 8px 14px; font-weight: 700; font-size: 14px; letter-spacing: 1px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   body.touchmode #cam-btn, body.touchmode #map-btn { display: none; }
   body.touchmode #fps { right: auto; bottom: auto; left: max(16px, env(safe-area-inset-left)); top: calc(max(16px, env(safe-area-inset-top)) + 64px); text-align: left; }
+  #bench { position: absolute; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%); display: flex; gap: 12px; align-items: center; padding: 6px 8px 6px 14px; border-radius: 999px; background: rgba(0,0,0,.55); font: 700 14px Barlow, sans-serif; letter-spacing: 1px; z-index: 30; pointer-events: auto; }
+  #bench.hidden { display: none; }
+  #bench button { font: 800 13px Barlow, sans-serif; letter-spacing: 2px; color: #fff; background: #c0392b; border: 0; border-radius: 999px; padding: 7px 14px; cursor: pointer; }
   #fps { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: 12px; font: 600 13px Barlow, monospace; opacity: 0.8; text-shadow: 0 1px 3px #000; white-space: pre; text-align: right; }
   #bigmap-c { height: min(80vh, 118vw); width: auto; aspect-ratio: 1100 / 1400; border-radius: 10px; display: block; cursor: crosshair; touch-action: manipulation; }
   #title-card { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-weight: 700; font-size: 14px; letter-spacing: 3px; opacity: 0.6; text-transform: uppercase; }
@@ -250,6 +253,7 @@
   <button id="cam-btn" title="Change camera (C)"><span class="ic">◉</span> <span id="cam-name"></span></button>
   <button id="map-btn" title="City map (Tab)"><span class="ic">⌖</span> MAP</button>
   <div id="fps" class="hidden"></div>
+  <div id="bench" class="hidden"><span id="bench-t"></span><button id="bench-stop">STOP</button></div>
   <div id="xhair"><i class="u"></i><i class="d"></i><i class="l"></i><i class="r"></i><b></b></div>
   <div id="wpn">
     <div id="wpn-slots"></div>

@@ -8,9 +8,10 @@ import { setPaint, PAINTS } from './carModel.js';
 import { PEOPLE, personKey } from './people.js';
 import { TOD_NAME } from './tod.js';
 import { SPEC } from './vehicle.js';
+import { toText } from './bench.js';
 
 export function initMenus(C) {
-  const { game, chaseMusic, car, input, START, quality, startEvent, startChase, setState, resumeFreeRoam, togglePause, toggleFullscreen, startFree, respawnOnRoad, resetCar, medalFor, exitSpot, endChase, applyWeather, applyVolume, applyAids } = C;
+  const { bench, startBench, game, chaseMusic, car, input, START, quality, startEvent, startChase, setState, resumeFreeRoam, togglePause, toggleFullscreen, startFree, respawnOnRoad, resetCar, medalFor, exitSpot, endChase, applyWeather, applyVolume, applyAids } = C;
   // ---------------------------------------------------------------------------
   // Menus
   // ---------------------------------------------------------------------------
@@ -130,6 +131,7 @@ export function initMenus(C) {
     el.innerHTML = `<h2>SETTINGS</h2>${rows}
       <div class="row"><label>Steering wheel & pedals<br><span class="hint" id="wheel-state">${w.gas ? 'Set up' : 'Not set up'}</span></label><div class="seg"><button id="wheel-setup">Set up</button><button id="wheel-clear">Clear</button></div></div>
       ${musicRowHtml()}
+      <div class="row"><label>Performance test<br><span class="hint">A drive of about a minute through the busiest places; shows the frame rate and any stutter, place by place${settings.benchLast ? '. Last time: ' + settings.benchLast.fps + ' fps (' + settings.benchLast.quality + ')' : ''}.</span></label><div class="seg"><button id="bench-run">Run</button>${settings.benchLast ? '<button id="bench-last">Last result</button>' : ''}</div></div>
       <p class="hint" style="margin:10px 0 0">Graphics: ${quality}, ${GPU.renderer || 'unknown graphics chip'}, multisampling ${Q.msaa}×, ray tracing ${Q.rtMode}${Q.gi ? '' : ' (no bounced light)'}${Q.ssr ? '' : ' (no reflections)'}. If you see coloured speckle, try Ray tracing: Off.</p>
       <div class="row"><label>Fullscreen <span class="hint">(Shift+F)</span></label><div class="seg"><button id="fs-toggle">Toggle</button></div></div>`;
     el.classList.remove('hidden');
@@ -145,9 +147,31 @@ export function initMenus(C) {
       document.body.classList.toggle('tilt', settings.touchSteer === 'tilt');
     }));
     $('fs-toggle').addEventListener('click', toggleFullscreen);
+    $('bench-run').addEventListener('click', () => startBench());
+    if ($('bench-last')) $('bench-last').addEventListener('click', () => { el.classList.add('hidden'); showPanel(`<h2>LAST PERFORMANCE TEST</h2>${benchPres(settings.benchLast.text)}`); });
     $('wheel-clear').addEventListener('click', () => { settings.wheel = null; save(); $('wheel-state').textContent = 'Not set up'; });
     $('wheel-setup').addEventListener('click', () => wheelSetup());
   }
+  // The performance test's result: the numbers, the same as text that can be copied.
+  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  // The numbers as text in two blocks: the header lines (they wrap) and the table (it scrolls sideways if the screen is narrow).
+  const benchPres = text => { const [head, ...rest] = text.split('\n\n'); return `<pre id="bench-text" style="white-space:pre-wrap;word-break:break-word;font:600 12px/1.5 Barlow,sans-serif;background:rgba(0,0,0,.35);padding:10px 12px 0;border-radius:8px 8px 0 0;margin:0;user-select:text;-webkit-user-select:text">${esc(head)}</pre><pre style="white-space:pre;overflow-x:auto;font:600 11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;background:rgba(0,0,0,.35);padding:8px 12px 10px;border-radius:0 0 8px 8px;margin:0 0 12px;user-select:text;-webkit-user-select:text">${esc(rest.join('\n\n'))}</pre>`; };
+  function benchPanel(r) {
+    const text = toText(r), tint = r.all.fps >= 55 && r.all.low >= 40 ? '#7be08a' : r.all.fps >= 40 && r.all.low >= 25 ? '#ffd166' : '#ff8a6a';
+    showPanel(`<h2>PERFORMANCE TEST</h2>
+      <p class="hint" style="font-size:20px;color:${tint};margin:6px 0 2px"><b>${Math.round(r.all.fps)} fps</b> on average, ${Math.round(r.all.low)} fps in the slowest 1% of frames</p>
+      <p class="hint" style="margin:0 0 10px">${r.verdict} Worst frame ${Math.round(r.all.worst)} ms; ${r.all.hitches} frames took over 50 ms. ${r.easeGpu || r.easeCpu ? 'The game eased some effects by itself while it ran. ' : ''}Resolution scale ${r.res0.toFixed(2)} → ${r.res1.toFixed(2)}.</p>
+      ${benchPres(text)}
+      <div class="row"><label>Send me these numbers<br><span class="hint" id="bench-copied">Copy them, then paste them into the chat.</span></label><div class="seg"><button id="bench-copy">Copy</button><button id="bench-again">Run again</button></div></div>`);
+    $('bench-copy').addEventListener('click', async () => {
+      let ok = false;
+      try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { /* not allowed here */ }
+      if (!ok) { const sel = getSelection(), rg = document.createRange(); rg.setStartBefore($('bench-text')); rg.setEndAfter($('bench-text').nextElementSibling); sel.removeAllRanges(); sel.addRange(rg); try { ok = document.execCommand('copy'); } catch (e) { /* no */ } }
+      $('bench-copied').textContent = ok ? 'Copied.' : 'Could not copy: touch and hold the numbers above to select and copy them.';
+    });
+    $('bench-again').addEventListener('click', () => startBench());
+  }
+  bench.onDone = r => { settings.benchLast = { when: r.when, fps: Math.round(r.all.fps), low: Math.round(r.all.low), quality, text: toText(r) }; save(); toMenu(); benchPanel(r); };
   function wheelSetup() {
     const steps = [['steer', 'Turn the wheel to the RIGHT'], ['gas', 'Press the THROTTLE pedal'], ['brake', 'Press the BRAKE pedal'], ['shiftUp', 'Pull the UPSHIFT paddle'], ['shiftDown', 'Pull the DOWNSHIFT paddle'], ['hand', 'Press a button for the HANDBRAKE'], ['nitro', 'Press a button for NITRO']];
     let i = 0;
@@ -199,7 +223,7 @@ export function initMenus(C) {
   }));
   document.querySelectorAll('[data-ce]').forEach(b => b.addEventListener('click', () => { if (b.dataset.ce === 'retry') { if (game.wanted) resumeFreeRoam(); else startChase(); } else toMenu(); }));
   function toMenu() {
-    endChase(); game.route = null; C.gates.clear(); game.onFoot = false; if (C.walker) C.walker.show(false); if (C.arsenal) C.arsenal.clear();
+    bench.stop(); endChase(); game.route = null; C.gates.clear(); game.onFoot = false; if (C.walker) C.walker.show(false); if (C.arsenal) C.arsenal.clear();
     resetCar(START.x, START.z, START.h);
     setState('menu'); hidePanel();
     document.querySelectorAll('[data-m]').forEach(x => x.classList.remove('sel'));

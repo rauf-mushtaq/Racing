@@ -190,6 +190,32 @@ try {
   const nSpots = await P.evaluate(async () => (await import('./src/buskers.js')).SPOTS.length);
   check('there are street performers all over the city', nSpots >= 30, 'spots ' + nSpots);
   check('the nearest performers appear (as real people) when you are close, with an audience, and play music', bk.pool > 0 && bk.spots.length > 0 && bk.visible && bk.spots.some(s => +s.split(':')[1] >= 2) && bk.notes > 5, JSON.stringify(bk));
+  // streaming: a region built a sliver of time at a time is the same as one built all at once, and nothing of a half-built one is left behind
+  const stm = await P.evaluate(async () => {
+    const g = window.__game, c = g.city, cm = await import('./src/city.js'), out = {};
+    const sig = r => { let v = 0, m = 0; r.group.traverse(o => { if (o.isMesh || o.isLineSegments) { m++; v += o.geometry.attributes.position.count; } if (o.isInstancedMesh) v += o.count / 1000; }); return JSON.stringify([m, Math.round(v * 1000) / 1000, r.colliders.length]); };
+    const build = (ri, rj, deadline) => { const key = ri + ',' + rj; if (c.regions.has(key)) c.unload(key, c.regions.get(key)); c.deadline = deadline; let n = 0; const gen = c.genRegion(ri, rj); let r; do { r = gen.next(); n++; } while (!r.done); const f = c.finishGen(ri, rj, r.value); while (!f.next().done) n++; const s = sig(c.regions.get(key)); c.unload(key, c.regions.get(key)); return { s, n }; };
+    out.same = []; out.slices = 0;
+    for (const [ri, rj] of [[1, 2], [4, 8], [2, 1], [7, 8], [6, 7]]) { const whole = build(ri, rj, Infinity), cut = build(ri, rj, 0); out.same.push(whole.s === cut.s); out.slices += cut.n; if (whole.s !== cut.s) out.diff = [ri, rj, whole.s, cut.s]; }
+    const before = cm.colliderCount(), [px, pz] = c.regionCenter(1, 2);
+    c.deadline = 0; for (const k of [...c.regions.keys()]) c.unload(k, c.regions.get(k));
+    const base = cm.colliderCount(), extra = c.group.children.length; out.base = base - before;
+    for (let k = 0; k < 6 && !(c.job && c.job.gen); k++) c.update(px, pz, 0.01);
+    for (let k = 0; k < 40; k++) c.update(px, pz, 0.05);                                                       // a few slices of work: a region is half made
+    out.during = cm.colliderCount() - base; out.job = !!c.job;
+    c.update(px + 4000, pz + 4000, 0.01);                                                                     // (far away: it is dropped)
+    out.after = cm.colliderCount() - base - [...c.regions.values()].reduce((a, r) => a + r.colliders.length, 0);
+    c.deadline = 0; for (let k = 0; k < 6 && !c.job; k++) c.update(px, pz, 0.01);
+    for (let k = 0; k < 40; k++) c.update(px, pz, 0.05);                                                       // one is being made again...
+    c.loadNow(px, pz, 1);                                                                                     // ...and a jump to the same place builds that very region at once
+    for (let k = 0; k < 400; k++) c.update(px, pz, 8);                                                        // (let anything left over finish)
+    out.orphans = c.group.children.length - c.regions.size - extra;
+    return out;
+  });
+  check('a region built in thin slices is exactly the one built all at once (hills, diagonals, downtown)', stm.same.every(Boolean) && !stm.diff, JSON.stringify(stm.diff));
+  check('building in slices really is in many small steps', stm.slices > 600, 'steps ' + stm.slices);
+  check('a half-made region that is given up leaves no invisible walls in the street', stm.after === 0 && stm.during !== undefined, JSON.stringify(stm));
+  check('jumping to where one is half made does not put two of the same region in the scene', stm.orphans === 0, JSON.stringify(stm));
   check('no script errors', A.logs.length === 0, A.logs.slice(0, 3).join(' | '));
 } catch (e) {
   check('map tests ran to the end', false, e.stack || String(e));

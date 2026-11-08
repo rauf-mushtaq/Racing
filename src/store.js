@@ -26,6 +26,7 @@ const defaults = {
   found: [],            // secret places you've discovered (shown on the map)
   wheel: null,          // learned steering wheel / pedal mapping
   chaseBest: null,      // fastest escape from the police, in seconds
+  benchLast: null,      // the last performance test (see bench.js): { when, fps, low, quality, text }
 };
 
 let data;

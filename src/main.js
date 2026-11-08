@@ -6,10 +6,10 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CSM } from 'three/addons/csm/CSM.js';
-import { $, clamp, damp, lerp, wrapAngle, LOW_POWER, fmtTime } from './util.js';
+import { $, clamp, damp, lerp, wrapAngle, LOW_POWER, IOS, fmtTime } from './util.js';
 import { settings, save } from './store.js';
 import { setAnisotropy, setTexScale, glowTex } from './textures.js';
-import { Q } from './quality.js';
+import { Q, GPU } from './quality.js';
 import { WIND } from './props.js';
 import { buildSky, placeSun, SUN_DIR, LIGHT_DIR, applyHDRI } from './sky.js';
 import { City, SP, N, EDGE, laneOffset, queryColliders, signalState, breakProp, WETNESS } from './city.js';
@@ -56,6 +56,8 @@ import { initMenus } from './menus.js';
 import { Profiler, PerfGuard } from './perf.js';
 import { SeatedDriver } from './seated.js';
 import { Heli } from './heli.js';
+import { Bench } from './bench.js';
+import { SPOTS } from './buskers.js';
 
 // Test and debugging hooks (window.__game, __cam, __freeze, __noRender, __fixedRes) exist only when the page is opened with ?debug
 const DEBUG = new URLSearchParams(location.search).has('debug');
@@ -702,8 +704,21 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { aud
 // ---------------------------------------------------------------------------
 // Menus (src/menus.js)
 // ---------------------------------------------------------------------------
+// The performance test (src/bench.js).
+const bench = new Bench({
+  car, game, spots: SPOTS, resetCar, loadNow: (x, z) => city.loadNow(x, z, 0),
+  info: () => ({ calls: lastInfo.calls, tris: lastInfo.tris, res: resScale, easeGpu: guard.gpu, easeCpu: guard.cpu, heap: performance.memory ? performance.memory.usedJSHeapSize / 1048576 : 0 }),
+  status(t) { const el = $('bench'); el.classList.toggle('hidden', !t); $('bench-t').textContent = t; },
+  env: () => ({ device: (IOS ? 'iPad/iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : /Windows/.test(navigator.userAgent) ? 'Windows' : /Mac/.test(navigator.userAgent) ? 'Mac' : 'other') + ` ${screen.width}x${screen.height} @${window.devicePixelRatio}x`, quality, canvas: `${renderer.domElement.width}x${renderer.domElement.height}`, rt: Q.rtMode, msaa: Q.msaa, gpu: GPU.renderer, tod: TOD_NAME }),
+});
+function startBench(o) {
+  endChase(); game.route = null; gates.clear(); game.onFoot = false; walker.show(false); if (arsenal) arsenal.clear();
+  $('panel').classList.add('hidden'); $('pause-panel').classList.add('hidden');
+  setState('free'); bench.start(o);
+}
+$('bench-stop').addEventListener('click', () => { bench.stop(); toMenu(); });
 const menus = initMenus({
-  game, chaseMusic, car, input, START, quality, startEvent, startChase, setState, resumeFreeRoam, togglePause, toggleFullscreen, startFree,
+  bench, startBench, game, chaseMusic, car, input, START, quality, startEvent, startChase, setState, resumeFreeRoam, togglePause, toggleFullscreen, startFree,
   respawnOnRoad, resetCar, medalFor, exitSpot, endChase, applyWeather, applyVolume, applyAids,
   crowdCount, setOutfitAll(k) { walker.setOutfit(k); if (seated) seated.setOutfit(k); }, get walker() { return walker; }, get hud() { return hud; }, get arsenal() { return arsenal; }, get traffic() { return traffic; }, get peds() { return peds; },
   get heroMesh() { return heroMesh; }, get gates() { return gates; }, get footCam() { return footCam; },
@@ -740,6 +755,7 @@ function onCar(t, j) { if (j / car.s.mass > 2.0) crime(0.5, 'car'); }
 function physics(dt, inp) {
   car.step(dt, inp, groundAt);
   car.onGrass = car.wheels[0].kind !== 'asphalt' && car.wheels[0].kind !== 'concrete';
+  if (bench.on) return;                                         // (the performance test drives through everything, so a crash cannot change what it measures)
   collideStatic(car, onHit, onBreak);
   collideTerrain(car, onHit);
   collideRiver(car, onHit);
@@ -1018,10 +1034,11 @@ function raceUpdate(dt) {
 let last = performance.now(), frameAvg = 16, adaptT = 0;
 function frame(now) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const real = now - last, dt = Math.min(0.05, real / 1000); last = now;
   if (game.state === 'loading' || game.ctxLost || (DEBUG && window.__freeze)) return;
   const t0 = performance.now();
   tick(dt);
+  if (bench.on) bench.sample(real, performance.now() - t0);
   const st = game.state;
   if (st === 'free' || st === 'race' || st === 'countdown') applyGuard(guard.sample(dt * 1000, performance.now() - t0, resScale <= 0.64));
 }
@@ -1033,7 +1050,7 @@ function tickBody(dt) {
   frameAvg = lerp(frameAvg, dt * 1000, 0.05);
 
   WIND.value = (performance.now() / 1000) % 3600;
-  const raw = driver.shape(input.read(dt), dt, car.speed);
+  const raw = driver.shape(bench.on ? bench.read(dt) : input.read(dt), dt, car.speed);
   const st = game.state;
   const driving = st === 'free' || st === 'race';
   const foot = !!game.onFoot && st === 'free';
@@ -1156,6 +1173,7 @@ function tickBody(dt) {
     $('loading').classList.add('hidden');
     setState('menu');
     requestAnimationFrame(t => { last = t; frame(t); });
+    if (new URLSearchParams(location.search).has('bench') && !DEBUG) setTimeout(() => startBench(), 600);      // (?bench: run the performance test as soon as the game is up)
     registerOffline();
   } catch (e) {
     console.error(e);
@@ -1180,4 +1198,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-if (DEBUG) window.__game = { get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+if (DEBUG) window.__game = { bench, startBench, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
