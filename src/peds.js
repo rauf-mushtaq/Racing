@@ -6,6 +6,7 @@ import { bodyParts, buildRig, animate, SKINS, HAIRS } from './person.js';
 import { figureMaterials } from './figure.js';
 import { N, SP, blockRect } from './city.js';
 import { groundAt } from './world.js';
+import { inWater } from './rivercourse.js';
 import { mulberry32, clamp, damp, wrapAngle } from './util.js';
 import { PEDS, loadPerson } from './people.js';
 import { Mocap } from './mocap.js';
@@ -153,6 +154,7 @@ export class Peds {
       if (p.state === 'down') {
         p.downT -= dt; p.vy -= 16 * dt; p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt; const g = groundAt(p.x, p.z).y;
         if (p.y <= g) { p.y = g; p.vy = 0; const k = Math.exp(-5 * dt); p.vx *= k; p.vz *= k; }
+        if (inWater(p.x, p.z)) { p.state = 'away'; continue; }                                         // (knocked into the river: gone; someone else turns up)
         p.lie = damp(p.lie, 1, 14, dt); p.speed = 0;
         if (p.downT <= 0) { p.state = 'panic'; p.panic = 4; p.lie = 0; this.relink(p); }
       } else {
@@ -166,7 +168,7 @@ export class Peds {
         if (p.ring && p.speed > 0.01) p.s += p.dir * p.speed * dt;
         if (p.ring) {
           const [x, z, tx, tz] = ringAt(p.ring, p.s); p.x = x; p.z = z; const th = Math.atan2(tx * p.dir, tz * p.dir);
-          p.h += wrapAngle(th - p.h) * Math.min(1, dt * (p.speed > 0.1 ? 7 : 2)); p.y = 0.15;
+          p.h += wrapAngle(th - p.h) * Math.min(1, dt * (p.speed > 0.1 ? 7 : 2)); p.y = groundAt(p.x, p.z).y;       // (on a bridge, the deck)
         }
         p.lie = damp(p.lie, 0, 8, dt);
         p.look = Math.sin(p.t * 0.5 + idx) * 0.4 * (p.state === 'idle' ? 1 : 0.3);

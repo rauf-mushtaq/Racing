@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { attachSSR } from './ssr.js';
 import { N, SP, hw, isBlvd, laneCount, laneOffset, EDGE } from './city.js';
 import { ROADS, groundAt } from './world.js';
+import { isRound, RB } from './junctions.js';
+import { inRiverBox } from './rivercourse.js';
 import { trafficModels } from './carModel.js';
 import { mulberry32, clamp, wrapAngle } from './util.js';
 
@@ -106,15 +108,43 @@ export class Traffic {
     const turnRight = !straight && (e1.rx * e2.dx + e1.rz * e2.dz) > 0;
     const lane2 = straight ? clamp(lane, 0, nl2 - 1) : turnRight ? nl2 - 1 : 0;
     const [q0] = this.lanePoints(to, next, lane2);
-    const pts = [p0, p1];
-    const ctrl = straight ? { x: (p1.x + q0.x) / 2, z: (p1.z + q0.z) / 2 } : (e1.dz !== 0 ? { x: p1.x, z: q0.z } : { x: q0.x, z: p1.z });
-    for (let k = 1; k <= 10; k++) {
-      const t = k / 10, u = 1 - t;
-      pts.push({ x: u * u * p1.x + 2 * u * t * ctrl.x + t * t * q0.x, z: u * u * p1.z + 2 * u * t * ctrl.z + t * t * q0.z });
+    const pts = [p0, p1], round = isRound(to[0], to[1]);
+    if (round) this.roundPath(pts, p1, e1, e2, to, laneOffset(e1.k, lane), laneOffset(e2.k, lane2), q0);
+    else {
+      const ctrl = straight ? { x: (p1.x + q0.x) / 2, z: (p1.z + q0.z) / 2 } : (e1.dz !== 0 ? { x: p1.x, z: q0.z } : { x: q0.x, z: p1.z });
+      for (let k = 1; k <= 10; k++) {
+        const t = k / 10, u = 1 - t;
+        pts.push({ x: u * u * p1.x + 2 * u * t * ctrl.x + t * t * q0.x, z: u * u * p1.z + 2 * u * t * ctrl.z + t * t * q0.z });
+      }
     }
     const cum = [0];
     for (let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z));
-    Object.assign(c, { axis: e1.dz !== 0 ? 'Z' : 'X', from, to, next, lane: lane2, pts, cum, total: cum[cum.length - 1], straightLen: cum[1], turning: !straight, s: 0, blvd: isBlvd(e1.k) });
+    Object.assign(c, { axis: e1.dz !== 0 ? 'Z' : 'X', from, to, next, lane: lane2, pts, cum, total: cum[cum.length - 1], straightLen: cum[1], turning: !straight || round, round, s: 0, blvd: isBlvd(e1.k) });
+  }
+
+  // Through a roundabout: curve in off the approach onto the ring (a circle round the island, counter-clockwise), go round to the
+  // exit and curve out onto the next road. `pts` already holds the approach; this adds the rest up to q0, the start of the next
+  // road's lane. The curves in and out are quadratic Beziers that meet the ring along its tangent, so there are no kinks.
+  roundPath(pts, p1, e1, e2, to, off1, off2, q0) {
+    const cx = to[0] * SP, cz = to[1] * SP, R = RB.lane; off1 = Math.min(off1, R - 1.5); off2 = Math.min(off2, R - 1.5);       // (a boulevard's outer lanes are wider than the ring: they join it a little in)
+    const s1 = Math.sqrt(R * R - off1 * off1), s2 = Math.sqrt(R * R - off2 * off2);
+    const E = { x: cx - e1.dx * s1 + e1.rx * off1, z: cz - e1.dz * s1 + e1.rz * off1 }, X = { x: cx + e2.dx * s2 + e2.rx * off2, z: cz + e2.dz * s2 + e2.rz * off2 };
+    const aE = Math.atan2(E.z - cz, E.x - cx), aX = Math.atan2(X.z - cz, X.x - cx), lead = 0.5;
+    const aIn = aE - lead, aOut = aX + lead, onRing = a => ({ x: cx + Math.cos(a) * R, z: cz + Math.sin(a) * R }), tan = a => [Math.sin(a), -Math.cos(a)];
+    const cross = (ux, uz, vx, vz) => ux * vz - uz * vx;
+    // A quadratic Bezier from P0 (heading T0) to P2 (heading T2): the control point is where the two heading lines cross.
+    const bez = (P0, T0, P2, T2, n) => {
+      const den = cross(T0[0], T0[1], T2[0], T2[1]), dx = P2.x - P0.x, dz = P2.z - P0.z;
+      let C = { x: (P0.x + P2.x) / 2, z: (P0.z + P2.z) / 2 };
+      if (Math.abs(den) > 1e-3) { const a = cross(dx, dz, T2[0], T2[1]) / den, b = cross(T0[0], T0[1], dx, dz) / den; if (a > 0 && b > 0) C = { x: P0.x + T0[0] * a, z: P0.z + T0[1] * a }; }
+      for (let k = 1; k <= n; k++) { const t = k / n, u = 1 - t; pts.push({ x: u * u * P0.x + 2 * u * t * C.x + t * t * P2.x, z: u * u * P0.z + 2 * u * t * C.z + t * t * P2.z }); }
+    };
+    const In = onRing(aIn), Out = onRing(aOut);
+    bez(p1, [e1.dx, e1.dz], In, tan(aIn), 7);                                                                       // on to the ring
+    let sweep = (aIn - aOut) % (Math.PI * 2); if (sweep < 0) sweep += Math.PI * 2;
+    const n = Math.max(1, Math.ceil(sweep / (Math.PI / 12)));
+    for (let k = 1; k <= n; k++) pts.push(onRing(aIn - sweep * k / n));                                             // round it
+    bez(Out, tan(aOut), q0, [e2.dx, e2.dz], 7);                                                                     // and off
   }
 
   // Out on the motorways: cars follow a lane along the road, in both directions.
@@ -167,9 +197,11 @@ export class Traffic {
     let k = 1; while (k < c.cum.length - 1 && c.cum[k] < c.s) k++;
     const a = c.pts[k - 1], b = c.pts[k], seg = c.cum[k] - c.cum[k - 1] || 1, t = clamp((c.s - c.cum[k - 1]) / seg, 0, 1);
     c.x = a.x + (b.x - a.x) * t; c.z = a.z + (b.z - a.z) * t;
-    if (c.hwy) { c.y = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t; c.pitch = Math.atan2((b.y ?? 0) - (a.y ?? 0), Math.max(0.5, seg)); c.roll = 0; } else { c.y = 0; c.pitch = 0; c.roll = 0; }
     const h = Math.atan2(b.x - a.x, b.z - a.z);
     c.h = c.h == null ? h : c.h + wrapAngle(h - c.h) * 0.5;
+    if (c.hwy) { c.y = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t; c.pitch = Math.atan2((b.y ?? 0) - (a.y ?? 0), Math.max(0.5, seg)); c.roll = 0; }
+    else if (inRiverBox(c.x, c.z)) { const f = Math.sin(c.h) * 2.2, g = Math.cos(c.h) * 2.2; c.y = groundAt(c.x, c.z).y; c.pitch = Math.atan2(groundAt(c.x + f, c.z + g).y - groundAt(c.x - f, c.z - g).y, 4.4); c.roll = 0; }   // (on a bridge: up the hump and down)
+    else { c.y = 0; c.pitch = 0; c.roll = 0; }
   }
 
   // The parked cars near a point, dressed like traffic cars so the same collision code can hit them.
@@ -255,7 +287,7 @@ export class Traffic {
         if (approaching && o.mode === 'drive' && o.s > o.straightLen && Math.abs(wrapAngle(o.h - c.h)) > 0.4 && dx * dx + dz * dz < 900) blocked = true;
       }
       // Stop for red lights (and amber, if there's room to).
-      if (signals && toTurn > 0 && toTurn < 40) {
+      if (signals && toTurn > 0 && toTurn < 40 && !c.round) {
         const sg = signals[c.axis];
         if (sg === 'R' || (sg === 'A' && toTurn > 6)) target = Math.min(target, Math.max(0, toTurn - 1) * 0.55);
       }

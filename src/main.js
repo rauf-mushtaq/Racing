@@ -19,13 +19,16 @@ import { initRoads } from './roads.js';
 import { initScatter } from './scatter.js';
 import { initGrass } from './grass.js';
 import { initStructures } from './structures.js';
+import { initRiver } from './river.js';
+import { initLandmarks } from './landmarks.js';
+import { isRound } from './junctions.js';
 import { TOD, TOD_NAME } from './tod.js';
 import { makeHeroCar, setPaint, PAINTS, HERO_DIMS } from './carModel.js';
 import { loadFerrari, loadFerrariTraffic } from './ferrari.js';
 import { Vehicle, SPEC } from './vehicle.js';
 import { makeGT, GT_SPEC } from './gt.js';
 import { PoliceChase } from './police.js';
-import { collideStatic, collideTraffic, collideTerrain } from './collide.js';
+import { collideStatic, collideTraffic, collideTerrain, collideRiver } from './collide.js';
 import { Traffic } from './traffic.js';
 import { FX } from './fx.js';
 import { HUD } from './hud.js';
@@ -215,7 +218,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let heli = null, seated = null, grass = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
+let heli = null, seated = null, grass = null, river = null, landmarks = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -238,6 +241,9 @@ async function build() {
   initScatter(terrain, city.props);
   grass = initGrass(scene); if (grass) extraMats.push(grass.material);
   structures = initStructures(scene, city);
+  loadMsg('Filling the river…'); await nextFrame();
+  river = initRiver(scene, city); extraMats.push(...river.materials, ...Object.values(city.matCut));
+  landmarks = initLandmarks(scene, city); extraMats.push(...landmarks.materials);
   await terrain.loadAround(START.x, START.z, 1, loadMsg);
   await city.loadAround(START.x, START.z, Math.min(2, Q.loadR), loadMsg);
   loadMsg('Starting the traffic…'); await nextFrame();
@@ -619,8 +625,10 @@ function respawnOnRoad() {
   const kx = clamp(Math.round(x / SP), -N, N), kz = clamp(Math.round(z / SP), -N, N);
   if (Math.abs(x - kx * SP) <= Math.abs(z - kz * SP)) {
     const d = Math.cos(h) >= 0 ? 1 : -1; x = kx * SP - d * laneOffset(kx, 1); h = d > 0 ? 0 : Math.PI;
+    const nj = Math.round(z / SP); if (isRound(kx, nj) && Math.abs(z - nj * SP) < 28) z = nj * SP - d * 34;       // (not on a roundabout's island: just short of it)
   } else {
     const d = Math.sin(h) >= 0 ? 1 : -1; z = kz * SP + d * laneOffset(kz, 1); h = d > 0 ? Math.PI / 2 : -Math.PI / 2;
+    const ni = Math.round(x / SP); if (isRound(ni, kz) && Math.abs(x - ni * SP) < 28) x = ni * SP - d * 34;
   }
   resetCar(x, z, h);
 }
@@ -731,6 +739,7 @@ function physics(dt, inp) {
   car.onGrass = car.wheels[0].kind !== 'asphalt' && car.wheels[0].kind !== 'concrete';
   collideStatic(car, onHit, onBreak);
   collideTerrain(car, onHit);
+  collideRiver(car, onHit);
   collideTraffic(car, traffic, onHit, onCar);
   collideTraffic(car, traffic.parkedWorld(car), onHit, onCar);
   if (!game.onFoot) peds.hitByCar(car);
@@ -1065,6 +1074,7 @@ function tickBody(dt) {
   city.update(F.x, F.z, st === 'paused' || st === 'map' ? 2 : 3.5);
   terrain.update(dt, F.x, F.z, st === 'paused' || st === 'map' ? 1.5 : 3);
   structures.update(F.x, F.z);
+  river.update(dt, F.x, F.z); landmarks.update(dt, F.x, F.z);
   prof.mark('world');
   if (st === 'menu' && game.garage && walker.active) { walker.t += dt; walker.pose(dt); }          // the character idles beside the car in the Garage
   const alpha = st === 'paused' || st === 'map' ? 1 : acc / STEP;
@@ -1166,4 +1176,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-if (DEBUG) window.__game = { get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+if (DEBUG) window.__game = { get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get river() { return river; }, get landmarks() { return landmarks; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { attachSSR } from './ssr.js';
 import { SP, N, hw, EDGE, SIDEWALK, isPark } from './city.js';
 import { groundAt, heightAt, ROADS, coastX } from './world.js';
+import { pushFromWater, inWater } from './rivercourse.js';
+import { pushFromIsland } from './junctions.js';
 import { policeModels } from './carModel.js';
 import { applyImpulse } from './collide.js';
 import { Particles } from './particles.js';
@@ -241,7 +243,8 @@ export class PoliceChase {
     const yf = groundAt(c.x + f * hl, c.z + g * hl).y, yb = groundAt(c.x - f * hl, c.z - g * hl).y, tp = Math.atan2(yf - yb, hl * 2);
     c.pitch += (tp - c.pitch) * Math.min(1, dt * 12);
   }
-  updateCop(c, dt, p, traffic, gx, gz, chase) {
+  updateCop(c, dt, p, traffic, gx, gz, chase) { this.driveCop(c, dt, p, traffic, gx, gz, chase); pushFromWater(c, 2.4); pushFromIsland(c, 2.4); }        // (cruisers can't drive into the river either)
+  driveCop(c, dt, p, traffic, gx, gz, chase) {
     const gy = groundAt(c.x, c.z).y, rnd = () => this.rnd();
     if (c.wreck) {                                                                                  // a burning heap that slides to a stop
       c.burn += dt; c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.spin * dt; const k = Math.exp(-1.8 * dt); c.vx *= k; c.vz *= k; c.spin *= k; c.speed = 0;

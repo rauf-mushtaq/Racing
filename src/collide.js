@@ -4,6 +4,7 @@
 // while a head-on one stops you.
 import { queryColliders, EDGE } from './city.js';
 import { groundAt, WORLD_LIM, isWater } from './world.js';
+import { pushFromWater } from './rivercourse.js';
 
 const CIRCLES = [-1.45, 0, 1.45], RAD = 1.0;
 const found = [];
@@ -76,6 +77,15 @@ export function collideStatic(car, onHit, onBreak) {
       const nx = ax === 'x' ? -sign : 0, nz = ax === 'z' ? -sign : 0;
       applyImpulse(car, car.x - nx, car.z - nz, nx, nz, 0.3, 0.3, onHit);
     }
+  }
+}
+
+// The river and the lakes are walls: the car is held back at the quay (its railing), but can cross on the bridges.
+export function collideRiver(car, onHit) {
+  const f = car.fwd;
+  for (const off of CIRCLES) {
+    const cx = car.x + f[0] * off, cz = car.z + f[1] * off, n = pushFromWater(car, RAD + 0.45, cx, cz);
+    if (n) applyImpulse(car, cx - n[0] * RAD, cz - n[1] * RAD, n[0], n[1], 0.2, 0.3, onHit);
   }
 }
 

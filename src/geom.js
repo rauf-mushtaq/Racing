@@ -102,6 +102,17 @@ export class GB {
       this.i.push(b, b + 1, b + 2, b, b + 2, b + 3);
     }
   }
+  // Append a copy of another builder, turned by `yaw` about the y axis and moved to (tx, ty, tz) (for things that aren't along the axes).
+  addTransformed(src, yaw, tx, ty, tz) {
+    const c = Math.cos(yaw), s = Math.sin(yaw), base = this.p.length / 3;
+    for (let k = 0; k < src.p.length; k += 3) {
+      const x = src.p[k], y = src.p[k + 1], z = src.p[k + 2], nx = src.n[k], ny = src.n[k + 1], nz = src.n[k + 2];
+      this.p.push(x * c + z * s + tx, y + ty, -x * s + z * c + tz); this.n.push(nx * c + nz * s, ny, -nx * s + nz * c);
+    }
+    for (const u of src.uv) this.uv.push(u);
+    if (this.colors) { if (src.colors) for (const v of src.c) this.c.push(v); else for (let k = 0; k < src.p.length; k += 3) this.c.push(1, 1, 1); }
+    for (const i of src.i) this.i.push(i + base);
+  }
   geometry() {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
@@ -111,6 +122,26 @@ export class GB {
     g.setIndex(this.i);
     g.computeBoundingSphere();
     return g;
+  }
+}
+
+// A quad whose normal points toward `dir`, from four corners given in any order round it (for things whose winding is awkward to get right).
+export function quadToward(gb, a, b, c, d, uv, col, dir) {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+  if (nx * dir[0] + ny * dir[1] + nz * dir[2] >= 0) gb.q4(a, b, c, d, uv, col); else gb.q4(a, d, c, b, [uv[0], uv[3], uv[2], uv[1]], col);
+}
+
+// A square-section beam from p0 to p1 ([x, y, z] each), half-width r, added to a builder.
+export function tube(g, p0, p1, r, col) {
+  const d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], l = Math.hypot(...d) || 1; d[0] /= l; d[1] /= l; d[2] /= l;
+  const up = Math.abs(d[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const s = [d[1] * up[2] - d[2] * up[1], d[2] * up[0] - d[0] * up[2], d[0] * up[1] - d[1] * up[0]], sl = Math.hypot(...s) || 1; s[0] /= sl; s[1] /= sl; s[2] /= sl;
+  const t = [d[1] * s[2] - d[2] * s[1], d[2] * s[0] - d[0] * s[2], d[0] * s[1] - d[1] * s[0]];
+  const cn = [[1, 1], [-1, 1], [-1, -1], [1, -1]], at = (p, [a, b]) => [p[0] + (s[0] * a + t[0] * b) * r, p[1] + (s[1] * a + t[1] * b) * r, p[2] + (s[2] * a + t[2] * b) * r];
+  for (let k = 0; k < 4; k++) {
+    const [a, b] = cn[k], [c, e] = cn[(k + 1) % 4], m = [(a + c) / 2, (b + e) / 2], dir = [s[0] * m[0] + t[0] * m[1], s[1] * m[0] + t[1] * m[1], s[2] * m[0] + t[2] * m[1]];
+    quadToward(g, at(p0, cn[k]), at(p1, cn[k]), at(p1, cn[(k + 1) % 4]), at(p0, cn[(k + 1) % 4]), [[0, 0], [l / 3, 0], [l / 3, 0.3], [0, 0.3]], col, dir);
   }
 }
 

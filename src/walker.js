@@ -7,6 +7,7 @@ import { makeSmoothFigure } from './figure.js';
 import { loadPerson, personKey, COPS } from './people.js';
 import { Mocap } from './mocap.js';
 import { groundAt, isWater, coastX, WORLD_LIM } from './world.js';
+import { pushFromWater } from './rivercourse.js';
 import { queryColliders, EDGE } from './city.js';
 import { clamp, damp, lerp, wrapAngle } from './util.js';
 
@@ -163,6 +164,7 @@ export class Walker {
       const list = obstacles(this.x, this.z);
       for (const o of list) { const dx = this.x - o.x, dz = this.z - o.z, d = Math.hypot(dx, dz), r = RAD + o.r; if (d >= r || d < 1e-5) continue; this.x += dx / d * (r - d); this.z += dz / d * (r - d); }
     }
+    pushFromWater(this, 0.7);                                               // the river is a wall (the bridges are fine)
     // The sea, steep slopes and the edge of the world.
     if (Math.abs(this.x) > EDGE - 40 || Math.abs(this.z) > EDGE - 40) {
       const lim = coastX(this.z) + 74; if (this.x < lim) this.x = lim;

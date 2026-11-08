@@ -351,6 +351,7 @@ const _g = (y, kind) => { const s = SURF[kind]; return { y, grass: kind === 'gra
 export function groundAt(x, z) {
   if (Math.abs(x) <= EDGE + 6 && Math.abs(z) <= EDGE + 6) {
     const g = surfaceAt(x, z);
+    if (g.water) { g.kind = 'water'; g.mu = 0.3; g.drag = 400; return g; }
     g.kind = g.grass ? 'grass' : 'asphalt'; g.mu = g.grass ? 0.72 : 1; g.drag = g.grass ? 95 : 0;
     return g;
   }

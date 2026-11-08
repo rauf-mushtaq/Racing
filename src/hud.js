@@ -2,10 +2,22 @@
 // middle, driver aids, nitro gauge), the minimap, and race information.
 import { $, clamp, fmtTime } from './util.js';
 import { N, SP, hw, isBlvd, EDGE, LIMIT, blockRect, isPark } from './city.js';
+import { RIVER, LAKES, lakeOutline, bankPoint, inRiverBox } from './rivercourse.js';
 import { WORLD, ROADS, coastX, climate, baseHeight, BUNKERS, AIRFIELD } from './world.js';
 
 const A0 = 125 * Math.PI / 180, SPAN = 290 * Math.PI / 180;
 
+// The river and the lakes as one shape to fill on a map (built once).
+let _water = null;
+function waterPath() {
+  if (_water) return _water;
+  const p = _water = new Path2D();
+  for (let i = 0; i < RIVER.n; i += 3) { const [x, z] = bankPoint(i, 1); i ? p.lineTo(x, z) : p.moveTo(x, z); }
+  for (let i = RIVER.n - 1; i >= 0; i -= 3) { const [x, z] = bankPoint(i, -1); p.lineTo(x, z); }
+  p.closePath();
+  for (const L of LAKES) { const o = lakeOutline(L, 48); o.forEach(([x, z], k) => (k ? p.lineTo(x, z) : p.moveTo(x, z))); p.closePath(); }
+  return p;
+}
 export class HUD {
   constructor() {
     this.dial = $('dial'); this.dctx = this.dial.getContext('2d');
@@ -100,6 +112,7 @@ export class HUD {
     // Mirror x so the map reads like the view (right is right).
     // (heading-up: forward is up the screen)
     c.lineCap = 'butt';
+    if (inRiverBox(car.x, car.z, 400)) { c.fillStyle = 'rgba(70,150,205,0.9)'; c.fill(waterPath(), 'nonzero'); }
     for (let k = -N; k <= N; k++) {
       c.strokeStyle = isBlvd(k) ? 'rgba(220,220,235,0.55)' : 'rgba(200,200,215,0.32)';
       c.lineWidth = hw(k) * 2;
@@ -232,6 +245,7 @@ export class HUD {
     c.fillStyle = '#d6d3cc'; c.fillRect(-EDGE - 8, -EDGE - 8, 2 * EDGE + 16, 2 * EDGE + 16);
     c.fillStyle = '#c3bfce'; c.fillRect(-520, -520, 1040, 1040);
     c.fillStyle = '#c9cfa8'; for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) if (isPark(i, j)) { const bk = blockRect(i, j); c.fillRect(bk.x0, bk.z0, bk.x1 - bk.x0, bk.z1 - bk.z0); }
+    c.fillStyle = '#8cc3e6'; c.fill(waterPath(), 'nonzero');
     c.lineCap = 'butt';
     for (let k = -N; k <= N; k++) {
       c.strokeStyle = isBlvd(k) ? '#ffffff' : '#f6f3ec'; c.lineWidth = Math.max(hw(k) * 2, 1.4 / s);
@@ -242,6 +256,10 @@ export class HUD {
     for (const R of ROADS) { if (R.kind !== 'motorway') continue; c.beginPath(); R.x.forEach((x, i) => (i ? c.lineTo(x, R.z[i]) : c.moveTo(x, R.z[i]))); c.stroke(); }
     c.font = `700 ${15 / s}px Barlow, sans-serif`; c.textAlign = 'center'; c.fillStyle = 'rgba(30,40,60,0.75)';
     for (const [t, x, z] of [['DOWNTOWN', 0, 0], ['THE OCEAN', -3900, 600], ['SNOWY MOUNTAINS', 1500, -5600], ['THE DESERT', 5200, -300], ['GRASSLAND', 300, 4800], ['COAST', -2900, -2800]]) c.fillText(t, x, z);
+    c.font = `600 ${11 / s}px Barlow, sans-serif`; c.fillStyle = 'rgba(20,70,120,0.85)';
+    for (const [t, x, z] of [['SUNSET RIVER', 0, -330], ['SUNSET LAKE', -990, -190], ['EAST BASIN', 990, -10]]) c.fillText(t, x, z);
+    c.fillStyle = 'rgba(70,50,40,0.8)';
+    for (const [t, x, z] of [['TOWER', -93, 230], ['OLD TOWN', -450, 540], ['STADIUM', 626, 900], ['BIG WHEEL', 626, -450], ['DOCKS', 650, -10]]) c.fillText(t, x, z);
     return L;
   }
   drawBigMap(cv, car, route, waypoint, found = []) {
