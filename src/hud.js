@@ -3,6 +3,7 @@
 import { $, clamp, fmtTime } from './util.js';
 import { N, SP, hw, isBlvd, EDGE, LIMIT, blockRect, isPark } from './city.js';
 import { RIVER, LAKES, lakeOutline, bankPoint, inRiverBox } from './rivercourse.js';
+import { heightBL, HILLS } from './hills.js';
 import { WORLD, ROADS, coastX, climate, baseHeight, BUNKERS, AIRFIELD } from './world.js';
 
 const A0 = 125 * Math.PI / 180, SPAN = 290 * Math.PI / 180;
@@ -244,6 +245,10 @@ export class HUD {
     c.drawImage(tc, WORLD.x0, WORLD.z0, nx * cell, nz * cell);
     c.fillStyle = '#d6d3cc'; c.fillRect(-EDGE - 8, -EDGE - 8, 2 * EDGE + 16, 2 * EDGE + 16);
     c.fillStyle = '#c3bfce'; c.fillRect(-520, -520, 1040, 1040);
+    for (let x = -EDGE; x < EDGE; x += 90) for (let z = -EDGE; z < EDGE; z += 90) {                      // the hills, shaded as if lit from the north-west
+      const hh = heightBL(x + 45, z + 45); if (hh < 0.5) continue; const sh = clamp((heightBL(x - 30, z - 30) - heightBL(x + 120, z + 120)) / 50, -0.5, 0.5);
+      c.fillStyle = `rgba(${sh > 0 ? '255,250,215' : '60,70,45'},${Math.min(0.5, Math.abs(sh) * 0.9)})`; c.fillRect(x, z, 90.5, 90.5); c.fillStyle = `rgba(120,150,90,${Math.min(0.45, hh / 90)})`; c.fillRect(x, z, 90.5, 90.5);
+    }
     c.fillStyle = '#c9cfa8'; for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) if (isPark(i, j)) { const bk = blockRect(i, j); c.fillRect(bk.x0, bk.z0, bk.x1 - bk.x0, bk.z1 - bk.z0); }
     c.fillStyle = '#8cc3e6'; c.fill(waterPath(), 'nonzero');
     c.lineCap = 'butt';
@@ -256,7 +261,8 @@ export class HUD {
     for (const R of ROADS) { if (R.kind !== 'motorway') continue; c.beginPath(); R.x.forEach((x, i) => (i ? c.lineTo(x, R.z[i]) : c.moveTo(x, R.z[i]))); c.stroke(); }
     c.font = `700 ${15 / s}px Barlow, sans-serif`; c.textAlign = 'center'; c.fillStyle = 'rgba(30,40,60,0.75)';
     for (const [t, x, z] of [['DOWNTOWN', 0, 0], ['THE OCEAN', -3900, 600], ['SNOWY MOUNTAINS', 1500, -5600], ['THE DESERT', 5200, -300], ['GRASSLAND', 300, 4800], ['COAST', -2900, -2800]]) c.fillText(t, x, z);
-    c.font = `600 ${11 / s}px Barlow, sans-serif`; c.fillStyle = 'rgba(20,70,120,0.85)';
+    c.font = `600 ${11 / s}px Barlow, sans-serif`; c.fillStyle = 'rgba(40,80,30,0.9)'; for (const H of HILLS) c.fillText(H.name.toUpperCase(), H.cx, H.cz);
+    c.fillStyle = 'rgba(20,70,120,0.85)';
     for (const [t, x, z] of [['SUNSET RIVER', 0, -330], ['SUNSET LAKE', -990, -190], ['EAST BASIN', 990, -10]]) c.fillText(t, x, z);
     c.fillStyle = 'rgba(70,50,40,0.8)';
     for (const [t, x, z] of [['TOWER', -93, 230], ['OLD TOWN', -450, 540], ['STADIUM', 626, 900], ['BIG WHEEL', 626, -450], ['DOCKS', 650, -10]]) c.fillText(t, x, z);

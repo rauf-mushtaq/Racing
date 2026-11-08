@@ -4,7 +4,8 @@
 //    in the water, the roads are really cut away where the water is, roundabout paths are smooth and keep clear of the island, landmarks are there
 import { check, open, step, finish } from './lib.mjs';
 import { RIVER, BRIDGES, LAKES, riverSdf, bridgeAt, deckY } from '../src/rivercourse.js';
-import { SP, N, hw, blockRect, LANDMARKS, SIGNATURE, isPlaza } from '../src/grid.js';
+import { SP, N, hw, blockRect, LANDMARKS, SIGNATURE } from '../src/grid.js';
+import { plaza as isPlaza, heightBL, nodeH, steepest, HILLS } from '../src/hills.js';
 import { isRound, RB } from '../src/junctions.js';
 
 try {
@@ -33,6 +34,11 @@ try {
   const lm = Object.entries(LANDMARKS).map(([k, v]) => { const [i, j] = k.split(',').map(Number), b = blockRect(i, j); return [v, (b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2]; });
   check('landmarks stand on dry land', lm.every(([, x, z]) => riverSdf(x, z) > 60));
 
+  console.log('the hills');
+  check('there are hills in the city, thirty metres and more, and no road is steeper than one in six', Math.max(...HILLS.map(h => heightBL(h.cx, h.cz))) > 30 && steepest() < 0.16, 'steepest ' + (steepest() * 100).toFixed(1) + '%');
+  check('the river, downtown and every landmark are on flat ground', lm.every(([, x, z]) => heightBL(x, z) === 0) && heightBL(0, 0) === 0 && heightBL(0, -300) === 0 && heightBL(900, -62) === 0);
+  let rough = 0; for (let x = -1100; x < 1100; x += 30) for (let z = -460; z < 130; z += 30) if (heightBL(x, z) !== 0) rough++;
+  check('and so is all the ground round the river', rough === 0, 'bumps ' + rough);
   console.log('in the game');
   const A = await open({ w: 800, h: 450 }), P = A.page;
   await P.evaluate(() => { window.__noRender = true; });
@@ -52,6 +58,19 @@ try {
   check('the car cannot be driven into the river from the bank', bank.inW === 0 && bank.sdf > 1 && bank.speed < 2, JSON.stringify(bank));
   const lake = await drive(-990, -200, Math.PI, 5);
   check('nor into the lake', lake.inW === 0 && lake.sdf > 1 && lake.speed < 2, JSON.stringify(lake));
+  const hill = await P.evaluate(async () => {
+    const g = window.__game, w = await import('./src/world.js'), x = -1440 + 6.3; g.city.loadNow(x, -1000, 2); g.car.reset(x, -650, Math.PI); g.car.baseY = w.groundAt(x, -650).y; g.traffic.cars.forEach(c => { c.active = false; });
+    let top = 0, gap = 0; for (let k = 0; k < 14; k++) { g.simulate(1, { throttle: 0.55, gas: 0.55, steer: 0 }); top = Math.max(top, g.car.baseY); gap = Math.max(gap, Math.abs(g.car.baseY - w.groundAt(g.car.x, g.car.z).y)); }
+    g.traffic.cars.forEach(c => { c.active = true; }); g.car.reset(-1000, -1000, 0); g.car.baseY = w.groundAt(-1000, -1000).y; g.city.loadNow(-1000, -1000, 2);
+    let worst = 0, n = 0; for (let s = 0; s < 80; s++) { g.simulate(0.5, { brake: 1 }); for (const c of g.traffic.cars) { if (!c.active || c.mode !== 'drive' || Math.hypot(c.x + 1000, c.z + 1000) > 500) continue; n++; worst = Math.max(worst, Math.abs(c.y - w.groundAt(c.x, c.z).y)); } }
+    // the buildings stand on the ground: the lowest vertex of every building mesh near the car is not up in the air or deep in the ground
+    const hs = await import('./src/hills.js'); let high = 0, low = 0, tested = 0;
+    for (const r of g.city.regions.values()) for (const m of r.far.children) { const mat = m.material; if (!mat.vertexColors || !mat.map) continue; const pos = m.geometry.attributes.position; for (let i = 0; i < pos.count; i += 7) { const px = pos.getX(i), pz = pos.getZ(i), py = pos.getY(i), gy = hs.heightBL(px, pz); if (py - gy > 150) continue; tested++; if (py < gy - 8) low++; } }
+    return { top, gap, n, worst, low, tested };
+  });
+  check('the car climbs the hill (more than twenty metres up a boulevard) and stays on the ground', hill.top > 20 && hill.gap < 2.5, JSON.stringify(hill));
+  check('traffic on the hill drives on the road surface (within a few centimetres)', hill.n > 300 && hill.worst < 0.4, JSON.stringify({ n: hill.n, worst: hill.worst }));
+  check('nothing built is buried deep in a hillside', hill.low === 0 && hill.tested > 1000, JSON.stringify({ low: hill.low, tested: hill.tested }));
   const tex = await P.evaluate(async () => {
     const { RIVER_TEX } = await import('./src/river.js'), rc = await import('./src/rivercourse.js'), t = RIVER_TEX.value, B = rc.RIVER_BOX, d = t.image.data, W = t.image.width, H = t.image.height;
     const at = (x, z) => d[Math.min(H - 1, Math.floor((z - B.z0) / (B.z1 - B.z0) * H)) * W + Math.min(W - 1, Math.floor((x - B.x0) / (B.x1 - B.x0) * W))];

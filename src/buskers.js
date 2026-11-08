@@ -6,7 +6,8 @@
 import * as THREE from 'three';
 import { buildRig, animate } from './person.js';
 import { loadPerson, PEDS } from './people.js';
-import { blockRect, isPark, landmarkAt, signatureAt, isPlaza } from './grid.js';
+import { blockRect, isPark, landmarkAt, signatureAt } from './grid.js';
+import { plaza as isPlaza, heightBL } from './hills.js';
 import { hash3, clamp } from './util.js';
 import { BRIDGES, riverSdf, inRiverBox } from './rivercourse.js';
 import { addStaticCollider, queryColliders } from './city.js';

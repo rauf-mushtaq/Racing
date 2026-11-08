@@ -9,10 +9,13 @@
 import * as THREE from 'three';
 
 export class GB {
-  constructor(colors = false) { this.p = []; this.n = []; this.uv = []; this.c = []; this.i = []; this.colors = colors; }
+  constructor(colors = false) { this.p = []; this.n = []; this.uv = []; this.c = []; this.i = []; this.colors = colors; this.lift = null; this.fine = 0; }
+  // `lift(x, y, z)`, if set, is added to the height of every vertex (that is how the city is laid on its hills); `fine` is the longest stretch of flat
+  // surface or wall allowed then (longer ones are cut up so they follow the ground).
   get count() { return this.p.length / 3; }
   vtx(x, y, z, nx, ny, nz, u, v, col) {
     const b = this.p.length / 3;
+    if (this.lift) y += this.lift(x, y, z);
     this.p.push(x, y, z); this.n.push(nx, ny, nz); this.uv.push(u, v);
     if (this.colors) this.c.push(col.r, col.g, col.b);
     return b;
@@ -36,7 +39,18 @@ export class GB {
     this.i.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3);
   }
   // Flat rectangle facing up at height y, UVs in world units / s.
-  flat(x0, z0, x1, z1, y, s, col) { this.quad([x0, y, z1], [x1 - x0, 0, 0], [0, 0, z0 - z1], x0 / s, -z1 / s, x1 / s, -z0 / s, col); }
+  flat(x0, z0, x1, z1, y, s, col) {
+    const f = this.fine;
+    if (f && this.lift && (x1 - x0 > f * 1.25 || z1 - z0 > f * 1.25)) {
+      const nx = Math.max(1, Math.ceil((x1 - x0) / f)), nz = Math.max(1, Math.ceil((z1 - z0) / f));
+      for (let a = 0; a < nx; a++) for (let b = 0; b < nz; b++) {
+        const xa = x0 + (x1 - x0) * a / nx, xb = x0 + (x1 - x0) * (a + 1) / nx, za = z0 + (z1 - z0) * b / nz, zb = z0 + (z1 - z0) * (b + 1) / nz;
+        this.quad([xa, y, zb], [xb - xa, 0, 0], [0, 0, za - zb], xa / s, -zb / s, xb / s, -za / s, col);
+      }
+      return;
+    }
+    this.quad([x0, y, z1], [x1 - x0, 0, 0], [0, 0, z0 - z1], x0 / s, -z1 / s, x1 / s, -z0 / s, col);
+  }
   // Four walls of a box; UVs run along each face (texW, texH metres per repeat).
   walls(x0, z0, x1, z1, y0, y1, texW, texH, col, uOff = 0, stretchV = false) {
     const dx = x1 - x0, dz = z1 - z0, h = y1 - y0, v1 = stretchV ? 1 : h / texH;
@@ -53,6 +67,7 @@ export class GB {
   // smooth normals (so a rounded tower looks round, not faceted); sharper ones
   // stay crisp.
   extrude(pts, y0, y1, texW, texH, col, uOff = 0, smooth = true, stretchV = false) {
+    if (this.fine && this.lift) pts = densify(pts, this.fine);
     const n = pts.length, norms = [], lens = [];
     for (let i = 0; i < n; i++) {
       const a = pts[i], b = pts[(i + 1) % n], ux = b[0] - a[0], uz = b[1] - a[1], l = Math.hypot(ux, uz) || 1;
@@ -78,7 +93,25 @@ export class GB {
     }
   }
   // An up-facing cap over a convex footprint, UVs in world units / s.
+  // A fan of triangles, each cut up (when the ground is hilly) until none is longer than `fine`, so the surface follows the ground.
+  triFine(a, b, c, y, s, col, depth = 0) {
+    const ab = Math.hypot(b[0] - a[0], b[1] - a[1]), bc = Math.hypot(c[0] - b[0], c[1] - b[1]), ca = Math.hypot(a[0] - c[0], a[1] - c[1]), m = Math.max(ab, bc, ca);
+    if (m > this.fine && depth < 9) {
+      const mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+      if (m === ab) { const e = mid(a, b); this.triFine(a, e, c, y, s, col, depth + 1); this.triFine(e, b, c, y, s, col, depth + 1); }
+      else if (m === bc) { const e = mid(b, c); this.triFine(a, b, e, y, s, col, depth + 1); this.triFine(a, e, c, y, s, col, depth + 1); }
+      else { const e = mid(c, a); this.triFine(a, b, e, y, s, col, depth + 1); this.triFine(e, b, c, y, s, col, depth + 1); }
+      return;
+    }
+    const i0 = this.vtx(a[0], y, a[1], 0, 1, 0, a[0] / s, -a[1] / s, col); this.vtx(b[0], y, b[1], 0, 1, 0, b[0] / s, -b[1] / s, col); this.vtx(c[0], y, c[1], 0, 1, 0, c[0] / s, -c[1] / s, col);
+    this.i.push(i0, i0 + 1, i0 + 2);
+  }
   cap(pts, y, s, col) {
+    if (this.fine && this.lift) {
+      let cx = 0, cz = 0; for (const p of pts) { cx += p[0]; cz += p[1]; } cx /= pts.length; cz /= pts.length;
+      for (let i = 0; i < pts.length; i++) this.triFine([cx, cz], pts[i], pts[(i + 1) % pts.length], y, s, col);
+      return;
+    }
     let cx = 0, cz = 0; for (const p of pts) { cx += p[0]; cz += p[1]; } cx /= pts.length; cz /= pts.length;
     const c = this.vtx(cx, y, cz, 0, 1, 0, cx / s, -cz / s, col), first = this.p.length / 3;
     for (const p of pts) this.vtx(p[0], y, p[1], 0, 1, 0, p[0] / s, -p[1] / s, col);
@@ -107,7 +140,8 @@ export class GB {
     const c = Math.cos(yaw), s = Math.sin(yaw), base = this.p.length / 3;
     for (let k = 0; k < src.p.length; k += 3) {
       const x = src.p[k], y = src.p[k + 1], z = src.p[k + 2], nx = src.n[k], ny = src.n[k + 1], nz = src.n[k + 2];
-      this.p.push(x * c + z * s + tx, y + ty, -x * s + z * c + tz); this.n.push(nx * c + nz * s, ny, -nx * s + nz * c);
+      const wx = x * c + z * s + tx, wz = -x * s + z * c + tz, wy = y + ty;
+      this.p.push(wx, wy + (this.lift ? this.lift(wx, wy, wz) : 0), wz); this.n.push(nx * c + nz * s, ny, -nx * s + nz * c);
     }
     for (const u of src.uv) this.uv.push(u);
     if (this.colors) { if (src.colors) for (const v of src.c) this.c.push(v); else for (let k = 0; k < src.p.length; k += 3) this.c.push(1, 1, 1); }
@@ -148,6 +182,15 @@ export function tube(g, p0, p1, r, col) {
 // --- Footprints --------------------------------------------------------------
 // Reverse a footprint if it winds the wrong way for extrude().
 export function ccw(pts) { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; } return a > 0 ? pts.slice().reverse() : pts; }
+// Put extra points along any edge longer than `max` (so a long wall or kerb can follow uneven ground).
+export function densify(pts, max) {
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / max));
+    for (let k = 0; k < n; k++) out.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]);
+  }
+  return out;
+}
 export const rectPoly = b => [[b.x0, b.z1], [b.x1, b.z1], [b.x1, b.z0], [b.x0, b.z0]];
 export function chamferRect(b, c) {
   return [[b.x0 + c, b.z1], [b.x1 - c, b.z1], [b.x1, b.z1 - c], [b.x1, b.z0 + c], [b.x1 - c, b.z0], [b.x0 + c, b.z0], [b.x0, b.z0 + c], [b.x0, b.z1 - c]];

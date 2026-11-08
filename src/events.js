@@ -2,7 +2,7 @@
 // at every turn (and every other junction on long straights).
 import * as THREE from 'three';
 import { SP, hw, laneOffset, N } from './city.js';
-import { ROADS } from './world.js';
+import { ROADS, groundAt } from './world.js';
 import { glowTex } from './textures.js';
 
 // A staircase of turns from one corner to the opposite one.
@@ -105,7 +105,7 @@ export class Gates {
     this.clear();
     const pillarGeo = new THREE.CylinderGeometry(0.35, 0.35, 7, 12);
     route.cps.forEach((cp, i) => {
-      const g = new THREE.Group(); g.position.set(cp.x, cp.world ? cp.y : 0, cp.z);
+      const g = new THREE.Group(); g.position.set(cp.x, cp.world ? cp.y : groundAt(cp.x, cp.z).y, cp.z);
       if (cp.world) g.rotation.y = Math.atan2(cp.tx, cp.tz);
       const last = i === route.cps.length - 1;
       const col = last ? new THREE.Color(4, 4, 4) : new THREE.Color(0.3, 2.6, 3.4);

@@ -194,7 +194,7 @@ export class Peds {
   relink(p) {
     const i = clamp(Math.floor(p.x / SP), -N, N - 1), j = clamp(Math.floor(p.z / SP), -N, N - 1), d = OFFSETS[1], ring = ringOf(i, j, d);
     let best = 0, bd = 1e9; for (let s = 0; s < ring.L; s += 3) { const [x, z] = ringAt(ring, s); const dd = (x - p.x) ** 2 + (z - p.z) ** 2; if (dd < bd) { bd = dd; best = s; } }
-    p.i = i; p.j = j; p.d = d; p.ring = ring; p.s = best; p.y = 0.15;
+    p.i = i; p.j = j; p.d = d; p.ring = ring; p.s = best; p.y = groundAt(p.x, p.z).y;
   }
 
   render(camera, dt) {

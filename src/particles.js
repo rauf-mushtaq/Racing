@@ -2,6 +2,7 @@
 // the additive things (fire, sparks, flashes) and one for alpha-blended smoke. Particles are simulated on the CPU.
 import * as THREE from 'three';
 import { puffTex } from './textures.js';
+import { groundAt } from './world.js';
 
 const MAX = 600;
 function makeSystem(additive, scene) {
@@ -74,7 +75,7 @@ export class Particles {
         const p = L[i]; p.age += dt;
         if (p.age >= p.life) { L[i] = L[L.length - 1]; L.pop(); continue; }
         p.vy += (p.g + p.rise) * dt; const k = Math.exp(-p.drag * dt); p.vx *= k; p.vy *= k; p.vz *= k; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.size += p.grow * dt;
-        if (p.spark && p.y < 0.03) { p.y = 0.03; p.vy = -p.vy * 0.3; p.vx *= 0.6; p.vz *= 0.6; }
+        if (p.spark) { const gy = groundAt(p.x, p.z).y + 0.03; if (p.y < gy) { p.y = gy; p.vy = -p.vy * 0.3; p.vx *= 0.6; p.vz *= 0.6; } }       // (sparks bounce off the ground, wherever that is)
         const t = p.age / p.life; sys.pos[n * 3] = p.x; sys.pos[n * 3 + 1] = p.y; sys.pos[n * 3 + 2] = p.z; sys.size[n] = Math.max(p.size, 0.01) * 2;
         for (let c = 0; c < 4; c++) sys.col[n * 4 + c] = p.c0[c] + (p.c1[c] - p.c0[c]) * t;
         n++; i++;

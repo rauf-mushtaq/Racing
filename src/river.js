@@ -60,9 +60,9 @@ export function initRiver(scene, city) {
   city.matCut = { walk: riverCut(city.makeWalk()), curb: riverCut(b.curb.clone()), park: riverCut(b.park.clone()), lot: riverCut(b.lot.clone()), mark: riverCut(b.mark.clone()) };
   {
     const m = 120, x0 = RIVER_BOX.x0 - m, x1 = RIVER_BOX.x1 + m, z0 = RIVER_BOX.z0 - m, z1 = RIVER_BOX.z1 + m, ring = new GB(), mid = new GB();
-    ring.flat(-EDGE, -EDGE, x0, EDGE, 0, 10); ring.flat(x1, -EDGE, EDGE, EDGE, 0, 10); ring.flat(x0, -EDGE, x1, z0, 0, 10); ring.flat(x0, z1, x1, EDGE, 0, 10); mid.flat(x0, z0, x1, z1, 0, 10);
+    ring.flat(-EDGE, -EDGE, x0, EDGE, -0.05, 10); ring.flat(x1, -EDGE, EDGE, EDGE, -0.05, 10); ring.flat(x0, -EDGE, x1, z0, -0.05, 10); ring.flat(x0, z1, x1, EDGE, -0.05, 10); mid.flat(x0, z0, x1, z1, -0.05, 10);
     city.ground.geometry.dispose(); city.ground.geometry = ring.geometry();
-    const cutGround = new THREE.Mesh(mid.geometry(), riverCut(city.makeAsphalt())); cutGround.receiveShadow = city.ground.receiveShadow; cutGround.layers.enable(2); cutGround.frustumCulled = false; city.group.add(cutGround);
+    const cutMat = riverCut(city.makeAsphalt()); cutMat.polygonOffset = true; cutMat.polygonOffsetFactor = 1; cutMat.polygonOffsetUnits = 1; const cutGround = new THREE.Mesh(mid.geometry(), cutMat); cutGround.receiveShadow = city.ground.receiveShadow; cutGround.layers.enable(2); cutGround.frustumCulled = false; city.group.add(cutGround);
   }
   const root = new THREE.Group(); scene.add(root);
   const std = o => new THREE.MeshStandardMaterial(o);

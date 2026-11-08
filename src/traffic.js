@@ -7,7 +7,6 @@ import { attachSSR } from './ssr.js';
 import { N, SP, hw, isBlvd, laneCount, laneOffset, EDGE } from './city.js';
 import { ROADS, groundAt } from './world.js';
 import { isRound, RB } from './junctions.js';
-import { inRiverBox } from './rivercourse.js';
 import { trafficModels } from './carModel.js';
 import { mulberry32, clamp, wrapAngle } from './util.js';
 
@@ -200,8 +199,7 @@ export class Traffic {
     const h = Math.atan2(b.x - a.x, b.z - a.z);
     c.h = c.h == null ? h : c.h + wrapAngle(h - c.h) * 0.5;
     if (c.hwy) { c.y = (a.y ?? 0) + ((b.y ?? 0) - (a.y ?? 0)) * t; c.pitch = Math.atan2((b.y ?? 0) - (a.y ?? 0), Math.max(0.5, seg)); c.roll = 0; }
-    else if (inRiverBox(c.x, c.z)) { const f = Math.sin(c.h) * 2.2, g = Math.cos(c.h) * 2.2; c.y = groundAt(c.x, c.z).y; c.pitch = Math.atan2(groundAt(c.x + f, c.z + g).y - groundAt(c.x - f, c.z - g).y, 4.4); c.roll = 0; }   // (on a bridge: up the hump and down)
-    else { c.y = 0; c.pitch = 0; c.roll = 0; }
+    else { const f = Math.sin(c.h) * 2.2, g = Math.cos(c.h) * 2.2, yf = groundAt(c.x + f, c.z + g).y, yb = groundAt(c.x - f, c.z - g).y; c.y = (yf + yb) / 2; c.pitch = Math.atan2(yf - yb, 4.4); c.roll = 0; }   // (up a hill, over a bridge's hump and down again)
   }
 
   // The parked cars near a point, dressed like traffic cars so the same collision code can hit them.

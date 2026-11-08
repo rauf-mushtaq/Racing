@@ -13,6 +13,7 @@ import { Q } from './quality.js';
 import { attachSSR } from './ssr.js';
 import { waterSurface, riverSdf, inRiverBox } from './rivercourse.js';
 import { isRound, RB } from './junctions.js';
+import { heightBL, hillyArea, plaza as plazaAt } from './hills.js';
 export { mergeGeoms, puddles, macro };
 // Is a point within `m` metres of the river or a lake (or in it)? Nothing is put there.
 const wet = (x, z, m = 3) => inRiverBox(x, z, m) && riverSdf(x, z) < m;
@@ -74,6 +75,11 @@ export function queryColliders(x, z, r, out) {
 // What's under a point: height, and whether it's grass.
 // ---------------------------------------------------------------------------
 export function surfaceAt(x, z) {
+  const s = surfaceFlat(x, z), h = heightBL(x, z);
+  if (h) s.y += h;
+  return s;
+}
+function surfaceFlat(x, z) {
   const ax = Math.abs(x), az = Math.abs(z);
   if (ax > EDGE || az > EDGE) {
     const out = Math.max(ax, az) - EDGE;
@@ -132,13 +138,25 @@ const DETAIL_KEYS = ['props', 'sign', 'rail', 'gantry'];
 const CASTS = new Set(['glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props']);
 const snap = h => Math.max(3.5, Math.round(h / 3.5) * 3.5);
 
+const GROUND = new Set(['walk', 'curb', 'park', 'mark', 'lot']);            // (surfaces that follow the ground; everything else stands level on a base)
 class Ctx {
-  constructor() {
+  // On hilly ground every vertex of a ground surface is lifted to the height of the ground under it, and everything that stands on the ground
+  // (a building, a sign, a crane) is lifted by one amount, the highest ground under its lot, with its walls carried down to the lowest.
+  constructor(hilly = false) {
     this.gb = {}; for (const k of KEYS) this.gb[k] = new GB(COLORED.has(k));
+    this.hilly = hilly; this.base = 0; this.drop = 0;
+    if (hilly) for (const k of KEYS) { const g = this.gb[k]; if (GROUND.has(k)) { g.lift = (x, y, z) => heightBL(x, z); g.fine = 12; } else g.lift = (x, y, z) => this.base - (y < 0.35 ? this.drop : 0); }
     this.colliders = [];
     this.L = { bushes: [], trees: [], palms: [], lamps: [], poles: [], hedges: [], hydrants: [], bins: [], benches: [], sigZ: [], sigX: [], bills: [], parked: [] };
     this.signN = 0;
   }
+  H(x, z) { return this.hilly ? heightBL(x, z) : 0; }
+  setLot(lot) {
+    if (!this.hilly) return; let hi = 0, lo = 1e9;
+    for (const fx of [0, 0.5, 1]) for (const fz of [0, 0.5, 1]) { const h = heightBL(lot.x0 + (lot.x1 - lot.x0) * fx, lot.z0 + (lot.z1 - lot.z0) * fz); hi = Math.max(hi, h); lo = Math.min(lo, h); }
+    this.base = hi; this.drop = hi - lo + 0.25;
+  }
+  setPoint(x, z, drop = 0.3) { if (this.hilly) { this.base = heightBL(x, z); this.drop = drop; } }
 }
 
 // Low-frequency variation on large surfaces, so the repeating texture doesn't
@@ -251,14 +269,30 @@ export class City {
     };
     for (const k of ['glass', 'modern', 'shop']) attachSSR(m[k], { range: 110, rough: 0.45, view: 160, strength: 0.85 });
     m.asphalt = makeAsphalt();
+    m.hillAsphalt = makeAsphalt();
+    for (const a of [m.asphalt, m.hillAsphalt]) if (a === m.asphalt) { a.polygonOffset = true; a.polygonOffsetFactor = 1; a.polygonOffsetUnits = 1; }          // (the flat plane is pushed back a little, so the ground of a hilly region, which is at the true height, always wins over it)
     this.style = {
       glass: { fac: facG, pal: GLASS }, modern: { fac: facM, pal: MODERN }, apt: { fac: facA, pal: STUCCO },
       brick: { fac: facB, pal: BRICK }, shop: { fac: facS, pal: SHOP }, house: { fac: facH, pal: HOUSE },
     };
     // The road surface: one big plane under everything.
-    const ground = new GB(); ground.flat(-EDGE, -EDGE, EDGE, EDGE, 0, 10);
+    const ground = new GB(); ground.flat(-EDGE, -EDGE, EDGE, EDGE, -0.05, 10);          // (a few centimetres down, so that the ground of a hilly region, which is exactly at the true height, always wins)
     const gm = new THREE.Mesh(ground.geometry(), m.asphalt); gm.receiveShadow = Q.shadows; gm.layers.enable(2); gm.frustumCulled = false;
     this.group.add(gm); this.ground = gm;
+    // The hills, for the far view: a coarse mesh a little under the ground of the regions that are loaded (which has all the detail), so the hills
+    // show from a distance too, even where the buildings aren't built.
+    {
+      const cell = 60, nc = Math.round(2 * EDGE / cell), x0 = -EDGE, z0 = -EDGE, pos = [], idx = [], nor = [], at = new Map();
+      const vid = (i, j) => { const k = i * 4096 + j; let v = at.get(k); if (v === undefined) { const x = x0 + i * cell, z = z0 + j * cell, e = 4, gx = (heightBL(x + e, z) - heightBL(x - e, z)) / (2 * e), gz = (heightBL(x, z + e) - heightBL(x, z - e)) / (2 * e), l = Math.hypot(gx, 1, gz); v = pos.length / 3; pos.push(x, heightBL(x, z) - 0.45, z); nor.push(-gx / l, 1 / l, -gz / l); at.set(k, v); } return v; };
+      for (let j = 0; j < nc; j++) for (let i = 0; i < nc; i++) {
+        const xa = x0 + i * cell, za = z0 + j * cell; if (!hillyArea(xa, za, xa + cell, za + cell) || !(heightBL(xa, za) + heightBL(xa + cell, za) + heightBL(xa, za + cell) + heightBL(xa + cell, za + cell) > 0)) continue;
+        const a = vid(i, j), b = vid(i + 1, j), c2 = vid(i, j + 1), d = vid(i + 1, j + 1); idx.push(a, c2, b, b, c2, d);
+      }
+      if (idx.length) {
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setIndex(idx);
+        const hm = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x4a4a4e, roughness: 1 })); hm.layers.enable(2); hm.frustumCulled = false; this.group.add(hm); this.coarseHills = hm;
+      }
+    }
   }
 
   allMaterials() {
@@ -270,6 +304,17 @@ export class City {
 
   // --- Streaming ----------------------------------------------------------------
   regionAt(x, z) { return [clamp(Math.floor((x + N * SP) / REGION), 0, NR - 1), clamp(Math.floor((z + N * SP) / REGION), 0, NR - 1)]; }
+  // The road surface of a hilly region: a mesh on the real height, a cell every 12 m (the pavements and everything else are on top of it).
+  hillGround(ri, rj) {
+    const n = 30, step = REGION / n, x0 = -N * SP + ri * REGION, z0 = -N * SP + rj * REGION, w = n + 1, pos = new Float32Array(w * w * 3), nor = new Float32Array(w * w * 3), uv = new Float32Array(w * w * 2), idx = [];
+    for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {
+      const x = x0 + i * step, z = z0 + j * step, k = j * w + i, gx = (heightBL(x + 2, z) - heightBL(x - 2, z)) / 4, gz = (heightBL(x, z + 2) - heightBL(x, z - 2)) / 4, l = Math.hypot(gx, 1, gz);
+      pos[k * 3] = x; pos[k * 3 + 1] = heightBL(x, z); pos[k * 3 + 2] = z; nor[k * 3] = -gx / l; nor[k * 3 + 1] = 1 / l; nor[k * 3 + 2] = -gz / l; uv[k * 2] = x / 10; uv[k * 2 + 1] = -z / 10;
+    }
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const a = j * w + i, b = a + 1, c = a + w, d = c + 1; idx.push(a, c, b, b, c, d); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx); g.computeBoundingSphere();
+    const m = new THREE.Mesh(g, this.mat.hillAsphalt); m.receiveShadow = Q.shadows; m.layers.enable(2); return m;
+  }
   nearRiver(ri, rj) {
     const x0 = -N * SP + ri * REGION, z0 = -N * SP + rj * REGION;
     return inRiverBox(x0 + REGION / 2, z0 + REGION / 2, REGION / 2 + 40);
@@ -345,7 +390,7 @@ export class City {
 
   // --- Making a region ---------------------------------------------------------------
   *genRegion(ri, rj) {
-    const ctx = new Ctx();
+    const x0 = -N * SP + ri * REGION, z0 = -N * SP + rj * REGION, ctx = new Ctx(hillyArea(x0, z0, x0 + REGION, z0 + REGION));
     for (let bi = 0; bi < R; bi++) for (let bj = 0; bj < R; bj++) {
       yield* this.genBlock(ctx, -N + ri * R + bi, -N + rj * R + bj);
       yield;
@@ -364,6 +409,7 @@ export class City {
       if (far) m.layers.enable(2);
       grp.add(m);
     };
+    if (ctx.hilly) region.far.add(this.hillGround(ri, rj));
     const near = this.matCut && this.nearRiver(ri, rj);                       // (only regions by the river need materials that cut it away)
     for (const k of FAR_KEYS) mesh(k, region.far, true, near);
     for (const k of DETAIL_KEYS) mesh(k, region.detail, false);
@@ -377,8 +423,10 @@ export class City {
       list.forEach((it, n) => { place(it, rnd); im.setMatrixAt(n, m4); if (tint) { tint(c, rnd); im.setColorAt(n, c); } });
       im.castShadow = cast && Q.shadows; im.receiveShadow = false; im.computeBoundingSphere(); grp.add(im); return im;
     };
-    const at = (x, y, z, yaw, sc) => { q.setFromAxisAngle(up, yaw); s.set(sc, sc, sc); v.set(x, y, z); m4.compose(v, q, s); };
-    const placeTree = (t, rnd) => { const sc = t[2]; q.setFromAxisAngle(up, rnd() * 6.28); s.set(sc * (0.86 + rnd() * 0.32), sc * (0.9 + rnd() * 0.26), sc * (0.86 + rnd() * 0.32)); v.set(t[0], t[3], t[1]); m4.compose(v, q, s); };   // (no two crowns the same shape)
+    const Hh = ctx.hilly ? heightBL : () => 0;
+    const atN = (x, y, z, yaw, sc) => { q.setFromAxisAngle(up, yaw); s.set(sc, sc, sc); v.set(x, y, z); m4.compose(v, q, s); };
+    const at = (x, y, z, yaw, sc) => atN(x, y + Hh(x, z), z, yaw, sc);
+    const placeTree = (t, rnd) => { const sc = t[2]; q.setFromAxisAngle(up, rnd() * 6.28); s.set(sc * (0.86 + rnd() * 0.32), sc * (0.9 + rnd() * 0.26), sc * (0.86 + rnd() * 0.32)); v.set(t[0], t[3] + Hh(t[0], t[1]), t[1]); m4.compose(v, q, s); };   // (no two crowns the same shape)
     const leaf = (c, rnd) => { const r = rnd(); c.setRGB(0.8 + r * 0.35, 0.88 + r * 0.2, 0.75 + r * 0.2); };
     inst(P.geo.treeCore, P.mat.treeCore, L.trees, placeTree, true, region.trees);
     inst(P.geo.treeCards, P.mat.treeCards, L.trees, placeTree, true, region.trees, leaf);
@@ -393,12 +441,12 @@ export class City {
     keep('lamp', inst(P.geo.bulb, P.mat.bulb, L.lamps, placeYaw, false, region.detail));
     if (TOD.lampsOn) { const pm = keep('lamp', inst(P.geo.pool, P.mat.pool, L.lamps, it => at(it[0], 0.03, it[1], it[2], 1), false, region.detail)); if (pm) pm.renderOrder = 1; }
     keep('pole', inst(P.geo.pole, P.mat.pole, L.poles, placeYaw, true, region.detail));
-    inst(P.geo.hedge, P.mat.hedge, L.hedges, it => { q.identity(); s.set(it[2], 0.95, it[3]); v.set(it[0], CURB, it[1]); m4.compose(v, q, s); }, true, region.detail);
+    inst(P.geo.hedge, P.mat.hedge, L.hedges, it => { q.identity(); s.set(it[2], 0.95, it[3]); v.set(it[0], CURB + Hh(it[0], it[1]), it[1]); m4.compose(v, q, s); }, true, region.detail);
     keep('hydrant', inst(P.geo.hydrant, P.mat.hydrant, L.hydrants, placeYaw, false, region.detail));
     keep('bin', inst(P.geo.bin, P.mat.bin, L.bins, placeYaw, false, region.detail));
     keep('bench', inst(P.geo.bench, P.mat.bench, L.benches, placeYaw, false, region.detail));
-    inst(P.geo.billFrame, P.mat.billFrame, L.bills, it => at(it.x, it.y, it.z, it.yaw, 1), true, region.far);
-    inst(P.geo.billFace, P.mat.billFace, L.bills, it => at(it.x, it.y, it.z, it.yaw, 1), false, region.far);
+    inst(P.geo.billFrame, P.mat.billFrame, L.bills, it => atN(it.x, it.y, it.z, it.yaw, 1), true, region.far);
+    inst(P.geo.billFace, P.mat.billFace, L.bills, it => atN(it.x, it.y, it.z, it.yaw, 1), false, region.far);
     // Wires between neighbouring poles on the same pavement.
     const pts = [];
     for (let i = 1; i < L.poles.length; i++) {
@@ -406,10 +454,10 @@ export class City {
       if (a[4] !== b[4]) continue;
       const ox = Math.cos(a[2]), oz = -Math.sin(a[2]);
       for (const off of [-1.1, 0, 1.1]) {
-        const y0 = CURB + (off === 0 ? 10.6 : 10.28), S = 9;
+        const y0 = CURB + (off === 0 ? 10.6 : 10.28), S = 9, ha = Hh(a[0], a[1]), hb = Hh(b[0], b[1]);
         for (let k = 0; k < S; k++) {
           const t0 = k / S, t1 = (k + 1) / S;
-          const Pt = t => [a[0] + (b[0] - a[0]) * t + ox * off, y0 - 0.7 * 4 * t * (1 - t), a[1] + (b[1] - a[1]) * t + oz * off];
+          const Pt = t => [a[0] + (b[0] - a[0]) * t + ox * off, y0 + ha + (hb - ha) * t - 0.7 * 4 * t * (1 - t), a[1] + (b[1] - a[1]) * t + oz * off];
           pts.push(...Pt(t0), ...Pt(t1));
         }
       }
@@ -418,13 +466,13 @@ export class City {
     // Traffic signals: a pole and arm, two heads, and a red, amber and green lamp on each.
     const all = [...L.sigZ, ...L.sigX];
     inst(P.geo.sigPole, P.mat.sigDark, all, it => at(it[0], CURB, it[1], it[2], 1), true, region.detail);
-    inst(P.geo.sigArm, P.mat.sigDark, all, it => { q.setFromAxisAngle(up, it[2]); s.set(1, 1, it[3]); v.set(it[0], CURB, it[1]); m4.compose(v, q, s); }, true, region.detail);
+    inst(P.geo.sigArm, P.mat.sigDark, all, it => { q.setFromAxisAngle(up, it[2]); s.set(1, 1, it[3]); v.set(it[0], CURB + Hh(it[0], it[1]), it[1]); m4.compose(v, q, s); }, true, region.detail);
     const fwd = new THREE.Vector3();
     const heads = { Z: [], X: [] };
     for (const [ax, list] of [['Z', L.sigZ], ['X', L.sigX]]) for (const it of list) for (const f of [0.55, 0.95]) heads[ax].push([it[0], it[1], it[2], it[3] * f]);
     const placeHead = (h, dy = 0, dxl = 0) => {
       q.setFromAxisAngle(up, h[2]); fwd.set(Math.sin(h[2]), 0, Math.cos(h[2]));
-      v.set(h[0] + fwd.x * h[3] + Math.cos(h[2]) * dxl, CURB + 5.5 + dy, h[1] + fwd.z * h[3] - Math.sin(h[2]) * dxl); s.set(1, 1, 1); m4.compose(v, q, s);
+      v.set(h[0] + fwd.x * h[3] + Math.cos(h[2]) * dxl, CURB + 5.5 + dy + Hh(h[0], h[1]), h[1] + fwd.z * h[3] - Math.sin(h[2]) * dxl); s.set(1, 1, 1); m4.compose(v, q, s);
     };
     inst(P.geo.sigHead, P.mat.sigHead, [...heads.Z, ...heads.X], h => placeHead(h), true, region.detail);
     for (const ax of ['Z', 'X']) for (const [k, dy] of [['R', 0.3], ['A', 0], ['G', -0.3]]) {
@@ -501,7 +549,7 @@ export class City {
     if (lm && lm !== 'wheel') { if (lm === 'cathedral') this.square(ctx, b, rnd); return; }                     // (landmarks.js builds it)
     const sg = signatureAt(i, j);
     if (sg) { this.signature(ctx, { x0: ix0, z0: iz0, x1: ix1, z1: iz1 }, sg, rnd); return; }                       // a skyscraper that fills the block
-    if (isPlaza(i, j)) { this.plaza(ctx, { x0: ix0, z0: iz0, x1: ix1, z1: iz1 }, rnd); return; }
+    if (plazaAt(i, j)) { this.plaza(ctx, { x0: ix0, z0: iz0, x1: ix1, z1: iz1 }, rnd); return; }
     if (park) {
       const lawn = roundedRect(ix0, iz0, ix1, iz1, 3, 4);
       gb.park.cap(lawn, CURB + 0.03, 18, GRASS_TINT);
@@ -527,6 +575,7 @@ export class City {
     const maxLot = zone === 'down' ? 60 : zone === 'mid' ? 44 : houseBlock ? 30 : 36;
     const lots = []; subdivide({ x0: ix0, z0: iz0, x1: ix1, z1: iz1 }, maxLot, rnd, lots);
     for (const lot of lots) {
+      ctx.setLot(lot);
       if (this.nearWater(lot)) { this.riverLot(ctx, lot, rnd); continue; }
       const faces = [];
       if (lot.x0 - ix0 < 0.5) faces.push({ dir: [-1, 0], line: i, axis: 'x' });
@@ -629,6 +678,7 @@ export class City {
 
   // An overhead road sign over a boulevard, one panel over each direction.
   gantry(ctx, axis, k, a, m, lw, nl, H) {
+    ctx.setPoint(axis === 'x' ? k * SP : a, axis === 'x' ? a : k * SP);
     const gb = ctx.gb, C = k * SP, dark = new THREE.Color(0.5, 0.52, 0.55), ext = H + 1.4;
     const n = (hash3(k, Math.round(a), 7) * 16) | 0, cc = n % 2, rr = (n / 2) | 0;
     const u0 = cc / 2 + 0.003, u1 = (cc + 1) / 2 - 0.003, v0 = 1 - (rr + 1) / 8 + 0.003, v1 = 1 - rr / 8 - 0.003;
@@ -883,6 +933,7 @@ export class City {
   // A roundabout: a kerbed island with something on it (a fountain, an obelisk, a grove or a statue), a white line round it, and a
   // small island splitting each side street's traffic. No traffic lights. Cars circle it (traffic.js) and can't drive over it.
   roundabout(ctx, i, j) {
+    ctx.setPoint(i * SP, j * SP, 1.6);
     const cx = i * SP, cz = j * SP, G = ctx.gb, L = ctx.L, Ri = RB.island, rnd = mulberry32(Math.imul(i + 500, 7919) ^ Math.imul(j + 500, 104729)), kind = Math.floor(hash3(i, j, 43) * 4);
     const ring = circlePoly(cx, cz, Ri, 40);
     G.curb.extrude(ring, 0, 0.24, 4.5, 4.5, WHITE, 0, true);
@@ -1038,7 +1089,7 @@ export class City {
       if (hash3(Math.round(b.x0), Math.round(b.z0), 63) < 0.4) this.terrace(ctx, b, faces[0], rnd);
       if (isBlvd(faces[0].line) && rnd() < 0.3) this.poleSign(ctx, b, faces[0], rnd);
     }
-    if (!tower && faces.length && ctx.L.bills.length < 2 && rnd() < 0.05) ctx.L.bills.push({ x: cx, z: cz, y: top + 2, yaw: Math.atan2(faces[0].dir[0], faces[0].dir[1]) });
+    if (!tower && faces.length && ctx.L.bills.length < 2 && rnd() < 0.05) ctx.L.bills.push({ x: cx, z: cz, y: top + 2 + ctx.base, yaw: Math.atan2(faces[0].dir[0], faces[0].dir[1]) });
   }
 
   // Thin slab balconies with railings cut from a bar texture (no solid boxes).
@@ -1084,6 +1135,7 @@ export class City {
     }
   }
   poleSign(ctx, b, f, rnd) {
+    ctx.setPoint((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2);
     const s = f.dir[0] !== 0 ? f.dir[0] : f.dir[1], G = ctx.gb;
     let x, z;
     if (f.dir[0] !== 0) { x = (f.dir[0] < 0 ? b.x0 : b.x1) + s * (SIDEWALK - 1.2); z = b.z0 + 2; }
@@ -1152,7 +1204,7 @@ export class City {
         if (k < n && rnd() < 0.3) {
           const c = t + 1.5, m = a + 2.5, yaw = alongX ? (side ? Math.PI : 0) : (side ? -Math.PI / 2 : Math.PI / 2);
           const px = alongX ? c : m, pz = alongX ? m : c;
-          ctx.L.parked.push({ x: px, z: pz, h: yaw, y: CURB, type: (rnd() * 3) | 0, ci: (rnd() * 12) | 0 });
+          ctx.L.parked.push({ x: px, z: pz, h: yaw, y: CURB + ctx.H(px, pz), type: (rnd() * 3) | 0, ci: (rnd() * 12) | 0 });
           addCollider({ type: 'circ', x: px, z: pz, r: 1.3 }, ctx.colliders);
         }
       }

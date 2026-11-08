@@ -66,6 +66,7 @@
   "src/grid.js",
   "src/gt.js",
   "src/heli.js",
+  "src/hills.js",
   "src/hud.js",
   "src/input.js",
   "src/junctions.js",
