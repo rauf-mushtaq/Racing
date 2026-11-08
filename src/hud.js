@@ -4,6 +4,7 @@ import { $, clamp, fmtTime } from './util.js';
 import { N, SP, hw, isBlvd, EDGE, LIMIT, blockRect, isPark } from './city.js';
 import { RIVER, LAKES, lakeOutline, bankPoint, inRiverBox } from './rivercourse.js';
 import { heightBL, HILLS } from './hills.js';
+import { AVENUES } from './avenues.js';
 import { WORLD, ROADS, coastX, climate, baseHeight, BUNKERS, AIRFIELD } from './world.js';
 
 const A0 = 125 * Math.PI / 180, SPAN = 290 * Math.PI / 180;
@@ -114,6 +115,7 @@ export class HUD {
     // (heading-up: forward is up the screen)
     c.lineCap = 'butt';
     if (inRiverBox(car.x, car.z, 400)) { c.fillStyle = 'rgba(70,150,205,0.9)'; c.fill(waterPath(), 'nonzero'); }
+    c.lineJoin = 'round'; for (const A of AVENUES) { c.strokeStyle = 'rgba(220,220,235,0.45)'; c.lineWidth = A.hw * 2; c.beginPath(); let pen = false; for (let i = 0; i < A.n; i += 2) { if (Math.abs(A.x[i] - car.x) > 340 || Math.abs(A.z[i] - car.z) > 340) { pen = false; continue; } if (pen) c.lineTo(A.x[i], A.z[i]); else { c.moveTo(A.x[i], A.z[i]); pen = true; } } c.stroke(); }
     for (let k = -N; k <= N; k++) {
       c.strokeStyle = isBlvd(k) ? 'rgba(220,220,235,0.55)' : 'rgba(200,200,215,0.32)';
       c.lineWidth = hw(k) * 2;
@@ -257,6 +259,7 @@ export class HUD {
       c.beginPath(); c.moveTo(k * SP, -EDGE); c.lineTo(k * SP, EDGE); c.stroke();
       c.beginPath(); c.moveTo(-EDGE, k * SP); c.lineTo(EDGE, k * SP); c.stroke();
     }
+    c.lineJoin = 'round'; for (const A of AVENUES) { c.strokeStyle = '#ffffff'; c.lineWidth = Math.max(A.hw * 2, 2.2 / s); c.beginPath(); A.pts.forEach((q, k) => (k ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]))); c.stroke(); }
     c.strokeStyle = '#ffffff'; c.lineWidth = Math.max(26, 3.2 / s); c.lineJoin = 'round';
     for (const R of ROADS) { if (R.kind !== 'motorway') continue; c.beginPath(); R.x.forEach((x, i) => (i ? c.lineTo(x, R.z[i]) : c.moveTo(x, R.z[i]))); c.stroke(); }
     c.font = `700 ${15 / s}px Barlow, sans-serif`; c.textAlign = 'center'; c.fillStyle = 'rgba(30,40,60,0.75)';

@@ -7,6 +7,7 @@ import { RIVER, BRIDGES, LAKES, riverSdf, bridgeAt, deckY } from '../src/riverco
 import { SP, N, hw, blockRect, LANDMARKS, SIGNATURE } from '../src/grid.js';
 import { plaza as isPlaza, heightBL, nodeH, steepest, HILLS } from '../src/hills.js';
 import { isRound, RB } from '../src/junctions.js';
+import { AVENUES, roadSdf, wideSdf, clipLot, lotAvenue, polyArea } from '../src/avenues.js';
 
 try {
   console.log('the course');
@@ -39,6 +40,20 @@ try {
   check('the river, downtown and every landmark are on flat ground', lm.every(([, x, z]) => heightBL(x, z) === 0) && heightBL(0, 0) === 0 && heightBL(0, -300) === 0 && heightBL(900, -62) === 0);
   let rough = 0; for (let x = -1100; x < 1100; x += 30) for (let z = -460; z < 130; z += 30) if (heightBL(x, z) !== 0) rough++;
   check('and so is all the ground round the river', rough === 0, 'bumps ' + rough);
+  console.log('the roads across the grid');
+  { let near = 1e9, bad = 0, steep = 0;
+    for (const A of AVENUES) for (let i = 0; i < A.n; i++) {
+      const x = A.x[i], z = A.z[i], ni = Math.round(x / SP), nj = Math.round(z / SP); near = Math.min(near, Math.hypot(x - ni * SP, z - nj * SP));
+      const bi = Math.floor(x / SP), bj = Math.floor(z / SP); if (Math.abs(bi) < N && Math.abs(bj) < N && (Object.keys(LANDMARKS).includes(bi + ',' + bj) || Object.keys(SIGNATURE).includes(bi + ',' + bj))) bad++;
+      if (riverSdf(x, z) < 60) bad++;
+      if (i) steep = Math.max(steep, Math.abs(heightBL(x, z) - heightBL(A.x[i - 1], A.z[i - 1])) / 12);
+    }
+    check('there are four roads off the grid: two long diagonals and two that wind up the hills', AVENUES.length === 4 && AVENUES.filter(a => a.kind === 'diag').length === 2 && AVENUES.every(a => a.length > 1400), AVENUES.map(a => a.id + ' ' + a.length.toFixed(0)).join(', '));
+    check('they keep clear of every junction, the river, the landmarks and the skyscrapers', near > 55 && bad === 0, 'closest junction ' + near.toFixed(0) + ' m, bad ' + bad);
+    check('and none is steeper than one in seven', steep < 0.14, (steep * 100).toFixed(1) + '%');
+    const lot = { x0: -380, z0: 950, x1: -340, z1: 990 }, hit = lotAvenue(lot, 1.5), pieces = hit ? clipLot(lot, hit) : [];
+    check('a lot the diagonal runs through is cut into wedges clear of the road and its pavements', pieces.length >= 1 && pieces.every(p => polyArea(p) > 20 && p.every(([x, z]) => wideSdf(x, z) > -0.8)), JSON.stringify({ hit: !!hit, n: pieces.length, areas: pieces.map(p => Math.round(polyArea(p))) }));
+  }
   console.log('in the game');
   const A = await open({ w: 800, h: 450 }), P = A.page;
   await P.evaluate(() => { window.__noRender = true; });
@@ -71,6 +86,41 @@ try {
   check('the car climbs the hill (more than twenty metres up a boulevard) and stays on the ground', hill.top > 20 && hill.gap < 2.5, JSON.stringify(hill));
   check('traffic on the hill drives on the road surface (within a few centimetres)', hill.n > 300 && hill.worst < 0.4, JSON.stringify({ n: hill.n, worst: hill.worst }));
   check('nothing built is buried deep in a hillside', hill.low === 0 && hill.tested > 1000, JSON.stringify({ low: hill.low, tested: hill.tested }));
+  const roads = await P.evaluate(async () => {
+    const g = window.__game, av = await import('./src/avenues.js'), w = await import('./src/world.js'), hs = await import('./src/hills.js'), out = { onRoadY: 0, pavementY: 0, h: 0 };
+    g.city.loadNow(-300, 1010, 2); const A = av.AVENUES[0], grid = (x, z) => Math.abs(x - Math.round(x / 180) * 180) < 28 || Math.abs(z - Math.round(z / 180) * 180) < 28;
+    let k = 150; while (k < 330 && (grid(A.x[k], A.z[k]) || grid(A.x[k] - A.tz[k] * 14, A.z[k] + A.tx[k] * 14))) k++;
+    const x = A.x[k], z = A.z[k];
+    out.h = hs.heightBL(x, z); out.onRoadY = +(w.groundAt(x, z).y - out.h).toFixed(2);
+    const nx = -A.tz[k], nz = A.tx[k], o = A.hw + 2; out.pavementY = +(w.groundAt(x + nx * o, z + nz * o).y - hs.heightBL(x + nx * o, z + nz * o)).toFixed(2);
+    // drive the length of a stretch of the grand diagonal
+    g.traffic.cars.forEach(c => { c.active = false; }); const x0 = A.x[300] - A.tz[300] * 1.9, z0 = A.z[300] + A.tx[300] * 1.9, hd = Math.atan2(A.tx[300], A.tz[300]);
+    g.car.reset(x0, z0, hd); g.car.baseY = w.groundAt(x0, z0).y; g.city.loadNow(x0, z0, 2);
+    let off = 0, n = 0; for (let s = 0; s < 12; s++) { g.simulate(1, { throttle: 0.8, gas: 0.8, steer: 0 }); n++; if (av.roadSdf(g.car.x, g.car.z) > 4) off++; }
+    out.travelled = Math.hypot(g.car.x - x0, g.car.z - z0); out.speed = g.car.speed; out.off = off;
+    // straight at a building beside the road: it stops
+    return out;
+  });
+  check('on a diagonal road the ground is road level (not up on the pavement), and the pavement beside it is a kerb higher', roads.onRoadY < 0.05 && roads.pavementY > 0.1, JSON.stringify(roads));
+  check('a car drives along the diagonal, on its road, without being stopped by anything', roads.travelled > 120 && roads.off === 0 && roads.speed > 8, JSON.stringify(roads));
+  const climb = await P.evaluate(async () => {
+    const g = window.__game, av = await import('./src/avenues.js'), w = await import('./src/world.js'); let stuck = 0, tried = 0; const where = [];
+    for (const A of av.AVENUES.filter(a => a.kind === 'hill')) for (let k = 12; k < A.n - 14; k += 7) {
+      const x = A.x[k] - A.tz[k] * 1.4, z = A.z[k] + A.tx[k] * 1.4; g.city.loadNow(x, z, 1); g.car.reset(x, z, Math.atan2(A.tx[k], A.tz[k])); g.car.baseY = w.groundAt(x, z).y; g.traffic.cars.forEach(c => { c.active = false; });
+      g.simulate(1.6, { throttle: 1, gas: 1, steer: 0 }); tried++; const d = Math.hypot(g.car.x - x, g.car.z - z); if (d < 6) { stuck++; where.push([A.id, k, Math.round(x), Math.round(z), +d.toFixed(1)]); }
+    }
+    return { tried, stuck, where: where.slice(0, 6) };
+  });
+  check('the roads that wind up the hills can be driven all the way (nothing built or planted on them)', climb.tried > 30 && climb.stuck <= 2, JSON.stringify(climb));
+  const ave = await P.evaluate(async () => {
+    const g = window.__game, av = await import('./src/avenues.js'), w = await import('./src/world.js'); const A = av.AVENUES[0]; g.city.loadNow(A.x[200], A.z[200], 2); g.car.reset(A.x[200] + 40, A.z[200] - 60, 0); g.car.baseY = w.groundAt(A.x[200] + 40, A.z[200] - 60).y;
+    g.traffic.cars.forEach(c => { c.active = true; c.s = 1e9; });
+    let seen = 0, off = 0, mx = 0; for (let s = 0; s < 90; s++) { g.simulate(0.5, { brake: 1 }); for (const c of g.traffic.cars) { if (!c.ave || c.mode !== 'drive') continue; seen++; if (av.roadSdf(c.x, c.z) > 0.5) off++; mx = Math.max(mx, Math.abs(c.y - w.groundAt(c.x, c.z).y)); } }
+    return { seen, off, mx: +mx.toFixed(2) };
+  });
+  check('there is traffic on the diagonal, in its lanes, on the ground', ave.seen > 100 && ave.off === 0 && ave.mx < 0.4, JSON.stringify(ave));
+  const rd = await P.evaluate(async () => { const { ROAD_TEX } = await import('./src/roadcut.js'), av = await import('./src/avenues.js'), t = ROAD_TEX.value, d = t.image.data, W = t.image.width, R = 2300; const at = (x, z) => d[Math.floor((z + R) / (2 * R) * W) * W + Math.floor((x + R) / (2 * R) * W)]; const A = av.AVENUES[0]; return { road: at(A.x[200], A.z[200]), beside: at(A.x[200] - A.tz[200] * 40, A.z[200] + A.tx[200] * 40), far: at(1200, -1700) }; });
+  check('the pavement is cut away along the roads across the grid (and only there)', rd.road < 110 && rd.beside > 200 && rd.far > 250, JSON.stringify(rd));
   const tex = await P.evaluate(async () => {
     const { RIVER_TEX } = await import('./src/river.js'), rc = await import('./src/rivercourse.js'), t = RIVER_TEX.value, B = rc.RIVER_BOX, d = t.image.data, W = t.image.width, H = t.image.height;
     const at = (x, z) => d[Math.min(H - 1, Math.floor((z - B.z0) / (B.z1 - B.z0) * H)) * W + Math.min(W - 1, Math.floor((x - B.x0) / (B.x1 - B.x0) * W))];

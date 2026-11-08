@@ -14,9 +14,10 @@ import { attachSSR } from './ssr.js';
 import { waterSurface, riverSdf, inRiverBox } from './rivercourse.js';
 import { isRound, RB } from './junctions.js';
 import { heightBL, hillyArea, plaza as plazaAt } from './hills.js';
+import { AVENUES, roadSdf, nearAvenueArea, lotAvenue, clipLot, polyArea } from './avenues.js';
 export { mergeGeoms, puddles, macro };
 // Is a point within `m` metres of the river or a lake (or in it)? Nothing is put there.
-const wet = (x, z, m = 3) => inRiverBox(x, z, m) && riverSdf(x, z) < m;
+const wet = (x, z, m = 3) => (inRiverBox(x, z, m) && riverSdf(x, z) < m) || roadSdf(x, z) < m;      // (in or by the river, or on one of the roads that cut across the grid)
 
 export { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, isLakeBlock, landmarkAt, signatureAt, isPlaza } from './grid.js';
 import { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, landmarkAt, signatureAt, isPlaza } from './grid.js';
@@ -87,6 +88,7 @@ function surfaceFlat(x, z) {
   }
   const ws = waterSurface(x, z);                                          // the deck of a bridge, or water
   if (ws) return { y: ws.y, grass: false, water: ws.water };
+  if (roadSdf(x, z) < 0) return { y: 0, grass: false };                       // a road cut across the grid: down at road level, not up on the pavement
   const kx = clamp(Math.round(x / SP), -N, N), kz = clamp(Math.round(z / SP), -N, N);
   const dx = Math.abs(x - kx * SP), dz = Math.abs(z - kz * SP);
   const onAve = dx < hw(kx), onSt = dz < hw(kz);
@@ -131,14 +133,14 @@ const TILES = ['#ffffff', '#f2d8c8', '#c8a090', '#9a7a6a'].map(col);
 const WHITE = new THREE.Color(1, 1, 1), STONE = new THREE.Color(0.2, 0.2, 0.22), METAL = new THREE.Color(0.55, 0.6, 0.66);
 const GRASS_TINT = new THREE.Color(0.95, 1, 0.9);
 
-const COLORED = new Set(['park', 'mark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props']);
-const KEYS = ['walk', 'curb', 'park', 'mark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot', 'props', 'sign', 'rail', 'gantry'];
-const FAR_KEYS = ['walk', 'curb', 'park', 'mark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot'];
+const COLORED = new Set(['park', 'mark', 'amark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props']);
+const KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot', 'props', 'sign', 'rail', 'gantry'];
+const FAR_KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot'];
 const DETAIL_KEYS = ['props', 'sign', 'rail', 'gantry'];
 const CASTS = new Set(['glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props']);
 const snap = h => Math.max(3.5, Math.round(h / 3.5) * 3.5);
 
-const GROUND = new Set(['walk', 'curb', 'park', 'mark', 'lot']);            // (surfaces that follow the ground; everything else stands level on a base)
+const GROUND = new Set(['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'lot']);            // (surfaces that follow the ground; everything else stands level on a base)
 class Ctx {
   // On hilly ground every vertex of a ground surface is lifted to the height of the ground under it, and everything that stands on the ground
   // (a building, a sign, a crane) is lifted by one amount, the highest ground under its lot, with its walls carried down to the lowest.
@@ -269,6 +271,7 @@ export class City {
     };
     for (const k of ['glass', 'modern', 'shop']) attachSSR(m[k], { range: 110, rough: 0.45, view: 160, strength: 0.85 });
     m.asphalt = makeAsphalt();
+    m.amark = std({ vertexColors: true, color: 0xd4d2cc, roughness: 0.82, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); m.acurb = std({ color: 0xc8c0bc, map: con.map, roughness: 0.9 });      // (the markings and kerb of the roads cut across the grid: never cut away themselves)
     m.hillAsphalt = makeAsphalt();
     for (const a of [m.asphalt, m.hillAsphalt]) if (a === m.asphalt) { a.polygonOffset = true; a.polygonOffsetFactor = 1; a.polygonOffsetUnits = 1; }          // (the flat plane is pushed back a little, so the ground of a hilly region, which is at the true height, always wins over it)
     this.style = {
@@ -298,7 +301,7 @@ export class City {
   allMaterials() {
     const out = [];
     const add = o => { for (const v of Object.values(o)) { if (v && v.isMaterial) out.push(v); else if (v && typeof v === 'object') add(v); } };
-    add(this.mat); add(this.props.mat); if (this.matCut) add(this.matCut);
+    add(this.mat); add(this.props.mat); if (this.matCut) add(this.matCut); if (this.matRoad) add(this.matRoad);
     return out;
   }
 
@@ -395,6 +398,7 @@ export class City {
       yield* this.genBlock(ctx, -N + ri * R + bi, -N + rj * R + bj);
       yield;
     }
+    this.avenues(ctx, ri, rj);
     return ctx;
   }
 
@@ -402,16 +406,17 @@ export class City {
     const [cx, cz] = this.regionCenter(ri, rj);
     const region = { ri, rj, group: new THREE.Group(), far: new THREE.Group(), detail: new THREE.Group(), trees: new THREE.Group(), colliders: ctx.colliders, parked: ctx.L.parked, lamps: { Z: {}, X: {} } };
     region.group.add(region.far, region.detail, region.trees);
-    const mesh = (k, grp, far, cut = false) => {
+    const mesh = (k, grp, far, set = null) => {
       const gb = ctx.gb[k]; if (!gb.count) return;
-      const m = new THREE.Mesh(gb.geometry(), cut && this.matCut[k] ? this.matCut[k] : this.mat[k]);
+      const m = new THREE.Mesh(gb.geometry(), set && set[k] ? set[k] : this.mat[k]);
       m.castShadow = CASTS.has(k) && Q.shadows; m.receiveShadow = Q.shadows && k !== 'sign';
       if (far) m.layers.enable(2);
       grp.add(m);
     };
     if (ctx.hilly) region.far.add(this.hillGround(ri, rj));
-    const near = this.matCut && this.nearRiver(ri, rj);                       // (only regions by the river need materials that cut it away)
-    for (const k of FAR_KEYS) mesh(k, region.far, true, near);
+    const rx0 = -N * SP + ri * REGION, rz0 = -N * SP + rj * REGION;
+    const set = this.matCut && this.nearRiver(ri, rj) ? this.matCut : this.matRoad && nearAvenueArea(rx0, rz0, rx0 + REGION, rz0 + REGION) ? this.matRoad : null;       // (only regions by the river or a road across the grid need materials that cut it away)
+    for (const k of FAR_KEYS) mesh(k, region.far, true, set);
     for (const k of DETAIL_KEYS) mesh(k, region.detail, false);
     const P = this.props, L = ctx.L;
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), s = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
@@ -577,6 +582,7 @@ export class City {
     for (const lot of lots) {
       ctx.setLot(lot);
       if (this.nearWater(lot)) { this.riverLot(ctx, lot, rnd); continue; }
+      if (this.avenueLot(ctx, lot, zone, d, rnd)) continue;
       const faces = [];
       if (lot.x0 - ix0 < 0.5) faces.push({ dir: [-1, 0], line: i, axis: 'x' });
       if (ix1 - lot.x1 < 0.5) faces.push({ dir: [1, 0], line: i + 1, axis: 'x' });
@@ -928,6 +934,71 @@ export class City {
     } else {                                                                             // a thin wide blade, turned off the grid
       plinth(110, 10); sect(rect(86, 18, 0, 0, 0.35), CURB + 10, CURB + 185, 'glass', colGlass()); sect(rect(60, 14, 0, 0, 0.35), CURB + 186, CURB + 205, 'glass', colGlass()); mast(cx, cz, CURB + 205, 20);
     }
+  }
+
+  // --- The roads that are not on the grid (avenues.js) -------------------------------------------------------------------
+  // The kerb along each edge, the markings down the middle and along the lanes, lamps and trees along the pavements. Each stretch is made by the
+  // region its middle is in.
+  avenues(ctx, ri, rj) {
+    const x0 = -N * SP + ri * REGION, z0 = -N * SP + rj * REGION, x1 = x0 + REGION, z1 = z0 + REGION, G = ctx.gb, L = ctx.L, rnd = mulberry32(Math.imul(ri + 11, 7919) ^ Math.imul(rj + 7, 104729));
+    const lineW = new THREE.Color(0.9, 0.9, 0.86), lineY = new THREE.Color(0.92, 0.7, 0.2), uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+    const onGrid = (x, z) => { const kx = clamp(Math.round(x / SP), -N, N), kz = clamp(Math.round(z / SP), -N, N); return Math.abs(x - kx * SP) < hw(kx) + 2 || Math.abs(z - kz * SP) < hw(kz) + 2; };
+    for (const A of AVENUES) for (let i = 0; i < A.n - 1; i++) {
+      const mx = (A.x[i] + A.x[i + 1]) / 2, mz = (A.z[i] + A.z[i + 1]) / 2; if (mx < x0 || mx >= x1 || mz < z0 || mz >= z1) continue;
+      const ax = A.x[i], az = A.z[i], bx = A.x[i + 1], bz = A.z[i + 1], nx = -A.tz[i], nz = A.tx[i], len = Math.hypot(bx - ax, bz - az), s0 = A.s[i];
+      const P = (o, f, y) => [ax + (bx - ax) * f + nx * o, y, az + (bz - az) * f + nz * o];
+      const strip = (o0, o1, col, f0 = 0, f1 = 1) => quadToward(G.amark, P(o0, f0, 0.012), P(o0, f1, 0.012), P(o1, f1, 0.012), P(o1, f0, 0.012), uv, col, [0, 1, 0]);
+      for (const s of [-1, 1]) {                                                                      // the kerb, facing the road
+        const o = s * (A.hw - 0.02), pa = P(o, 0, 0), pb = P(o, 1, 0);
+        quadToward(G.acurb, pa, pb, [pb[0], CURB, pb[2]], [pa[0], CURB, pa[2]], [[0, 0], [len / 4, 0], [len / 4, 0.04], [0, 0.04]], WHITE, [-nx * s, 0, -nz * s]);
+      }
+      if (A.kind === 'diag') {
+        strip(-0.22, -0.08, lineY); strip(0.08, 0.22, lineY);                                         // a double yellow line down the middle
+        for (const s of [-1, 1]) {
+          strip(s * (A.hw - 0.75) - 0.07, s * (A.hw - 0.75) + 0.07, lineW);                          // a solid edge line each side
+          for (let d0 = Math.floor(s0 / 9) * 9; d0 < s0 + len; d0 += 9) { const f0 = Math.max(0, (d0 - s0) / len), f1 = Math.min(1, (d0 + 3 - s0) / len); if (f1 > f0) strip(s * 5.4 - 0.07, s * 5.4 + 0.07, lineW, f0, f1); }      // dashes between the lanes
+        }
+      } else for (let d0 = Math.floor(s0 / 8) * 8; d0 < s0 + len; d0 += 8) { const f0 = Math.max(0, (d0 - s0) / len), f1 = Math.min(1, (d0 + 3 - s0) / len); if (f1 > f0) strip(-0.07, 0.07, lineW, f0, f1); }      // (a dashed line down a lane road)
+      // lamps every 38 m on alternate sides, trees between them (the lamps lean over the road)
+      if (Math.floor(A.s[i + 1] / 38) > Math.floor(s0 / 38)) {
+        const s = Math.floor(s0 / 38) % 2 ? 1 : -1, o = s * (A.hw + 1.1), x = mx + nx * o, z = mz + nz * o, yaw = Math.atan2(-nx * s, -nz * s);
+        if (!onGrid(x, z) && roadSdf(x, z) > 0.5 && !wet(x, z, 0.5)) { L.lamps.push([x, z, yaw, CURB]); addCollider({ type: 'circ', x, z, r: 0.25, brk: { kind: 'lamp', i: L.lamps.length - 1, yaw, key: brkKey(x, z) } }, ctx.colliders); }
+      }
+      if (A.kind === 'diag' && Math.floor((A.s[i + 1] + 19) / 38) > Math.floor((s0 + 19) / 38)) for (const s of [-1, 1]) { const o = s * (A.hw + 3.3), x = mx + nx * o, z = mz + nz * o; if (!onGrid(x, z)) this.tree(ctx, x, z, 1.1 + rnd() * 0.5, CURB, false); }
+    }
+  }
+  // A lot that a road across the grid goes through or by. A diagonal cuts it into wedges: a building on each (shaped to it), or a little park where
+  // too small. A winding road just turns it to lawn.
+  avenueLot(ctx, lot, zone, d, rnd) {
+    const hit = lotAvenue(lot, 1.5); if (!hit) return false;
+    if (hit.a.kind === 'hill') { if (hit.d < hit.a.W + 7) { this.riverLot(ctx, lot, rnd); return true; } return false; }
+    const rect = { x0: lot.x0, z0: lot.z0, x1: lot.x1, z1: lot.z1 };
+    for (const poly of clipLot(rect, hit)) {
+      const inner = offsetPoly(poly, -(1.1 + rnd() * 1.1)), a = polyArea(inner), per = inner.reduce((s, p, k) => s + Math.hypot(p[0] - inner[(k + 1) % inner.length][0], p[1] - inner[(k + 1) % inner.length][1]), 0);
+      if (inner.length < 3 || a < 330 || 2 * a / per < 4.6 || polyArea(poly) < 80) this.pocketPark(ctx, poly, rnd); else this.polyBuilding(ctx, ccw(inner), zone, d, rnd);
+      if (performance.now() > this.deadline) break;
+    }
+    return true;
+  }
+  // A building on any convex footprint (a wedge between a diagonal road and the grid): its walls straight up, a flat roof, a plinth; the colliders
+  // are a stack of boxes down it.
+  polyBuilding(ctx, P, zone, d, rnd) {
+    const { style: st0, h } = this.pickStyle(zone, d, true, [], rnd, ctx), style = st0 === 'shop' ? 'apt' : st0, { fac, pal } = this.style[style], G = ctx.gb, col = pal[(rnd() * pal.length) | 0];
+    const top = CURB + h, rc = new THREE.Color(0.55 + rnd() * 0.15, 0.53 + rnd() * 0.12, 0.52 + rnd() * 0.1), trim = new THREE.Color(0.93, 0.92, 0.9).multiplyScalar(0.9 + rnd() * 0.1);
+    G[style].extrude(P, CURB, top, fac.w, fac.h, col, Math.floor(rnd() * 4) / 4, false);
+    G.roof.cap(P, top, 8, rc); G.roof.extrude(offsetPoly(P, 0.05), top, top + 0.75, 8, 8, trim, 0, false);
+    G.props.extrude(offsetPoly(P, 0.25), CURB, CURB + 1.1, 4, 4, STONE, 0, false);
+    let zmin = 1e9, zmax = -1e9; for (const p of P) { zmin = Math.min(zmin, p[1]); zmax = Math.max(zmax, p[1]); }
+    const span = z => { let lo = 1e9, hi = -1e9; for (let k = 0; k < P.length; k++) { const a = P[k], b = P[(k + 1) % P.length]; if ((a[1] <= z && b[1] > z) || (b[1] <= z && a[1] > z)) { const x = a[0] + (z - a[1]) / (b[1] - a[1]) * (b[0] - a[0]); lo = Math.min(lo, x); hi = Math.max(hi, x); } } return [lo, hi]; };
+    for (let z = zmin; z < zmax - 0.2; z += 1.5) { const [l0, h0] = span(Math.min(zmax - 0.01, z + 0.01)), [l1, h1] = span(Math.max(zmin + 0.01, Math.min(zmax - 0.01, z + 1.49))), lo = Math.max(l0, l1) + 0.1, hi = Math.min(h0, h1) - 0.1; if (hi - lo > 0.5) addCollider({ type: 'box', x0: lo, x1: hi, z0: z, z1: Math.min(zmax, z + 1.5) }, ctx.colliders); }
+  }
+  // A wedge too small to build on: a little park with a few trees and a bench.
+  pocketPark(ctx, P, rnd) {
+    if (polyArea(P) < 30) return;
+    ctx.gb.park.cap(P, CURB + 0.03, 18, GRASS_TINT);
+    const inner = offsetPoly(P, -2.5), inside = (q, x, z) => { for (let k = 0; k < q.length; k++) { const a = q[k], b = q[(k + 1) % q.length]; if ((b[0] - a[0]) * (z - a[1]) - (b[1] - a[1]) * (x - a[0]) > 0) return false; } return true; };
+    let xs = P.map(p => p[0]), zs = P.map(p => p[1]); const bx0 = Math.min(...xs), bx1 = Math.max(...xs), bz0 = Math.min(...zs), bz1 = Math.max(...zs), n = Math.min(6, Math.round(polyArea(P) / 140));
+    for (let k = 0, t = 0; k < n && t < 40; t++) { const x = bx0 + rnd() * (bx1 - bx0), z = bz0 + rnd() * (bz1 - bz0); if (inner.length >= 3 && inside(inner, x, z)) { this.tree(ctx, x, z, 0.9 + rnd() * 0.6, CURB + 0.03, rnd() < 0.3); k++; } }
   }
 
   // A roundabout: a kerbed island with something on it (a fountain, an obelisk, a grove or a statue), a white line round it, and a

@@ -20,6 +20,7 @@ import { initScatter } from './scatter.js';
 import { initGrass } from './grass.js';
 import { initStructures } from './structures.js';
 import { initRiver } from './river.js';
+import { initRoadCut } from './roadcut.js';
 import { initLandmarks } from './landmarks.js';
 import { isRound } from './junctions.js';
 import { Buskers } from './buskers.js';
@@ -243,7 +244,7 @@ async function build() {
   grass = initGrass(scene); if (grass) extraMats.push(grass.material);
   structures = initStructures(scene, city);
   loadMsg('Filling the river…'); await nextFrame();
-  river = initRiver(scene, city); extraMats.push(...river.materials, ...Object.values(city.matCut));
+  river = initRiver(scene, city); extraMats.push(...river.materials, ...Object.values(city.matCut), ...initRoadCut(city));
   landmarks = initLandmarks(scene, city); extraMats.push(...landmarks.materials);
   await terrain.loadAround(START.x, START.z, 1, loadMsg);
   await city.loadAround(START.x, START.z, Math.min(2, Q.loadR), loadMsg);

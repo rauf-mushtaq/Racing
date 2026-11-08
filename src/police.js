@@ -8,6 +8,7 @@ import { SP, N, hw, EDGE, SIDEWALK, isPark } from './city.js';
 import { groundAt, heightAt, ROADS, coastX } from './world.js';
 import { pushFromWater, inWater } from './rivercourse.js';
 import { pushFromIsland } from './junctions.js';
+import { wideSdf } from './avenues.js';
 import { policeModels } from './carModel.js';
 import { applyImpulse } from './collide.js';
 import { Particles } from './particles.js';
@@ -20,6 +21,7 @@ const inCity = (x, z, m = 60) => Math.abs(x) < EDGE + m && Math.abs(z) < EDGE + 
 // --- The solid parts of the city, from the road grid alone (so cops can see and steer without the streamed colliders) ---------
 function blockRectAt(x, z, r) {
   if (Math.abs(x) > EDGE || Math.abs(z) > EDGE) return null;
+  if (wideSdf(x, z) < r + 1) return null;                          // (a road across the grid, and its pavements, runs through the block)
   const bi = clamp(Math.floor(x / SP), -N, N - 1), bj = clamp(Math.floor(z / SP), -N, N - 1);
   if (isPark(bi, bj)) return null;
   const x0 = bi * SP + hw(bi) + SET, x1 = (bi + 1) * SP - hw(bi + 1) - SET, z0 = bj * SP + hw(bj) + SET, z1 = (bj + 1) * SP - hw(bj + 1) - SET;

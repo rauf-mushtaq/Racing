@@ -9,6 +9,7 @@ import { loadPerson, PEDS } from './people.js';
 import { blockRect, isPark, landmarkAt, signatureAt } from './grid.js';
 import { plaza as isPlaza, heightBL } from './hills.js';
 import { hash3, clamp } from './util.js';
+import { wideSdf } from './avenues.js';
 import { BRIDGES, riverSdf, inRiverBox } from './rivercourse.js';
 import { addStaticCollider, queryColliders } from './city.js';
 import { groundAt } from './world.js';
@@ -30,6 +31,7 @@ for (let i = -9; i < 9; i++) for (let j = -9; j < 9; j++) {
   const b = blockRect(i, j), cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
   if (inRiverBox(cx, cz, 120) && riverSdf(cx, cz) < 110) continue;
   const q = Math.floor(hash3(i, j, 92) * 4), e = 2.7, x = q & 1 ? b.x1 - e : b.x0 + e, z = q & 2 ? b.z1 - e : b.z0 + e;
+  if (wideSdf(x, z) < 8) continue;
   add(x, z, q & 2 ? Math.PI : 0, STYLES[(hash3(i, j, 93) * 5) | 0], 'corner');
 }
 for (const s of SPOTS) addStaticCollider({ type: 'circ', x: s.x, z: s.z, r: 0.55 });

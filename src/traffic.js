@@ -7,6 +7,7 @@ import { attachSSR } from './ssr.js';
 import { N, SP, hw, isBlvd, laneCount, laneOffset, EDGE } from './city.js';
 import { ROADS, groundAt } from './world.js';
 import { isRound, RB } from './junctions.js';
+import { AVENUES } from './avenues.js';
 import { trafficModels } from './carModel.js';
 import { mulberry32, clamp, wrapAngle } from './util.js';
 
@@ -169,10 +170,24 @@ export class Traffic {
     c.h = undefined; c.hp = c.maxHp = this.hpOf(c); c.burn = 0; this.place(c);
   }
 
+  // On the diagonal boulevards (avenues.js): cars follow a lane along the road in either direction, like the motorways, and wrap round when they reach the end.
+  spawnAve(c, player, minD, maxD, initial) {
+    const cands = [];
+    for (const A of AVENUES) { if (A.kind !== 'diag') continue; for (let i = 30; i < A.n - 30; i += 4) { const d = Math.hypot(A.x[i] - player.x, A.z[i] - player.z); if (d > minD && d < maxD) cands.push([A, i]); } }
+    if (!cands.length) return false;
+    const [A, i0] = cands[(this.rnd() * cands.length) | 0], dir = this.rnd() < 0.5 ? 1 : -1, lane = this.rnd() < 0.5 ? 0 : 1, off = (lane ? 5.4 : 1.9) * dir, pts = [], n = 90;
+    for (let q = 0; q < n; q++) { const i = clamp(i0 + q * dir, 1, A.n - 2); pts.push({ x: A.x[i] - A.tz[i] * off, z: A.z[i] + A.tx[i] * off }); }
+    const cum = [0]; for (let q = 1; q < n; q++) cum.push(cum[q - 1] + Math.hypot(pts[q].x - pts[q - 1].x, pts[q].z - pts[q - 1].z));
+    Object.assign(c, { ave: true, hwy: false, axis: null, from: null, to: null, next: null, pts, cum, total: cum[n - 1], straightLen: cum[n - 1], turning: false, round: false, s: initial ? this.rnd() * 300 : 0, blvd: true, mode: 'drive', wait: 0, knockT: 0, settled: null });
+    c.speed = 13; c.vmax = (12.5 + this.rnd() * 4) * (c.type >= 4 ? 0.8 : 1); c.h = undefined; this.place(c);
+    return true;
+  }
   spawn(c, player, minD, maxD, initial = false) {
     if (Math.abs(player.x) > EDGE + 150 || Math.abs(player.z) > EDGE + 150) return this.spawnHwy(c, player, minD, maxD, initial);
+    c.ave = false;
     if (c.hwy) { c.hwy = false; c.type = this.pickType(); c.len = this.models[c.type].len; c.mass = this.models[c.type].mass; c.rad = this.models[c.type].rad; c.h = undefined; }
     c.hp = c.maxHp = this.hpOf(c); c.burn = 0;
+    if (this.rnd() < 0.25 && this.spawnAve(c, player, minD, maxD, initial)) return;
     for (let tries = 0; tries < 40; tries++) {
       // Pick a junction near the player (the map is far bigger than the traffic's reach).
       const i = clamp(Math.round(player.x / SP) + Math.floor(this.rnd() * 9) - 4, -N, N), j = clamp(Math.round(player.z / SP) + Math.floor(this.rnd() * 9) - 4, -N, N);
@@ -295,7 +310,7 @@ export class Traffic {
       c.speed = Math.max(0, c.speed);
       c.s += c.speed * dt;
       if (c.s >= c.total) {
-        if (c.hwy) { this.spawn(c, player, 150, 480); continue; }
+        if (c.hwy || c.ave) { this.spawn(c, player, 150, 480); continue; }
         const over = c.s - c.total;
         this.buildPath(c, c.to, c.next, c.lane);
         c.s = over;
