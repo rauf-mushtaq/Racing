@@ -1,11 +1,12 @@
 // The heads-up display: the round rev counter and speedometer (gear in the
 // middle, driver aids, nitro gauge), the minimap, and race information.
-import { $, clamp, fmtTime } from './util.js';
+import { $, clamp, fmtTime, hash3 } from './util.js';
 import { N, SP, hw, isBlvd, EDGE, LIMIT, blockRect, isPark } from './city.js';
 import { RIVER, LAKES, lakeOutline, bankPoint, inRiverBox } from './rivercourse.js';
 import { heightBL, HILLS } from './hills.js';
 import { AVENUES } from './avenues.js';
 import { WORLD, ROADS, coastX, climate, baseHeight, BUNKERS, AIRFIELD } from './world.js';
+import { SITES } from './settlements.js';
 
 const A0 = 125 * Math.PI / 180, SPAN = 290 * Math.PI / 180;
 
@@ -27,6 +28,7 @@ export class HUD {
     this.resize();
     addEventListener('resize', () => this.resize());
     this.toastT = 0;
+    this.prepareMapGrid();                                       // (the land of the big map, worked out a few rows a frame soon after the start)
   }
   resize() {
     const dpr = Math.min(2, devicePixelRatio || 1);
@@ -222,36 +224,73 @@ export class HUD {
     $('nav-dist').textContent = m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
   }
 
-  // The whole world, north up, painted once: sea, beach, desert, snow, grass, shaded by the lie of the land.
+  // The land of the whole world, worked out once on a grid of nodes 56 m apart: its colour and its height (done a few rows a frame soon after the game
+  // starts, so that opening the map does not wait for it).
+  prepareMapGrid(sync = false) {
+    if (this.mg && this.mg.done) return this.mg;
+    const cell = 56, x0 = WORLD.x0, z0 = WORLD.z0, gx = Math.ceil((WORLD.x1 - x0) / cell) + 1, gz = Math.ceil((WORLD.z1 - z0) / cell) + 1;
+    const mg = this.mg = this.mg || { cell, x0, z0, gx, gz, h: new Float32Array(gx * gz), rgb: new Float32Array(gx * gz * 3), row: 0, done: false };
+    const rows = (n) => {
+      for (let k = 0; k < n && mg.row < gz; k++, mg.row++) {
+        const j = mg.row, pz = z0 + j * cell;
+        for (let i = 0; i < gx; i++) {
+          const px = x0 + i * cell, sh = px - coastX(pz), cl = climate(px, pz), h = baseHeight(px, pz), o = j * gx + i; mg.h[i + j * gx] = h;
+          let r, g, b;
+          if (sh < 360 && h < 6) [r, g, b] = [232, 220, 170];
+          else if (cl.snow > 0.5 || h > 520) { const kk = clamp(h / 900, 0, 1); [r, g, b] = [236 - 40 * kk, 242 - 36 * kk, 250 - 24 * kk]; }
+          else if (cl.desert > 0.45) [r, g, b] = [218, 182, 124];
+          else [r, g, b] = [150, 176, 104];
+          mg.rgb[o * 3] = r; mg.rgb[o * 3 + 1] = g; mg.rgb[o * 3 + 2] = b;
+        }
+      }
+      if (mg.row >= gz) { mg.sh = new Float32Array(gx * gz); const H = (i, j) => mg.h[clamp(j, 0, gz - 1) * gx + clamp(i, 0, gx - 1)]; for (let j = 0; j < gz; j++) for (let i = 0; i < gx; i++) mg.sh[j * gx + i] = clamp((H(i - 2, j - 2) - H(i + 2, j + 2)) / 244, -0.5, 0.5); mg.done = true; }
+    };
+    if (sync) { rows(gz); return mg; }
+    const step = () => { rows(6); if (!mg.done) setTimeout(step, 16); };
+    setTimeout(step, 4000);
+    return mg;
+  }
+  // The whole world, north up, painted once: sea, beach, desert, snow, grass shaded by the lie of the land, the city, the roads and the places.
   makeWorldLayer(W, H, s, cx, cz) {
     const L = document.createElement('canvas'); L.width = W; L.height = H; const c = L.getContext('2d');
-    c.fillStyle = '#3f7fa6'; c.fillRect(0, 0, W, H);
-    c.translate(W / 2, H / 2); c.scale(s, s); c.translate(-cx, -cz);
-    const cell = 80, nx = Math.ceil((WORLD.x1 - WORLD.x0) / cell), nz = Math.ceil((WORLD.z1 - WORLD.z0) / cell);
-    const tc = document.createElement('canvas'); tc.width = nx; tc.height = nz;
-    const tcx = tc.getContext('2d'), im = tcx.createImageData(nx, nz), d = im.data;
-    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
-      const px = WORLD.x0 + (i + 0.5) * cell, pz = WORLD.z0 + (j + 0.5) * cell, sh = px - coastX(pz), o = (j * nx + i) * 4;
-      if (sh < 0) continue;
-      const cl = climate(px, pz), h = baseHeight(px, pz), shade = clamp((baseHeight(px - 120, pz - 120) - baseHeight(px + 120, pz + 120)) / 260, -0.5, 0.5);
-      let r, g, b;
-      if (sh < 360 && h < 6) [r, g, b] = [232, 220, 170];
-      else if (cl.snow > 0.5 || h > 520) { const k = clamp(h / 900, 0, 1); [r, g, b] = [236 - 40 * k, 242 - 36 * k, 250 - 24 * k]; }
-      else if (cl.desert > 0.45) [r, g, b] = [218, 182, 124];
-      else [r, g, b] = [150, 176, 104];
-      const k = 1 + shade * 0.5;
-      d[o] = clamp(r * k, 0, 255); d[o + 1] = clamp(g * k, 0, 255); d[o + 2] = clamp(b * k, 0, 255); d[o + 3] = 255;
+    const mg = this.prepareMapGrid(true), { cell, x0, z0, gx, gz } = mg;
+    // Every pixel: its colour from the four nodes round it (smoothly), shaded by the slope there, and the sea where it is west of the coast (to the pixel).
+    const im = c.createImageData(W, H), d = im.data, sea = [63, 127, 166];
+    const coastRow = new Float32Array(H); for (let y = 0; y < H; y++) coastRow[y] = coastX((y - H / 2) / s + cz);
+    for (let y = 0; y < H; y++) {
+      const pz = (y - H / 2) / s + cz, fz = (pz - z0) / cell, j = Math.floor(fz), tz = fz - j, inZ = j >= 0 && j < gz - 1;
+      for (let x = 0; x < W; x++) {
+        const px = (x - W / 2) / s + cx, o = (y * W + x) * 4, fx = (px - x0) / cell, i = Math.floor(fx), tx = fx - i;
+        if (!inZ || i < 0 || i >= gx - 1) { d[o] = sea[0]; d[o + 1] = sea[1]; d[o + 2] = sea[2]; d[o + 3] = 255; continue; }
+        const n00 = j * gx + i, n10 = n00 + 1, n01 = n00 + gx, n11 = n01 + 1, w00 = (1 - tx) * (1 - tz), w10 = tx * (1 - tz), w01 = (1 - tx) * tz, w11 = tx * tz;
+        let r = mg.rgb[n00 * 3] * w00 + mg.rgb[n10 * 3] * w10 + mg.rgb[n01 * 3] * w01 + mg.rgb[n11 * 3] * w11;
+        let g = mg.rgb[n00 * 3 + 1] * w00 + mg.rgb[n10 * 3 + 1] * w10 + mg.rgb[n01 * 3 + 1] * w01 + mg.rgb[n11 * 3 + 1] * w11;
+        let b = mg.rgb[n00 * 3 + 2] * w00 + mg.rgb[n10 * 3 + 2] * w10 + mg.rgb[n01 * 3 + 2] * w01 + mg.rgb[n11 * 3 + 2] * w11;
+        const sl = mg.sh[n00] * w00 + mg.sh[n10] * w10 + mg.sh[n01] * w01 + mg.sh[n11] * w11, k = 1 + sl * 0.5, land = clamp((px - coastRow[y]) * s + 0.5, 0, 1);
+        r = sea[0] + (clamp(r * k, 0, 255) - sea[0]) * land; g = sea[1] + (clamp(g * k, 0, 255) - sea[1]) * land; b = sea[2] + (clamp(b * k, 0, 255) - sea[2]) * land;
+        d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+      }
     }
-    tcx.putImageData(im, 0, 0);
-    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
-    c.drawImage(tc, WORLD.x0, WORLD.z0, nx * cell, nz * cell);
-    c.fillStyle = '#d6d3cc'; c.fillRect(-EDGE - 8, -EDGE - 8, 2 * EDGE + 16, 2 * EDGE + 16);
-    c.fillStyle = '#c3bfce'; c.fillRect(-520, -520, 1040, 1040);
-    for (let x = -EDGE; x < EDGE; x += 90) for (let z = -EDGE; z < EDGE; z += 90) {                      // the hills, shaded as if lit from the north-west
+    c.putImageData(im, 0, 0);
+    c.translate(W / 2, H / 2); c.scale(s, s); c.translate(-cx, -cz);
+    // The city: blocks tinted by district with their buildings in clumps, parks and plazas, the hills shaded, the water, then every road.
+    c.fillStyle = '#cfcbc3'; c.fillRect(-EDGE - 8, -EDGE - 8, 2 * EDGE + 16, 2 * EDGE + 16);
+    const zoneCol = (i, j) => { const d = Math.max(Math.abs(i + 0.5), Math.abs(j + 0.5)) * SP; return d < 520 ? ['#9aa0ad', '#adb3c0', '#8a909e'] : d < 1000 ? ['#b8aa98', '#c7b9a6', '#a99b89'] : d < 1500 ? ['#c9bca6', '#d6c9b3', '#baa98f'] : ['#d7cdb8', '#c9d0ad', '#e0d4bd']; };
+    for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) {
+      const bk = blockRect(i, j), cols = zoneCol(i, j), w = bk.x1 - bk.x0, h = bk.z1 - bk.z0;
+      if (isPark(i, j)) { c.fillStyle = '#b9cf9a'; c.fillRect(bk.x0, bk.z0, w, h); c.fillStyle = '#8fb374'; for (let k = 0; k < 14; k++) { const px = bk.x0 + hash3(i, j, 10 + k) * w, pz = bk.z0 + hash3(i, j, 40 + k) * h; c.beginPath(); c.arc(px, pz, 7, 0, 7); c.fill(); } continue; }
+      c.fillStyle = '#d8d2c6'; c.fillRect(bk.x0, bk.z0, w, h);
+      const n = 2 + Math.floor(hash3(i, j, 5) * 2);                                                                     // buildings: a few rectangles in each block, not one square
+      for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) {
+        const lw = w / n, lh = h / n, ix = 4 + hash3(i * 7 + a, j * 3 + b, 1) * 7, iz = 4 + hash3(i * 5 + a, j * 11 + b, 2) * 7; c.fillStyle = cols[(hash3(i + a, j + b, 3) * 3) | 0];
+        c.fillRect(bk.x0 + a * lw + ix, bk.z0 + b * lh + iz, lw - ix - 4, lh - iz - 4);
+      }
+    }
+    c.fillStyle = 'rgba(190,200,170,0.0)';
+    for (let x = -EDGE; x < EDGE; x += 90) for (let z = -EDGE; z < EDGE; z += 90) {                                      // the hills, shaded as if lit from the north-west
       const hh = heightBL(x + 45, z + 45); if (hh < 0.5) continue; const sh = clamp((heightBL(x - 30, z - 30) - heightBL(x + 120, z + 120)) / 50, -0.5, 0.5);
       c.fillStyle = `rgba(${sh > 0 ? '255,250,215' : '60,70,45'},${Math.min(0.5, Math.abs(sh) * 0.9)})`; c.fillRect(x, z, 90.5, 90.5); c.fillStyle = `rgba(120,150,90,${Math.min(0.45, hh / 90)})`; c.fillRect(x, z, 90.5, 90.5);
     }
-    c.fillStyle = '#c9cfa8'; for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) if (isPark(i, j)) { const bk = blockRect(i, j); c.fillRect(bk.x0, bk.z0, bk.x1 - bk.x0, bk.z1 - bk.z0); }
     c.fillStyle = '#8cc3e6'; c.fill(waterPath(), 'nonzero');
     c.lineCap = 'butt';
     for (let k = -N; k <= N; k++) {
@@ -259,10 +298,21 @@ export class HUD {
       c.beginPath(); c.moveTo(k * SP, -EDGE); c.lineTo(k * SP, EDGE); c.stroke();
       c.beginPath(); c.moveTo(-EDGE, k * SP); c.lineTo(EDGE, k * SP); c.stroke();
     }
-    c.lineJoin = 'round'; for (const A of AVENUES) { c.strokeStyle = '#ffffff'; c.lineWidth = Math.max(A.hw * 2, 2.2 / s); c.beginPath(); A.pts.forEach((q, k) => (k ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]))); c.stroke(); }
-    c.strokeStyle = '#ffffff'; c.lineWidth = Math.max(26, 3.2 / s); c.lineJoin = 'round';
+    c.lineJoin = 'round'; for (const A of AVENUES) { c.strokeStyle = A.kind === 'hill' ? '#f6f3ec' : '#ffffff'; c.lineWidth = Math.max(A.hw * 2, 1.8 / s); c.beginPath(); A.pts.forEach((q, k) => (k ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]))); c.stroke(); }
+    // Roads outside the city: the motorways (wide), the roads into the towns and farms and the streets in them (thin).
+    c.lineJoin = 'round';
+    for (const R of ROADS) { if (R.kind !== 'street' && !R.id.startsWith('acc-')) continue; c.strokeStyle = '#ffffff'; c.lineWidth = Math.max(R.kind === 'street' ? R.hw * 2 : 9, 1.8 / s); c.beginPath(); R.x.forEach((x, i) => (i ? c.lineTo(x, R.z[i]) : c.moveTo(x, R.z[i]))); c.stroke(); }
+    c.strokeStyle = '#ffffff'; c.lineWidth = Math.max(26, 3.2 / s);
     for (const R of ROADS) { if (R.kind !== 'motorway') continue; c.beginPath(); R.x.forEach((x, i) => (i ? c.lineTo(x, R.z[i]) : c.moveTo(x, R.z[i]))); c.stroke(); }
-    c.font = `700 ${15 / s}px Barlow, sans-serif`; c.textAlign = 'center'; c.fillStyle = 'rgba(30,40,60,0.75)';
+    // The places outside the city: a small coloured spot and the name.
+    const KIND = { town: ['#d9534f', 'town'], farm: ['#8aa83c', 'farm'], harbour: ['#2b6cb0', 'port'], village: ['#e8a33d', 'village'], lighthouse: ['#c0392b', 'light'], resort: ['#4aa3d9', 'ski'], western: ['#a8764a', 'ghost town'], oil: ['#3a3a3a', 'oil'], solar: ['#2b4a8a', 'solar'], dishes: ['#6b7280', 'radio'] };
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    for (const S of SITES) {
+      const [col] = KIND[S.kind] || ['#555', ''];
+      c.save(); c.translate(S.x, S.z); c.scale(1 / s, 1 / s); c.fillStyle = col; c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(0, 0, 5.5, 0, 7); c.fill(); c.stroke();
+      c.font = '700 11px Barlow, sans-serif'; c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,0.85)'; c.fillStyle = 'rgba(30,35,50,0.95)'; c.strokeText(S.name, 0, -12); c.fillText(S.name, 0, -12); c.restore();
+    }
+    c.font = `700 ${15 / s}px Barlow, sans-serif`; c.fillStyle = 'rgba(30,40,60,0.75)';
     for (const [t, x, z] of [['DOWNTOWN', 0, 0], ['THE OCEAN', -3900, 600], ['SNOWY MOUNTAINS', 1500, -5600], ['THE DESERT', 5200, -300], ['GRASSLAND', 300, 4800], ['COAST', -2900, -2800]]) c.fillText(t, x, z);
     c.font = `600 ${11 / s}px Barlow, sans-serif`; c.fillStyle = 'rgba(40,80,30,0.9)'; for (const H of HILLS) c.fillText(H.name.toUpperCase(), H.cx, H.cz);
     c.fillStyle = 'rgba(20,70,120,0.85)';

@@ -46,7 +46,7 @@ export function hillyArea(x0, z0, x1, z1) {
 }
 // Level enough for a plaza (a paved square with a fountain, stalls and a tower on it)?
 export const flatBlock = (i, j) => nodeH(i, j) === 0 && nodeH(i + 1, j) === 0 && nodeH(i, j + 1) === 0 && nodeH(i + 1, j + 1) === 0;
-export const plaza = (i, j) => Math.abs(i) < N && Math.abs(j) < N && Math.max(Math.abs(i + 0.5), Math.abs(j + 0.5)) > 2.6 && hash3(i, j, 77) < 0.22 && !isLakeBlock(i, j) && !landmarkAt(i, j) && !signatureAt(i, j) && j !== -1 && j !== -2 && flatBlock(i, j) && (() => { const b = blockRect(i, j); return !nearAvenueArea(b.x0 - 40, b.z0 - 40, b.x1 + 40, b.z1 + 40); })();
+export const plaza = (i, j) => Math.abs(i) < N && Math.abs(j) < N && Math.max(Math.abs(i + 0.5), Math.abs(j + 0.5)) > 2.6 && hash3(i, j, 77) < 0.32 && !isLakeBlock(i, j) && !landmarkAt(i, j) && !signatureAt(i, j) && j !== -1 && j !== -2 && flatBlock(i, j) && (() => { const b = blockRect(i, j); return !nearAvenueArea(b.x0 - 40, b.z0 - 40, b.x1 + 40, b.z1 + 40); })();
 // The steepest slope anywhere (a fraction: 0.1 is one metre up in ten), found by looking along the roads.
 export function steepest() {
   let m = 0;

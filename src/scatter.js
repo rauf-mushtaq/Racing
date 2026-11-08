@@ -3,7 +3,7 @@
 // the coast, trees and scrub on the grassland. Instanced, with solid trunks.
 import * as THREE from 'three';
 import { fbm, clamp, mulberry32, hash3 } from './util.js';
-import { heightAt, climate, coastX, roadDist, roadAt, SEA_Y, KEEP_CLEAR } from './world.js';
+import { heightAt, climate, coastX, roadDist, roadAt, SEA_Y, keepClear } from './world.js';
 import { EDGE, addCollider, removeColliders } from './city.js';
 import { Q } from './quality.js';
 
@@ -22,7 +22,7 @@ export function initScatter(terrain, props) {
       const h = heightAt(x, z);
       if (h < SEA_Y + 0.8) continue;
       if (roadDist(x, z) < 220) { const r = roadAt(x, z); if (r && r.d < r.road.hw + 14) continue; }
-      if (KEEP_CLEAR.some(k => (k.x - x) ** 2 + (k.z - z) ** 2 < k.r * k.r)) continue;
+      if (keepClear(x, z)) continue;
       const cl = climate(x, z), sh = x - coastX(z);
       const clump = 0.25 + 1.5 * fbm(x * 0.012 + 3, z * 0.012 + 9, 3, 101);
       const slope = Math.hypot((heightAt(x + 5, z) - h) / 5, (heightAt(x, z + 5) - h) / 5);

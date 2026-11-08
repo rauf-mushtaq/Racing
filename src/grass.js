@@ -5,7 +5,7 @@
 // dry in the desert, and none on roads, beaches, snow, rock or inside the city.
 import * as THREE from 'three';
 import { clamp, fbm, hash3 } from './util.js';
-import { heightAt, climate, coastX, roadDist, roadAt, SEA_Y, KEEP_CLEAR } from './world.js';
+import { heightAt, climate, coastX, roadDist, roadAt, SEA_Y, keepClear } from './world.js';
 import { EDGE } from './city.js';
 import { Q } from './quality.js';
 
@@ -71,7 +71,7 @@ export function initGrass(scene) {
     const h = heightAt(x, z);
     if (h < SEA_Y + 1.2 || (sh < 380 && h < 5)) return;
     if (roadDist(x, z) < 90) { const rd = roadAt(x, z); if (rd && rd.d < rd.road.hw + 7) return; }
-    for (const k of KEEP_CLEAR) if ((k.x - x) ** 2 + (k.z - z) ** 2 < k.r * k.r) return;
+    if (keepClear(x, z)) return;
     if (Math.hypot(heightAt(x + 2, z) - h, heightAt(x, z + 2) - h) > 1.1) return;
     // Matrix: yaw rotation, a little size variety, sitting just in the ground.
     const { m, c } = out, sc = (0.7 + r4 * 0.7) * (grassW > 0.5 ? 1 : 0.7), sy = sc * (0.8 + hash3(i, j, 71) * 0.7), a = r1 * 6.2832, cs = Math.cos(a) * sc, sn = Math.sin(a) * sc, o = out.n * 16;

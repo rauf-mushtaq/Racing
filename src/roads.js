@@ -77,7 +77,7 @@ export function initRoads(terrain, city) {
   function emit(G, R, i, tile) {
     const A = pt(R, i), B = pt(R, i + 1), hw = R.hw, motorway = R.kind === 'motorway', bridge = R.bridge[i] || R.bridge[i + 1];
     ribbon(G.asph, A, B, -hw, hw, 0, WHITE, 1);
-    if (!bridge) { slope(G.grav, A, B, -hw, 0, -hw - 3.6, -1.3, GRAV); slope(G.grav, A, B, hw, 0, hw + 3.6, -1.3, GRAV); }
+    if (!bridge && R.kind !== 'street') { slope(G.grav, A, B, -hw, 0, -hw - 3.6, -1.3, GRAV); slope(G.grav, A, B, hw, 0, hw + 3.6, -1.3, GRAV); }
     if (R.kind === 'runway') return runwayMarks(G, R, A, B, i);
     const dy = 0.02;
     if (motorway) {
@@ -94,6 +94,9 @@ export function initRoads(terrain, city) {
       }
     } else if (R.kind === 'service') {
       ribbon(G.mark, A, B, -hw + 0.3 - 0.06, -hw + 0.3 + 0.06, dy, WHITE); ribbon(G.mark, A, B, hw - 0.3 - 0.06, hw - 0.3 + 0.06, dy, WHITE);
+    } else if (R.kind === 'street') {                                                                    // a street in a town: a dashed centre line and edge lines
+      ribbon(G.mark, A, B, -hw + 0.4 - 0.06, -hw + 0.4 + 0.06, dy, WHITE); ribbon(G.mark, A, B, hw - 0.4 - 0.06, hw - 0.4 + 0.06, dy, WHITE);
+      ribbon(G.mark, mix(A, B, 0), mix(A, B, 0.5), -0.08, 0.08, dy, YELLOW);
     }
     if (!motorway) return;
     if (bridge) {                                                                                        // parapets, a deck edge and piers

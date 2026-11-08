@@ -20,22 +20,39 @@ function spiral(cx, cz, from, rEnd, turns, dir = 1) {
   return pts;
 }
 // Keep a winding road clear of road junctions (a roundabout more so): push its points away from the nearest one and smooth it, a few times over.
-function clearOfNodes(pts) {
+function clearOfNodes(pts, base = 66) {
   let p = pts.map(q => q.slice());
   for (let it = 0; it < 14; it++) {
     for (const q of p) {
-      const ni = Math.round(q[0] / SP), nj = Math.round(q[1] / SP), nx = ni * SP, nz = nj * SP, need = isRound(ni, nj) ? 100 : 66, d = Math.hypot(q[0] - nx, q[1] - nz);
+      const ni = Math.round(q[0] / SP), nj = Math.round(q[1] / SP), nx = ni * SP, nz = nj * SP, need = isRound(ni, nj) ? base + 34 : base, d = Math.hypot(q[0] - nx, q[1] - nz);
       if (d < need) { const ux = d > 1e-3 ? (q[0] - nx) / d : 1, uz = d > 1e-3 ? (q[1] - nz) / d : 0; q[0] = nx + ux * need; q[1] = nz + uz * need; }
     }
     p = p.map((q, i) => (i === 0 || i === p.length - 1) ? q : [(p[i - 1][0] + 2 * q[0] + p[i + 1][0]) / 4, (p[i - 1][1] + 2 * q[1] + p[i + 1][1]) / 4]);
   }
   return p;
 }
+// An arc of a circle round (cx, cz) from angle a0 to a1 (0 is east, the angle grows towards the south), as points a few metres apart.
+function arc(cx, cz, r, a0, a1) { const n = Math.max(8, Math.round(Math.abs(a1 - a0) * r / 12)), out = []; for (let k = 0; k <= n; k++) { const a = a0 + (a1 - a0) * k / n; out.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r]); } return out; }
+const spoke = (cx, cz, a, r0, r1) => [[cx + Math.cos(a) * r0, cz + Math.sin(a) * r0], [cx + Math.cos(a) * r1, cz + Math.sin(a) * r1]];
+// Roads that curve. Where the street grid would be most of a district, these cut it into curved and wedge-shaped pieces: a web of rings and spokes round the
+// cathedral (the Old Town), rings round the stadium, and terraces that follow the hills. Every stretch was chosen so that it keeps clear of the river, the
+// landmarks, the skyscraper blocks and the plazas (tests/map.mjs checks it again), and each is kept clear of the road junctions.
+const OLD = [-450, 630], STAD = [630, 810];
+const CURVES = [
+  ['oldring1', 'Cathedral Ring', OLD, 190, 0, Math.PI * 2, 5, 3.5], ['oldring2', 'Market Ring', OLD, 260, 0, Math.PI * 2, 5, 3.5], ['oldring3', 'Outer Ring', OLD, 340, 0.282, 4.412, 5.5, 3.5],
+  ['stadring1', 'Stadium Circle', STAD, 330, -1.816, 4.068, 8, 4.5], ['stadring2', 'Arena Road', STAD, 470, -1.277, 3.729, 8, 4.5],
+  ['t-sunset', 'Heights Terrace', [-1450, -1350], 380, 0, Math.PI * 2, 5.4, 2.4, 'hill'], ['t-mesa', 'Mesa Terrace', [1500, 1250], 380, 0, Math.PI * 2, 5.4, 2.4, 'hill'], ['t-mesa2', 'Mesa Crest Road', [1500, 1250], 600, 0, Math.PI * 2, 5.4, 2.4, 'hill'],
+  ['t-obs', 'Observatory Terrace', [1350, -1450], 330, 0, Math.PI * 2, 5.4, 2.4, 'hill'], ['t-obs2', 'Observatory Rise', [1350, -1450], 520, 0, Math.PI * 2, 5.4, 2.4, 'hill'],
+  ['t-ridge', 'Ridge Terrace', [-1300, 1350], 380, 0, Math.PI * 2, 5.4, 2.4, 'hill'], ['t-ridge2', 'South Ridge Road', [-1300, 1350], 600, 0, Math.PI * 2, 5.4, 2.4, 'hill'],
+].map(([id, name, [cx, cz], r, a0, a1, hw, sw, kind = 'diag']) => ({ id, name, kind, hw, sw, pts: densify(clearOfNodes(densify(arc(cx, cz, r, a0, a1)), kind === 'hill' ? 62 : hw + 28)) }));
+// The old town's lanes: seven narrow streets running out from the cathedral square between the rings.
+const LANES = [0.784, 1.307, 1.831, 2.354, 2.878, 3.402, 3.925].map((a, k) => ({ id: 'lane' + k, name: 'Old Town Lane ' + (k + 1), kind: 'diag', hw: 3.6, sw: 3, pts: densify(clearOfNodes(densify(spoke(OLD[0], OLD[1], a, 150, 430)), 34)) }));
 export const AVENUES = [
   { id: 'grand', name: 'Grand Diagonal', kind: 'diag', hw: 11, sw: 5, pts: densify([[-2160, -810], [810, 2160]]) },
   { id: 'cross', name: 'Cross Diagonal', kind: 'diag', hw: 11, sw: 5, pts: densify([[2160, -450], [450, 1260]]) },
   { id: 'skyline', name: 'Skyline Drive', kind: 'hill', hw: 5.4, sw: 2.4, pts: densify(clearOfNodes(densify(spiral(-1450, -1350, [-1260, -990], 120, 1.12, 1)))) },
   { id: 'mesa', name: 'Mesa Drive', kind: 'hill', hw: 5.4, sw: 2.4, pts: densify(clearOfNodes(densify(spiral(1500, 1250, [1260, 990], 110, 1.1, -1)))) },
+  ...CURVES, ...LANES,
 ];
 for (const A of AVENUES) {
   const n = A.pts.length; A.n = n; A.x = new Float32Array(n); A.z = new Float32Array(n); A.s = new Float32Array(n); A.tx = new Float32Array(n); A.tz = new Float32Array(n);
@@ -56,13 +73,13 @@ AVENUES.forEach((A, ai) => {
 });
 const _r = { d: 0, a: null, i: 0, t: 0 };
 // The nearest centre line within about 60 m: { d, a (the avenue), i, t }, or null.
-export function nearestAvenue(x, z) {
+export function nearestAvenue(x, z, except = null) {
   if (x < -2300 || x > 2300 || z < -2300 || z > 2300 || !near[gi(z) * GN + gi(x)]) return null;
   const cx = Math.floor(x / BC), cz = Math.floor(z / BC); let bd = 1e18, bi = -1, bt = 0, ba = null;
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
     const list = buckets.get(bk(cx + dx, cz + dz)); if (!list) continue;
     for (const ref of list) {
-      const A = AVENUES[(ref / 100000) | 0], i = ref % 100000, ax = A.x[i], az = A.z[i], ex = A.x[i + 1] - ax, ez = A.z[i + 1] - az, l2 = ex * ex + ez * ez || 1;
+      const A = AVENUES[(ref / 100000) | 0]; if (A === except) continue; const i = ref % 100000, ax = A.x[i], az = A.z[i], ex = A.x[i + 1] - ax, ez = A.z[i + 1] - az, l2 = ex * ex + ez * ez || 1;
       let t = ((x - ax) * ex + (z - az) * ez) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t; const px = ax + ex * t - x, pz = az + ez * t - z, d2 = px * px + pz * pz;
       if (d2 < bd) { bd = d2; bi = i; bt = t; ba = A; }
     }
@@ -102,4 +119,37 @@ export function clipLot(lot, hit) {
   const a = clip(rect, nx, nz, base + off), b = clip(rect, -nx, -nz, -base + off);               // each side of the road
   if (a.length >= 3) out.push(a); if (b.length >= 3) out.push(b);
   return out;
+}
+
+// What is left of a lot once every road through it has been taken out: the road nearest the lot cuts it into up to two pieces, then each piece is looked at again
+// (another road may cross it), a few times over. A lot touched by a winding hill road is not cut: it goes to lawn (`hill`).
+const inside = (poly, x, z) => { let sg = 0; for (let k = 0; k < poly.length; k++) { const a = poly[k], b = poly[(k + 1) % poly.length], c = (b[0] - a[0]) * (z - a[1]) - (b[1] - a[1]) * (x - a[0]); if (c !== 0) { if (sg && (c > 0) !== (sg > 0)) return false; sg = c; } } return true; };
+function hitIn(poly, m) {
+  let best = null, cx = 0, cz = 0, x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9; const pts = [];
+  for (const [x, z] of poly) { cx += x; cz += z; x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); pts.push([x, z]); }
+  cx /= poly.length; cz /= poly.length;
+  if (!nearAvenueArea(x0 - 8, z0 - 8, x1 + 8, z1 + 8)) return null;
+  for (let x = x0; x <= x1 + 0.01; x += 6) for (let z = z0; z <= z1 + 0.01; z += 6) if (inside(poly, x, z)) pts.push([x, z]);        // (every 6 m: a narrow road cannot slip between the samples)
+  for (const [x, z] of pts) { const r = nearestAvenue(x, z); if (r && r.d < r.a.W + m && (!best || r.d < best.d)) best = { d: r.d, a: r.a, i: r.i }; }
+  return best;
+}
+function clipPoly(poly, hit) {
+  const A = hit.a, i = hit.i, tx = A.tx[i], tz = A.tz[i], nx = -tz, nz = tx, base = nx * A.x[i] + nz * A.z[i], off = A.W + 0.4, out = [];
+  const a = clip(poly, nx, nz, base + off), b = clip(poly, -nx, -nz, -base + off);
+  if (a.length >= 3) out.push(a); if (b.length >= 3) out.push(b);
+  return out;
+}
+export function lotPieces(lot) {
+  let pieces = [[[lot.x0, lot.z1], [lot.x1, lot.z1], [lot.x1, lot.z0], [lot.x0, lot.z0]]]; const out = []; let hill = null, any = false;
+  for (let it = 0; it < 5 && pieces.length; it++) {
+    const next = [];
+    for (const poly of pieces) {
+      const hit = hitIn(poly, it === 0 ? 1.5 : 0);                       // (a piece cut off a road lies 0.4 m clear of it, so it is not "hit" again)
+      if (!hit) { out.push(poly); continue; }
+      any = true; if (hit.a.kind === 'hill') { hill = hit; continue; }
+      next.push(...clipPoly(poly, hit));
+    }
+    pieces = next;
+  }
+  return any ? { hill, pieces: [...out, ...pieces] } : null;
 }

@@ -175,7 +175,7 @@ export class Traffic {
     const cands = [];
     for (const A of AVENUES) { if (A.kind !== 'diag') continue; for (let i = 30; i < A.n - 30; i += 4) { const d = Math.hypot(A.x[i] - player.x, A.z[i] - player.z); if (d > minD && d < maxD) cands.push([A, i]); } }
     if (!cands.length) return false;
-    const [A, i0] = cands[(this.rnd() * cands.length) | 0], dir = this.rnd() < 0.5 ? 1 : -1, lane = this.rnd() < 0.5 ? 0 : 1, off = (lane ? 5.4 : 1.9) * dir, pts = [], n = 90;
+    const [A, i0] = cands[(this.rnd() * cands.length) | 0], dir = this.rnd() < 0.5 ? 1 : -1, lane = A.hw > 7 && this.rnd() < 0.5 ? 1 : 0, off = (lane ? 0.49 : A.hw > 7 ? 0.17 : 0.45) * A.hw * dir, pts = [], n = 90;
     for (let q = 0; q < n; q++) { const i = clamp(i0 + q * dir, 1, A.n - 2); pts.push({ x: A.x[i] - A.tz[i] * off, z: A.z[i] + A.tx[i] * off }); }
     const cum = [0]; for (let q = 1; q < n; q++) cum.push(cum[q - 1] + Math.hypot(pts[q].x - pts[q - 1].x, pts[q].z - pts[q - 1].z));
     Object.assign(c, { ave: true, hwy: false, axis: null, from: null, to: null, next: null, pts, cum, total: cum[n - 1], straightLen: cum[n - 1], turning: false, round: false, s: initial ? this.rnd() * 300 : 0, blvd: true, mode: 'drive', wait: 0, knockT: 0, settled: null });

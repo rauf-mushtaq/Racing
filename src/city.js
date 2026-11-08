@@ -14,7 +14,7 @@ import { attachSSR } from './ssr.js';
 import { waterSurface, riverSdf, inRiverBox } from './rivercourse.js';
 import { isRound, RB } from './junctions.js';
 import { heightBL, hillyArea, plaza as plazaAt } from './hills.js';
-import { AVENUES, roadSdf, nearAvenueArea, lotAvenue, clipLot, polyArea } from './avenues.js';
+import { AVENUES, roadSdf, nearAvenueArea, nearestAvenue, lotPieces, polyArea } from './avenues.js';
 export { mergeGeoms, puddles, macro };
 // Is a point within `m` metres of the river or a lake (or in it)? Nothing is put there.
 const wet = (x, z, m = 3) => (inRiverBox(x, z, m) && riverSdf(x, z) < m) || roadSdf(x, z) < m;      // (in or by the river, or on one of the roads that cut across the grid)
@@ -153,7 +153,9 @@ class Ctx {
     this.L = { bushes: [], trees: [], palms: [], lamps: [], poles: [], hedges: [], hydrants: [], bins: [], benches: [], sigZ: [], sigX: [], bills: [], parked: [] };
     this.signN = 0;
   }
-  H(x, z) { return this.hilly ? heightBL(x, z) : 0; }
+  H(x, z) { return this.hilly ? heightBL(x, z) : (this.baseY || 0); }
+  // Everything lifted by `y`: a town on a level pad outside the city is built with the city's own pieces at its height.
+  level(y) { this.baseY = y; for (const k of KEYS) this.gb[k].lift = () => y; return this; }
   setLot(lot) {
     if (!this.hilly) return; let hi = 0, lo = 1e9;
     for (const fx of [0, 0.5, 1]) for (const fz of [0, 0.5, 1]) { const h = heightBL(lot.x0 + (lot.x1 - lot.x0) * fx, lot.z0 + (lot.z1 - lot.z0) * fz); hi = Math.max(hi, h); lo = Math.min(lo, h); }
@@ -226,7 +228,7 @@ export class City {
   constructor(scene) {
     this.scene = scene;
     this.group = new THREE.Group(); scene.add(this.group);
-    this.regions = new Map(); this.job = null; this.deadline = 0; this.version = 0; this.parkCache = []; this.parkVersion = -1;
+    this.regions = new Map(); this.sites = []; this.job = null; this.deadline = 0; this.version = 0; this.parkCache = []; this.parkVersion = -1;
     this.sig = { Z: 'G', X: 'R' };
   }
 
@@ -393,7 +395,7 @@ export class City {
     for (const r of this.regions.values()) for (const ax of ['Z', 'X']) for (const k of ['R', 'A', 'G']) { const m = r.lamps[ax][k]; if (m) m.visible = state[ax] === k; }
   }
   parkedList() {
-    if (this.parkVersion !== this.version) { this.parkCache = []; for (const r of this.regions.values()) for (const p of r.parked) this.parkCache.push(p); this.parkVersion = this.version; }
+    if (this.parkVersion !== this.version) { this.parkCache = []; for (const r of this.regions.values()) for (const p of r.parked) this.parkCache.push(p); for (const s of this.sites) for (const p of s.parked) this.parkCache.push(p); this.parkVersion = this.version; }
     return this.parkCache;
   }
 
@@ -411,10 +413,9 @@ export class City {
   finish(ri, rj, ctx) { const g = this.finishGen(ri, rj, ctx); while (!g.next().done); }
   // Hand a built region to the scene. Turning the pieces into meshes and instanced props is a few milliseconds of work (more on a tablet), so it is
   // done in steps too, with a look at the clock between them (`this.deadline` is Infinity when everything is wanted at once).
-  *finishGen(ri, rj, ctx) {
+  *finishGen(ri, rj, ctx, site = false) {
     const over = () => performance.now() > this.deadline;
-    if (this.regions.has(ri + ',' + rj)) this.unload(ri + ',' + rj, this.regions.get(ri + ',' + rj));         // (never two of the same region)
-    const [cx, cz] = this.regionCenter(ri, rj);
+    if (!site && this.regions.has(ri + ',' + rj)) this.unload(ri + ',' + rj, this.regions.get(ri + ',' + rj));         // (never two of the same region)
     const region = { ri, rj, group: new THREE.Group(), far: new THREE.Group(), detail: new THREE.Group(), trees: new THREE.Group(), colliders: ctx.colliders, parked: ctx.L.parked, lamps: { Z: {}, X: {} } };
     region.group.add(region.far, region.detail, region.trees);
     const mesh = (k, grp, far, set = null) => {
@@ -426,7 +427,7 @@ export class City {
     };
     if (ctx.hilly) region.far.add(this.hillGround(ri, rj));
     const rx0 = -N * SP + ri * REGION, rz0 = -N * SP + rj * REGION;
-    const set = this.matCut && this.nearRiver(ri, rj) ? this.matCut : this.matRoad && nearAvenueArea(rx0, rz0, rx0 + REGION, rz0 + REGION) ? this.matRoad : null;       // (only regions by the river or a road across the grid need materials that cut it away)
+    const set = site ? null : this.matCut && this.nearRiver(ri, rj) ? this.matCut : this.matRoad && nearAvenueArea(rx0, rz0, rx0 + REGION, rz0 + REGION) ? this.matRoad : null;       // (only regions by the river or a road across the grid need materials that cut it away)
     for (const k of FAR_KEYS) { mesh(k, region.far, true, set); if (over()) yield; }
     for (const k of DETAIL_KEYS) { mesh(k, region.detail, false); if (over()) yield; }
     const P = this.props, L = ctx.L;
@@ -439,7 +440,7 @@ export class City {
       list.forEach((it, n) => { place(it, rnd); im.setMatrixAt(n, m4); if (tint) { tint(c, rnd); im.setColorAt(n, c); } });
       im.castShadow = cast && Q.shadows; im.receiveShadow = false; im.computeBoundingSphere(); grp.add(im); return im;
     };
-    const Hh = ctx.hilly ? heightBL : () => 0;
+    const Hh = ctx.hilly ? heightBL : ctx.baseY ? () => ctx.baseY : () => 0;
     const atN = (x, y, z, yaw, sc) => { q.setFromAxisAngle(up, yaw); s.set(sc, sc, sc); v.set(x, y, z); m4.compose(v, q, s); };
     const at = (x, y, z, yaw, sc) => atN(x, y + Hh(x, z), z, yaw, sc);
     const placeTree = (t, rnd) => { const sc = t[2]; q.setFromAxisAngle(up, rnd() * 6.28); s.set(sc * (0.86 + rnd() * 0.32), sc * (0.9 + rnd() * 0.26), sc * (0.86 + rnd() * 0.32)); v.set(t[0], t[3] + Hh(t[0], t[1]), t[1]); m4.compose(v, q, s); };   // (no two crowns the same shape)
@@ -499,9 +500,13 @@ export class City {
       if (lm) { lm.visible = this.sig[ax] === k; region.lamps[ax][k] = lm; }
     }
     for (const c of ctx.colliders.slice()) if (c.brk) { c.brk.ims = ims[c.brk.kind]; c.brk.region = region; if (BROKEN.has(c.brk.key)) breakProp(c); }   // (things already smashed stay smashed)
+    if (site) return region;                                                      // (a site outside the city is added to the scene by towns.js)
     this.group.add(region.group);
     this.regions.set(ri + ',' + rj, region); this.version++;
   }
+  // Build a site outside the city from a context filled with the city's pieces (see towns.js): its meshes and instanced props, not yet in the scene.
+  buildSite(ctx) { const g = this.finishGen(null, null, ctx, true); let r; do { r = g.next(); } while (!r.done); return r.value; }
+  newCtx0(y) { return new Ctx(false).level(y); }
 
   // --- One block: pavement, furniture, road markings and buildings --------------------
   *genBlock(ctx, i, j) {
@@ -965,6 +970,7 @@ export class City {
       const mx = (A.x[i] + A.x[i + 1]) / 2, mz = (A.z[i] + A.z[i + 1]) / 2; if (mx < x0 || mx >= x1 || mz < z0 || mz >= z1) continue;
       if (performance.now() > this.deadline) yield;
       const ax = A.x[i], az = A.z[i], bx = A.x[i + 1], bz = A.z[i + 1], nx = -A.tz[i], nz = A.tx[i], len = Math.hypot(bx - ax, bz - az), s0 = A.s[i];
+      const cr = nearestAvenue(mx, mz, A); if (cr && cr.d < cr.a.W + 7) continue;                // (where another road crosses this one the junction is left open: no kerb, no lines, no lamps)
       const P = (o, f, y) => [ax + (bx - ax) * f + nx * o, y, az + (bz - az) * f + nz * o];
       const strip = (o0, o1, col, f0 = 0, f1 = 1) => quadToward(G.amark, P(o0, f0, 0.012), P(o0, f1, 0.012), P(o1, f1, 0.012), P(o1, f0, 0.012), uv, col, [0, 1, 0]);
       for (const s of [-1, 1]) {                                                                      // the kerb, facing the road
@@ -989,10 +995,9 @@ export class City {
   // A lot that a road across the grid goes through or by. A diagonal cuts it into wedges: a building on each (shaped to it), or a little park where
   // too small. A winding road just turns it to lawn.
   *avenueLot(ctx, lot, zone, d, rnd) {
-    const hit = lotAvenue(lot, 1.5); if (!hit) return false;
-    if (hit.a.kind === 'hill') { if (hit.d < hit.a.W + 7) { this.riverLot(ctx, lot, rnd); return true; } return false; }
-    const rect = { x0: lot.x0, z0: lot.z0, x1: lot.x1, z1: lot.z1 };
-    for (const poly of clipLot(rect, hit)) {
+    const res = lotPieces(lot); if (!res) return false;
+    if (res.hill) { this.riverLot(ctx, lot, rnd); return true; }                  // (a winding road through a lot: the lot goes to lawn)
+    for (const poly of res.pieces) {
       const inner = offsetPoly(poly, -(1.1 + rnd() * 1.1)), a = polyArea(inner), per = inner.reduce((s, p, k) => s + Math.hypot(p[0] - inner[(k + 1) % inner.length][0], p[1] - inner[(k + 1) % inner.length][1]), 0);
       if (inner.length < 3 || a < 330 || 2 * a / per < 4.6 || polyArea(poly) < 80) this.pocketPark(ctx, poly, rnd); else this.polyBuilding(ctx, ccw(inner), zone, d, rnd);
       if (performance.now() > this.deadline) yield;

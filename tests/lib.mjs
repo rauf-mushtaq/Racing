@@ -18,7 +18,7 @@ export const BASE = `http://127.0.0.1:${server.address().port}/`;
 
 export const results = []; export let failed = 0;
 export const check = (name, ok, info = '') => { results.push([ok, name, info]); if (!ok) failed++; console.log((ok ? '  ok   ' : '  FAIL ') + name + (info && !ok ? '  -> ' + info : '')); };
-const ignorable = t => /Failed to load resource|GPU stall|GL Driver|ReadPixels|Automatic fallback to software WebGL/.test(t);
+const ignorable = t => /Failed to load resource|GPU stall|GL Driver|ReadPixels|Automatic fallback to software WebGL|Multiple readback operations/.test(t);
 
 export const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
 export async function open({ debug = true, w = 844, h = 390, touch = false, hasTouch = touch, init = null, ctx } = {}) {

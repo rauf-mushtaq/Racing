@@ -9,11 +9,12 @@
 // North is -z, east is +x. Heights are in metres, with the city at 0.
 import { fbm, clamp, lerp } from './util.js';
 import { EDGE, LIMIT, surfaceAt } from './city.js';
+import { SITES, padDist } from './settlements.js';
 
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 export const SEA_Y = -1.2;
 export const WORLD = { x0: -4400, x1: 7800, z0: -7800, z1: 7800 };
-export const WORLD_LIM = { x0: -3150, x1: 7650, z0: -7650, z1: 7650 };
+export const WORLD_LIM = { x0: -3290, x1: 7650, z0: -7650, z1: 7650 };
 
 // ---------------------------------------------------------------------------
 // Climate and base terrain
@@ -119,6 +120,15 @@ export const BUNKERS = [
   { id: 'mesa', name: 'Site 12 (Mesa)', cx: 6150, cz: -1750, fx: -1, fz: 0, tunnel: { len: 70, w: 10, h: 6 }, hangar: { len: 80, w: 70, h: 14 }, apronY: 0, butte: true },
 ];
 export const KEEP_CLEAR = [];                // places where plants and rocks aren't scattered
+// Is (x, z) in one of them? The circles are put in a grid of 128 m cells the first time they are asked about (and again for any added since), so that
+// this is quick however many there are (the towns and farms add hundreds).
+const KC = new Map(); let kcDone = 0;
+export function keepClear(x, z) {
+  while (kcDone < KEEP_CLEAR.length) { const k = KEEP_CLEAR[kcDone++]; for (let i = Math.floor((k.x - k.r) / 128); i <= Math.floor((k.x + k.r) / 128); i++) for (let j = Math.floor((k.z - k.r) / 128); j <= Math.floor((k.z + k.r) / 128); j++) { const key = i * 100000 + j; let a = KC.get(key); if (!a) KC.set(key, a = []); a.push(k); } }
+  const a = KC.get(Math.floor(x / 128) * 100000 + Math.floor(z / 128)); if (!a) return false;
+  for (const k of a) if ((k.x - x) ** 2 + (k.z - z) ** 2 < k.r * k.r) return true;
+  return false;
+}
 const APRON = 46;                   // length of the concrete apron in front of a portal
 
 for (const b of BUNKERS) KEEP_CLEAR.push({ x: b.cx + 40, z: b.cz, r: 140 });
@@ -135,6 +145,22 @@ KEEP_CLEAR.push({ x: 5400, z: 3300, r: 900 });
   // The runway and its taxiway.
   addRoad('runway', 'runway', resample([[AIRFIELD.x, AIRFIELD.runwayZ0], [AIRFIELD.x, AIRFIELD.runwayZ1]]), AIRFIELD.hw);
   addRoad('taxiway', 'service', resample([[AIRFIELD.x, AIRFIELD.z], [AIRFIELD.x + 160, AIRFIELD.z]]), 9);
+}
+
+// The sites outside the city (settlements.js): each has an access road from a motorway and streets of its own.
+const MOTORWAYS = { ring: RING, north: SPOKE_N, east: SPOKE_E, south: SPOKE_S, west: SPOKE_W };
+export const PADS = [];
+let padsOn = false;                                         // (off while the pads' own heights are worked out from the ground without them)
+for (const S of SITES) {
+  S.padList = S.pads.map(p => ({ x: S.x, z: S.z, rot: 0, ...p, cos: Math.cos(p.rot || 0), sin: Math.sin(p.rot || 0) }));
+  for (const p of S.padList) { p.reach = Math.max(p.hx, p.hz) * 1.05 + p.blend; PADS.push(p); }
+  S.roads = [];
+  if (S.link) {
+    const M = MOTORWAYS[S.link.road], t = nearestPoint(M, S.link.at[0], S.link.at[1]), P = [M.x[t], M.z[t]], goal = S.end || S.streets[0].pts[0];
+    const path = resample(roundPath([P, ...(S.access || []), goal], 90)), len = path.length * STEP;                                  // (a gentle drift, one swing per 700 m: not a zigzag on a short road)
+    S.roads.push(addRoad('acc-' + S.id, 'service', wobble(path, [[Math.min(14, len * 0.025), Math.max(1, Math.round(len / 700)), 0.5]], 60), 5.2));
+  }
+  (S.streets || []).forEach((st, k) => S.roads.push(addRoad('st-' + S.id + '-' + k, 'street', resample(st.pts), st.hw)));
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +210,19 @@ export function baseHeight(x, z) {
 
 // ---------------------------------------------------------------------------
 AIRFIELD.y = Math.max(14, baseHeight(AIRFIELD.x, AIRFIELD.z));
+// Distance to the airfield's runway (the lakebed is a stadium shape round it).
+const lakeDist = (x, z) => Math.hypot(x - AIRFIELD.x, Math.max(0, AIRFIELD.runwayZ0 - z, z - AIRFIELD.runwayZ1));
+// The pads: level at the average height of the natural ground under them (unless a height is given), or the shore's.
+for (const S of SITES) for (const p of S.padList) {
+  if (p.y === undefined) { let s = 0, n = 0; for (let a = -0.8; a <= 0.81; a += 0.4) for (let b = -0.8; b <= 0.81; b += 0.4) { const px = p.x + a * p.hx * p.cos - b * p.hz * p.sin, pz = p.z + a * p.hx * p.sin + b * p.hz * p.cos; s += stampHeight(px, pz, baseHeight(px, pz)); n++; } p.y = s / n; }
+  S.y = S.padList[0].y;
+}
+padsOn = true;
+// Plants and rocks keep off the pads (and the farms' fields): circles of 60 m across them.
+for (const S of SITES) {
+  for (const p of S.padList) for (let a = -p.hx; a <= p.hx + 1; a += 55) for (let b = -p.hz; b <= p.hz + 1; b += 55) KEEP_CLEAR.push({ x: p.x + a * p.cos - b * p.sin, z: p.z + a * p.sin + b * p.cos, r: 62 });
+  for (const f of S.fields || []) for (let a = -f.hx; a <= f.hx + 1; a += 45) for (let b = -f.hz; b <= f.hz + 1; b += 45) KEEP_CLEAR.push({ x: f.x + a, z: f.z + b, r: 52 });
+}
 
 // Road heights: follow the (smoothed) ground, with a gentle gradient
 // ---------------------------------------------------------------------------
@@ -221,6 +260,8 @@ for (const R of ROADS) {
   if (R.id === 'svc-alpine') profile(R, [[0, SPOKE_N.y[nearestPoint(SPOKE_N, R.x[0], R.z[0])]], [R.x.length - 1, BUNKERS[0].apronY]]);
   else if (R.id === 'svc-mesa') profile(R, [[0, SPOKE_E.y[nearestPoint(SPOKE_E, R.x[0], R.z[0])]], [R.x.length - 1, BUNKERS[1].apronY]]);
   else if (R.id === 'svc-airfield') profile(R, [[0, RING.y[nearestPoint(RING, R.x[0], R.z[0])]], [R.x.length - 1, AIRFIELD.y]]);
+  else if (R.id.startsWith('acc-')) { const S = SITES.find(s => 'acc-' + s.id === R.id), M = MOTORWAYS[S.link.road]; profile(R, [[0, M.y[nearestPoint(M, R.x[0], R.z[0])]], [R.x.length - 1, S.y]]); }
+  else if (R.id.startsWith('st-')) R.y.fill(SITES.find(s => R.id.startsWith('st-' + s.id + '-')).y);                // (a street inside a site lies on its level pad)
   else profile(R, []);
 }
 for (const R of ROADS) if (R.id === 'runway' || R.id === 'taxiway') R.y.fill(AIRFIELD.y);
@@ -265,7 +306,6 @@ export function roadAt(x, z) {
 // Stamps: places where the ground is shaped by hand
 // ---------------------------------------------------------------------------
 // Distance to the airfield's runway (the lakebed is a stadium shape round it).
-const lakeDist = (x, z) => Math.hypot(x - AIRFIELD.x, Math.max(0, AIRFIELD.runwayZ0 - z, z - AIRFIELD.runwayZ1));
 function stampHeight(x, z, h) {
   // The dry lakebed, perfectly flat.
   const da = lakeDist(x, z);
@@ -283,6 +323,7 @@ function stampHeight(x, z, h) {
     if (u < -8 && u > -400) h = Math.max(h, lerp(h, b.apronY + Math.min(60, (-u - 8) * 2.2), smooth(70, 30, Math.abs(v))));   // the slope behind the portal, clear of the door
     if (u > -8 && u < APRON + 20 && Math.abs(v) < 48) h = lerp(h, b.apronY, smooth(APRON + 20, APRON - 2, Math.max(u, 0)) * smooth(48, 28, Math.abs(v)));
   }
+  if (padsOn) for (const p of PADS) { if (Math.abs(x - p.x) > p.reach || Math.abs(z - p.z) > p.reach) continue; const d = padDist(p, x, z); if (d < p.blend) h = lerp(p.y, h, smooth(0, p.blend, d)); }
   return h;
 }
 
@@ -365,6 +406,7 @@ export function groundAt(x, z) {
     }
   }
   const h = heightAt(x, z);
+  for (const p of PADS) if (p.surface && Math.abs(x - p.x) < p.reach && Math.abs(z - p.z) < p.reach && padDist(p, x, z) < 0) return _g(h, p.surface);
   return _g(h, groundKind(x, z, h, 0));
 }
 

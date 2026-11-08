@@ -19,6 +19,7 @@ import { initRoads } from './roads.js';
 import { initScatter } from './scatter.js';
 import { initGrass } from './grass.js';
 import { initStructures } from './structures.js';
+import { initTowns } from './towns.js';
 import { initRiver } from './river.js';
 import { initRoadCut } from './roadcut.js';
 import { initLandmarks } from './landmarks.js';
@@ -222,7 +223,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
+let heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, towns, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -245,6 +246,7 @@ async function build() {
   initScatter(terrain, city.props);
   grass = initGrass(scene); if (grass) extraMats.push(grass.material);
   structures = initStructures(scene, city);
+  towns = await initTowns(scene, city, { frame: nextFrame, msg: loadMsg });
   loadMsg('Filling the river…'); await nextFrame();
   river = initRiver(scene, city); extraMats.push(...river.materials, ...Object.values(city.matCut), ...initRoadCut(city));
   landmarks = initLandmarks(scene, city); extraMats.push(...landmarks.materials);
@@ -1094,7 +1096,7 @@ function tickBody(dt) {
   }
   city.update(F.x, F.z, st === 'paused' || st === 'map' ? 2 : 3.5);
   terrain.update(dt, F.x, F.z, st === 'paused' || st === 'map' ? 1.5 : 3);
-  structures.update(F.x, F.z);
+  structures.update(F.x, F.z); towns.update(F.x, F.z, dt, performance.now() / 1000);
   river.update(dt, F.x, F.z); landmarks.update(dt, F.x, F.z);
   prof.mark('world');
   if (st === 'menu' && game.garage && walker.active) { walker.t += dt; walker.pose(dt); }          // the character idles beside the car in the Garage
@@ -1198,4 +1200,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-if (DEBUG) window.__game = { bench, startBench, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+if (DEBUG) window.__game = { bench, startBench, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get towns() { return towns; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
