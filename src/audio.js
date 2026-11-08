@@ -99,6 +99,38 @@ export class AudioEngine {
     g.connect(pn); pn.connect(this.comp);
     const dist = Math.hypot(at[0] - (this.lx || 0), at[1] - (this.ly || 0), at[2] - (this.lz || 0)), send = this.ctx.createGain(); send.gain.value = Math.min(0.8, 0.12 + dist / 120); g.connect(send); send.connect(this.verb);
   }
+  // Street musicians: one note (or one stroke of a drum) placed where the performer stands. kind: guitar, sax, pluck, drum1 (boom), drum2 (bap), drum3 (tick), coin.
+  busk(kind, freq, dur, vol, at) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime, out = ctx.createGain(), pn = ctx.createPanner();
+    pn.panningModel = 'equalpower'; pn.distanceModel = 'inverse'; pn.refDistance = 7; pn.rolloffFactor = 1.35; pn.maxDistance = 300;
+    if (pn.positionX) { pn.positionX.value = at[0]; pn.positionY.value = at[1]; pn.positionZ.value = at[2]; } else pn.setPosition(at[0], at[1], at[2]);
+    out.connect(pn); pn.connect(this.comp);
+    const env = (g, a, peak, d) => { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0008, t + d); };
+    if (kind === 'guitar' || kind === 'pluck') {                                           // a plucked string: two slightly different triangle waves through a filter that closes as the note dies
+      const g = ctx.createGain(), f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(freq * (kind === 'pluck' ? 5 : 9), t); f.frequency.exponentialRampToValueAtTime(freq * 1.4, t + dur);
+      env(g, 0.004, vol, dur); f.connect(g); g.connect(out);
+      for (const d of [-5, 5]) { const o = ctx.createOscillator(); o.type = kind === 'pluck' ? 'square' : 'triangle'; o.frequency.value = freq; o.detune.value = d; o.connect(f); o.start(t); o.stop(t + dur + 0.05); }
+      this.burst(freq * 6, freq * 2, 0.03, vol * 0.5, 'bandpass', 2, at);                    // the pick
+    } else if (kind === 'sax') {                                                           // a breathy reed: a sawtooth with vibrato through a band-pass, and a bit of air
+      const g = ctx.createGain(), f = ctx.createBiquadFilter(), lfo = ctx.createOscillator(), lg = ctx.createGain(); f.type = 'bandpass'; f.frequency.value = freq * 3.2; f.Q.value = 0.9;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.07); g.gain.setValueAtTime(vol, t + Math.max(0.08, dur - 0.14)); g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+      lfo.frequency.value = 5.2; lg.gain.value = freq * 0.012; lfo.connect(lg); const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(freq * 0.97, t); o.frequency.exponentialRampToValueAtTime(freq, t + 0.08); lg.connect(o.frequency);
+      o.connect(f); f.connect(g); g.connect(out); lfo.start(t); o.start(t); lfo.stop(t + dur + 0.05); o.stop(t + dur + 0.05);
+      this.burst(2400, 1800, dur, vol * 0.06, 'bandpass', 0.8, at);
+    } else if (kind === 'drum1') {                                                         // a bucket kicked: a quick falling sine
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.16); env(g, 0.003, vol * 1.3, 0.22); o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.3);
+    } else if (kind === 'drum2') { this.burst(1900, 900, 0.14, vol * 0.9, 'bandpass', 1.4, at); const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(240, t); o.frequency.exponentialRampToValueAtTime(150, t + 0.08); env(g, 0.003, vol * 0.6, 0.12); o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.18); }
+    else if (kind === 'drum3') this.burst(6500, 5200, 0.05, vol * 0.45, 'highpass', 0.7, at);
+    else if (kind === 'coin') {                                                            // a coin in the hat: two bright rings
+      for (const [f2, dl] of [[2637, 0], [3520, 0.06]]) { const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.value = f2; g.gain.setValueAtTime(0.0001, t + dl); g.gain.exponentialRampToValueAtTime(vol * 0.5, t + dl + 0.004); g.gain.exponentialRampToValueAtTime(0.0008, t + dl + 0.45); o.connect(g); g.connect(out); o.start(t + dl); o.stop(t + dl + 0.5); }
+    }
+  }
+  // The audience clapping: a burst of filtered noise that swells and dies, from the crowd's place in the street.
+  applause(at, vol = 0.3) {
+    if (!this.ctx) return;
+    for (let k = 0; k < 14; k++) setTimeout(() => this.burst(2200 + Math.random() * 1800, 1500, 0.05, vol * (0.5 + Math.random() * 0.5) * Math.sin(Math.PI * (k + 1) / 15), 'bandpass', 1.2, at), k * 150 + Math.random() * 70);
+  }
   gun() { const t = this.ctx && this.ctx.currentTime; if (!t || t - (this.lastGun || 0) < 0.045) return; this.lastGun = t; this.burst(2400, 700, 0.07, 0.3, 'bandpass', 0.8); }
   whoosh() { this.burst(500, 4000, 0.6, 0.3, 'bandpass', 0.6); }
   // The weapons on foot: each a crack through a band-pass plus a low thump (the pistol is silenced: a soft cough instead of a bang).

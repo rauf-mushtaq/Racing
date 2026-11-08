@@ -4,7 +4,7 @@
 //    in the water, the roads are really cut away where the water is, roundabout paths are smooth and keep clear of the island, landmarks are there
 import { check, open, step, finish } from './lib.mjs';
 import { RIVER, BRIDGES, LAKES, riverSdf, bridgeAt, deckY } from '../src/rivercourse.js';
-import { SP, N, hw, blockRect, LANDMARKS } from '../src/grid.js';
+import { SP, N, hw, blockRect, LANDMARKS, SIGNATURE, isPlaza } from '../src/grid.js';
 import { isRound, RB } from '../src/junctions.js';
 
 try {
@@ -103,6 +103,24 @@ try {
   await step(P, 180);
   const a1 = await P.evaluate(() => window.__game.landmarks.wheel.ang);
   check('the big wheel turns', a1 > a0, a0 + ' -> ' + a1);
+  // the city's character: skyscrapers, banks and the rest, and the street performers
+  const city = await P.evaluate(async () => {
+    const g = window.__game, cm = await import('./src/city.js'); let top = 0;
+    for (const [x, z] of [[0, 150], [-90, 270], [-300, 100], [300, 150]]) g.city.loadNow(x, z, 2);
+    for (const r of g.city.regions.values()) r.group.traverse(o => { if (o.isMesh && o.geometry && o.geometry.boundingBox === null) o.geometry.computeBoundingBox(); if (o.isMesh && o.geometry.boundingBox) top = Math.max(top, o.geometry.boundingBox.max.y); });
+    const kinds = {}; for (const v of cm.CIVIC.values()) kinds[v[0]] = (kinds[v[0]] || 0) + 1;
+    return { top, kinds };
+  });
+  check('there are skyscrapers well over 200 m tall downtown', city.top > 200, 'highest ' + city.top.toFixed(0));
+  check('and banks, hotels and cinemas among the buildings', (city.kinds.bank || 0) >= 1 && (city.kinds.hotel || 0) >= 1 && (city.kinds.cinema || 0) >= 1, JSON.stringify(city.kinds));
+  check('a dozen or more blocks hold a skyscraper of their own, and a few are plazas', Object.keys(SIGNATURE).length >= 12 && (() => { let n = 0; for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) if (isPlaza(i, j)) n++; return n >= 6; })());
+  await P.evaluate(() => { const g = window.__game; g.buskers.audio.init(); window.__notes = 0; const a = g.buskers.audio, f = a.busk.bind(a); a.busk = (...q) => { window.__notes++; return f(...q); }; const w = a.applause.bind(a); window.__claps = 0; a.applause = (...q) => { window.__claps++; return w(...q); }; g.traffic.cars.forEach(c => { c.active = false; }); g.car.reset(19.8, 470, 0); g.city.loadNow(19.8, 452, 2); });
+  await P.waitForFunction(() => window.__game.buskers.pool.length > 0, null, { timeout: 60000 }).catch(() => {});
+  for (let k = 0; k < 4; k++) { await P.waitForTimeout(1500); await step(P, 120); }
+  const bk = await P.evaluate(() => { const g = window.__game, B = g.buskers, live = B.pool.filter(p => p.spot); return { spots: B.constructor === Object ? 0 : (live.length ? live.map(p => p.spot.style + ':' + p.spot.watchers.length) : []), pool: B.pool.length, notes: window.__notes, visible: live.every(p => p.rig.root.visible) }; });
+  const nSpots = await P.evaluate(async () => (await import('./src/buskers.js')).SPOTS.length);
+  check('there are street performers all over the city', nSpots >= 30, 'spots ' + nSpots);
+  check('the nearest performers appear (as real people) when you are close, with an audience, and play music', bk.pool > 0 && bk.spots.length > 0 && bk.visible && bk.spots.some(s => +s.split(':')[1] >= 2) && bk.notes > 5, JSON.stringify(bk));
   check('no script errors', A.logs.length === 0, A.logs.slice(0, 3).join(' | '));
 } catch (e) {
   check('map tests ran to the end', false, e.stack || String(e));

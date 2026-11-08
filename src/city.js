@@ -17,8 +17,8 @@ export { mergeGeoms, puddles, macro };
 // Is a point within `m` metres of the river or a lake (or in it)? Nothing is put there.
 const wet = (x, z, m = 3) => inRiverBox(x, z, m) && riverSdf(x, z) < m;
 
-export { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, isLakeBlock, landmarkAt } from './grid.js';
-import { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, landmarkAt } from './grid.js';
+export { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, isLakeBlock, landmarkAt, signatureAt, isPlaza } from './grid.js';
+import { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, landmarkAt, signatureAt, isPlaza } from './grid.js';
 const CURB = 0.15, MEDIAN_H = 0.18, CORNER = 5;
 const R = 2;                          // blocks per region side
 const NR = (2 * N) / R;               // regions per side
@@ -111,6 +111,7 @@ export function signalState(t) {
 
 // Districts with a character of their own: the old town round the cathedral (low brick and plaster with tiled roofs), and the docks along the
 // east end of the river (warehouses, container yards and cranes on the quays).
+export const CIVIC = new Map();                    // (the banks, hotels and cinemas built so far: for the tests and debugging)
 const oldTown = (i, j) => i >= -5 && i <= -2 && j >= 2 && j <= 4 && !landmarkAt(i, j);
 const docksBlock = (i, j) => (i === 3 || i === 4) && j === -1;
 const col = h => new THREE.Color(h);
@@ -498,6 +499,9 @@ export class City {
 
     const lm = landmarkAt(i, j);
     if (lm && lm !== 'wheel') { if (lm === 'cathedral') this.square(ctx, b, rnd); return; }                     // (landmarks.js builds it)
+    const sg = signatureAt(i, j);
+    if (sg) { this.signature(ctx, { x0: ix0, z0: iz0, x1: ix1, z1: iz1 }, sg, rnd); return; }                       // a skyscraper that fills the block
+    if (isPlaza(i, j)) { this.plaza(ctx, { x0: ix0, z0: iz0, x1: ix1, z1: iz1 }, rnd); return; }
     if (park) {
       const lawn = roundedRect(ix0, iz0, ix1, iz1, 3, 4);
       gb.park.cap(lawn, CURB + 0.03, 18, GRASS_TINT);
@@ -529,8 +533,11 @@ export class City {
       if (ix1 - lot.x1 < 0.5) faces.push({ dir: [1, 0], line: i + 1, axis: 'x' });
       if (lot.z0 - iz0 < 0.5) faces.push({ dir: [0, -1], line: j, axis: 'z' });
       if (iz1 - lot.z1 < 0.5) faces.push({ dir: [0, 1], line: j + 1, axis: 'z' });
-      const onBlvd = faces.some(f => isBlvd(f.line));
-      if (houseBlock && !onBlvd) this.addHouse(ctx, lot, faces, rnd);
+      const onBlvd = faces.some(f => isBlvd(f.line)), hz = hash3(Math.round(lot.x0), Math.round(lot.z0), 61);
+      const civic = faces.length && !houseBlock && lot.x1 - lot.x0 > 22 && lot.z1 - lot.z0 > 22 ? (zone === 'down' || zone === 'mid' ? (hz < 0.02 ? 'bank' : hz < 0.04 ? 'hotel' : hz < 0.055 ? 'cinema' : null) : zone === 'low' && hz < 0.012 ? 'bank' : null) : null;
+      if (civic) this.civic(ctx, lot, faces, zone, civic, rnd);
+      else if (!houseBlock && zone !== 'sub' && !faces.length === false && hz > 0.97 && lot.x1 - lot.x0 > 26) this.construction(ctx, lot, faces, rnd);
+      else if (houseBlock && !onBlvd) this.addHouse(ctx, lot, faces, rnd);
       else if (!faces.length && (zone === 'low' || zone === 'sub') && rnd() < 0.4) this.parkingLot(ctx, lot, rnd);
       else this.addBuilding(ctx, lot, faces, zone, d, onBlvd, rnd);
       if (performance.now() > this.deadline) yield;
@@ -696,6 +703,183 @@ export class City {
     for (let z = b.z0 + 10; z < b.z1 - 60; z += 9) for (const x of [b.x0 + 9, b.x1 - 9]) L.bushes.push([x + (rnd() - 0.5) * 3, z, 0.9 + rnd() * 0.5, CURB]);
   }
 
+  // --- Civic buildings, café terraces, plazas, construction sites and the signature skyscrapers -------------------------------------
+  // Where a point is on a building's face: t along it, o out from it (f.dir is the way the face looks).
+  facePt(b, f, t, o) {
+    const [dx, dz] = f.dir, base = dx < 0 ? b.x0 : dx > 0 ? b.x1 : dz < 0 ? b.z0 : b.z1, mid = dx !== 0 ? (b.z0 + b.z1) / 2 : (b.x0 + b.x1) / 2;
+    return dx !== 0 ? [base + dx * o, mid + t] : [mid + t, base + dz * o];
+  }
+  // A box on a building's face, from t0 to t1 along it and o0 to o1 out from it.
+  faceBox(gb, b, f, t0, t1, o0, o1, y0, y1, col) {
+    const [x0, z0] = this.facePt(b, f, t0, o0), [x1, z1] = this.facePt(b, f, t1, o1);
+    gb.box(Math.min(x0, x1), Math.min(z0, z1), Math.max(x0, x1), Math.max(z0, z1), y0, y1, 4, col);
+  }
+  // A lit sign on a building's face (a cell of the sign atlas: 0 bank, 1 hotel, 2 cinema, 3 cash machine), `w` wide and `h` tall, centred at t.
+  faceSign(ctx, b, f, special, t, o, y, w, h) {
+    const [px, pz] = this.facePt(b, f, t, o), [dx, dz] = f.dir, [u0, v0, u1, v1] = this.signUV(ctx, special);
+    ctx.gb.sign.quad([px - dz * w / 2, y, pz + dx * w / 2], [dz * w, 0, -dx * w], [0, h, 0], u0, v0, u1, v1);
+  }
+  // A bank, a hotel or a cinema: an ordinary mass with the front of the real thing. The bank is stone with a portico of columns under a pediment,
+  // steps, bronze doors, its name in gold and a cash machine on the pavement; the hotel a tall tower with a canopy and flags; the cinema a marquee.
+  civic(ctx, lot, faces, zone, kind, rnd) {
+    CIVIC.set(kind + Math.round(lot.x0) + ',' + Math.round(lot.z0), [kind, (lot.x0 + lot.x1) / 2, (lot.z0 + lot.z1) / 2]);
+    const f = faces[0], g = 1.0 + rnd() * 1.4, b = { x0: lot.x0 + g, z0: lot.z0 + g, x1: lot.x1 - g, z1: lot.z1 - g }, G = ctx.gb;
+    for (const ff of faces) { if (ff.dir[0] < 0) b.x0 = lot.x0 + 0.3; if (ff.dir[0] > 0) b.x1 = lot.x1 - 0.3; if (ff.dir[1] < 0) b.z0 = lot.z0 + 0.3; if (ff.dir[1] > 0) b.z1 = lot.z1 - 0.3; }
+    const stone = new THREE.Color(0.86, 0.82, 0.74), dark = new THREE.Color(0.16, 0.12, 0.09), gold = new THREE.Color(0.85, 0.65, 0.2), along = f.dir[0] !== 0 ? b.z1 - b.z0 : b.x1 - b.x0;
+    if (kind === 'bank') {
+      this.buildMass(ctx, b, 'modern', 20 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: stone });
+      const W = Math.min(along - 6, 20), n = 6, step = W / (n - 1);
+      this.faceBox(G.props, b, f, -W / 2 - 1.2, W / 2 + 1.2, 0, 3.4, CURB, CURB + 0.5, stone); this.faceBox(G.props, b, f, -W / 2 - 0.6, W / 2 + 0.6, 0, 2.6, CURB + 0.5, CURB + 1.0, stone);     // steps
+      for (let k = 0; k < n; k++) { const [cx, cz] = this.facePt(b, f, -W / 2 + k * step, 1.7); G.props.extrude(circlePoly(cx, cz, 0.55, 10), CURB + 1.0, CURB + 10.2, 4, 4, stone, 0, true); G.props.cap(circlePoly(cx, cz, 0.55, 10), CURB + 10.2, 4, stone); addCollider({ type: 'circ', x: cx, z: cz, r: 0.6 }, ctx.colliders); }
+      this.faceBox(G.props, b, f, -W / 2 - 0.9, W / 2 + 0.9, 0, 2.5, CURB + 10.2, CURB + 12.2, stone);                                                                                       // entablature
+      const [ax, az] = this.facePt(b, f, -W / 2 - 0.9, 0), [bx, bz] = this.facePt(b, f, W / 2 + 0.9, 2.5), x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), z0 = Math.min(az, bz), z1 = Math.max(az, bz);
+      const ridge = f.dir[0] !== 0 ? [[(x0 + x1) / 2, z1], [(x0 + x1) / 2, z1], [(x0 + x1) / 2, z0], [(x0 + x1) / 2, z0]] : [[x0, (z0 + z1) / 2], [x0, (z0 + z1) / 2], [x1, (z0 + z1) / 2], [x1, (z0 + z1) / 2]];
+      G.roof.loft([[x0, z1], [x1, z1], [x1, z0], [x0, z0]], CURB + 12.2, ridge, CURB + 14.6, 5, new THREE.Color(0.8, 0.76, 0.7));                                                   // the pediment
+      this.faceBox(G.props, b, f, -1.3, 1.3, -0.02, 0.4, CURB + 1.0, CURB + 5.6, dark);                                                                                               // the doors
+      this.faceSign(ctx, b, f, 0, 0, 2.52, CURB + 10.3, Math.min(8, W * 0.5), 1.75);
+      const [kx, kz] = this.facePt(b, f, W / 2 + 3.2, 1.0); const kb = { x0: kx - 0.55, x1: kx + 0.55, z0: kz - 0.55, z1: kz + 0.55 };                                                    // a cash machine on the pavement, with its queue marker
+      G.props.box(kb.x0, kb.z0, kb.x1, kb.z1, CURB, CURB + 2.2, 3, new THREE.Color(0.25, 0.27, 0.3)); this.faceSign(ctx, { x0: kb.x0 + 0.55, x1: kb.x0 + 0.55, z0: kb.z0 + 0.55, z1: kb.z0 + 0.55 }, f, 3, 0, 0.58, CURB + 1.5, 0.9, 0.45);
+      addCollider({ type: 'box', ...kb }, ctx.colliders);
+    } else if (kind === 'hotel') {
+      this.buildMass(ctx, b, 'modern', 40 + Math.floor(rnd() * 5) * 3.5, faces, rnd, { rect: true });
+      const W = Math.min(along - 8, 14);
+      this.faceBox(G.props, b, f, -W / 2, W / 2, 0, 4.2, CURB + 5.2, CURB + 5.7, new THREE.Color(0.2, 0.22, 0.26));                                                                      // the canopy
+      for (const t of [-W / 2 + 0.6, W / 2 - 0.6]) { const [cx, cz] = this.facePt(b, f, t, 3.7); G.props.box(cx - 0.18, cz - 0.18, cx + 0.18, cz + 0.18, CURB, CURB + 5.2, 3, gold); addCollider({ type: 'circ', x: cx, z: cz, r: 0.3 }, ctx.colliders); }
+      this.faceSign(ctx, b, f, 1, 0, 0.12, CURB + 6.4, Math.min(8.5, W * 0.7), 2.1);
+      for (const t of [-W / 2 - 1.5, W / 2 + 1.5]) { const [px, pz] = this.facePt(b, f, t, 1.0), [dx, dz] = f.dir; G.props.box(px - 0.07, pz - 0.07, px + 0.07, pz + 0.07, CURB, CURB + 7.5, 3, new THREE.Color(0.7, 0.7, 0.72)); G.gantry.quad([px + 0.1 * (dx ? 0 : 1), CURB + 5.4, pz + 0.1 * (dz ? 0 : 1)], [-dz * 1.9, 0, dx * 1.9], [0, 1.2, 0], 0.02, 0.02, 0.2, 0.1); addCollider({ type: 'circ', x: px, z: pz, r: 0.2 }, ctx.colliders); }   // two flagpoles
+    } else {
+      this.buildMass(ctx, b, 'brick', 14, faces, rnd, { rect: true });
+      const W = Math.min(along - 4, 13);
+      this.faceBox(G.props, b, f, -W / 2, W / 2, 0, 3.4, CURB + 4.6, CURB + 5.1, new THREE.Color(0.9, 0.2, 0.55));                                                                      // the lit marquee
+      this.faceSign(ctx, b, f, 2, 0, 0.1, CURB + 5.4, Math.min(10, W * 0.85), 3.4);
+      for (let k = 0; k < 3; k++) { const t = -W / 2 + 1.6 + k * ((W - 3.2) / 2); this.faceBox(G.props, b, f, t - 0.7, t + 0.7, -0.05, 0.12, CURB + 1.2, CURB + 3.2, new THREE.Color(0.6 + rnd() * 0.4, 0.2 + rnd() * 0.5, 0.3 + rnd() * 0.5)); }   // film posters
+    }
+  }
+  // A café terrace in front of a shop: round tables, chairs and a striped umbrella over each, on the pavement.
+  terrace(ctx, b, f, rnd) {
+    const G = ctx.gb, along = f.dir[0] !== 0 ? b.z1 - b.z0 : b.x1 - b.x0, n = Math.min(4, Math.floor((along - 3) / 4.2)), cols = [[0.8, 0.15, 0.12], [0.15, 0.4, 0.7], [0.9, 0.7, 0.2], [0.2, 0.55, 0.3]].map(c => new THREE.Color(...c));
+    const t0 = (rnd() - 0.5) * Math.max(0, along - n * 4.2 - 3) * 0.5;
+    for (let k = 0; k < n; k++) {
+      const t = t0 + (k - (n - 1) / 2) * 4.2, [px, pz] = this.facePt(b, f, t, 1.15), col = cols[(rnd() * cols.length) | 0];
+      G.props.extrude(circlePoly(px, pz, 0.42, 8), CURB, CURB + 0.78, 3, 3, new THREE.Color(0.15, 0.15, 0.17), 0, true); G.props.cap(circlePoly(px, pz, 0.45, 8), CURB + 0.78, 3, new THREE.Color(0.85, 0.82, 0.75));
+      G.props.box(px - 0.04, pz - 0.04, px + 0.04, pz + 0.04, CURB + 0.78, CURB + 2.3, 3, new THREE.Color(0.8, 0.8, 0.8));
+      G.props.loft(circlePoly(px, pz, 1.5, 10), CURB + 2.15, circlePoly(px, pz, 0.12, 10), CURB + 2.65, 4, col);
+      for (const a of [0.6, 2.2, 3.8, 5.4]) G.props.box(px + Math.cos(a) * 0.72 - 0.2, pz + Math.sin(a) * 0.72 - 0.2, px + Math.cos(a) * 0.72 + 0.2, pz + Math.sin(a) * 0.72 + 0.2, CURB, CURB + 0.46, 3, new THREE.Color(0.2, 0.2, 0.22));
+      addCollider({ type: 'circ', x: px, z: pz, r: 0.55 }, ctx.colliders);
+    }
+  }
+  // A paved square instead of a block of buildings: a fountain, rows of trees, benches round it, stalls selling things under striped canopies.
+  plaza(ctx, r, rnd) {
+    const G = ctx.gb, L = ctx.L, cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2, stone = new THREE.Color(0.8, 0.77, 0.72);
+    G.walk.cap(rectPoly({ x0: r.x0 + 1, z0: r.z0 + 1, x1: r.x1 - 1, z1: r.z1 - 1 }), CURB + 0.04, 5, new THREE.Color(1.05, 1.0, 0.95));
+    G.props.extrude(circlePoly(cx, cz, 7, 28), CURB, CURB + 0.8, 4, 4, stone, 0, true); G.props.cap(circlePoly(cx, cz, 7, 28), CURB + 0.8, 4, stone); G.props.cap(circlePoly(cx, cz, 6.5, 28), CURB + 0.86, 4, new THREE.Color(0.3, 0.6, 0.75));
+    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + 0.4; G.props.extrude(circlePoly(cx + Math.cos(a) * 2.6, cz + Math.sin(a) * 2.6, 0.45, 8), CURB + 0.8, CURB + 3.8, 3, 3, stone, 0, true); }
+    G.props.extrude(circlePoly(cx, cz, 0.7, 10), CURB + 0.8, CURB + 4.8, 3, 3, stone, 0, true); G.props.cap(circlePoly(cx, cz, 0.7, 10), CURB + 4.8, 3, stone);
+    addCollider({ type: 'circ', x: cx, z: cz, r: 7 }, ctx.colliders);
+    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2 + 0.2, bx = cx + Math.cos(a) * 9.6, bz = cz + Math.sin(a) * 9.6, yaw = Math.atan2(-Math.cos(a), -Math.sin(a)); L.benches.push([bx, bz, yaw, CURB + 0.04]); addCollider({ type: 'circ', x: bx, z: bz, r: 0.55, brk: { kind: 'bench', i: L.benches.length - 1, yaw, key: brkKey(bx, bz) } }, ctx.colliders); }
+    for (let x = r.x0 + 12; x < r.x1 - 8; x += 15) for (const z of [r.z0 + 10, r.z1 - 10]) this.tree(ctx, x, z, 1.1 + rnd() * 0.5, CURB + 0.04, rnd() < 0.3);
+    for (let z = r.z0 + 28; z < r.z1 - 20; z += 15) for (const x of [r.x0 + 10, r.x1 - 10]) this.tree(ctx, x, z, 1.1 + rnd() * 0.5, CURB + 0.04, rnd() < 0.3);
+    // a pattern in the paving, a clock tower at the north end, a bandstand, and planters down the middle
+    const line = new THREE.Color(0.55, 0.53, 0.5);
+    for (let x = r.x0 + 12; x < r.x1 - 6; x += 12) G.mark.flat(x - 0.07, r.z0 + 1, x + 0.07, r.z1 - 1, CURB + 0.055, 10, line);
+    for (let z = r.z0 + 12; z < r.z1 - 6; z += 12) G.mark.flat(r.x0 + 1, z - 0.07, r.x1 - 1, z + 0.07, CURB + 0.055, 10, line);
+    const tx = cx, tz = r.z0 + 11, tw = new THREE.Color(0.8, 0.74, 0.62), face = new THREE.Color(0.96, 0.95, 0.9);
+    G.props.box(tx - 3, tz - 3, tx + 3, tz + 3, CURB + 0.04, CURB + 24, 4, tw); G.props.box(tx - 3.4, tz - 3.4, tx + 3.4, tz + 3.4, CURB + 24, CURB + 25, 4, new THREE.Color(0.55, 0.5, 0.42));
+    G.roof.loft([[tx - 3.6, tz + 3.6], [tx + 3.6, tz + 3.6], [tx + 3.6, tz - 3.6], [tx - 3.6, tz - 3.6]], CURB + 25, [[tx, tz], [tx, tz], [tx, tz], [tx, tz]], CURB + 33, 5, new THREE.Color(0.2, 0.3, 0.28));
+    for (const [dx, dz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) for (let k = 0; k < 16; k++) {                                  // four clock faces
+      const a = k / 16 * Math.PI * 2, b = (k + 1) / 16 * Math.PI * 2, P = t => { const u = Math.cos(t) * 2.1, v = Math.sin(t) * 2.1; return [tx + dx * 3.04 - dz * u, CURB + 19 + v, tz + dz * 3.04 + dx * u]; };
+      quadToward(G.props, [tx + dx * 3.04, CURB + 19, tz + dz * 3.04], P(a), P(b), [tx + dx * 3.04, CURB + 19, tz + dz * 3.04], [[0, 0], [1, 0], [1, 1], [0, 1]], face, [dx, 0, dz]);
+    }
+    G.props.box(tx - 0.08 + 0.02, tz + 3.05, tx + 0.08, tz + 3.1, CURB + 19, CURB + 20.7, 3, new THREE.Color(0.1, 0.1, 0.1)); G.props.box(tx - 0.08, tz + 3.05, tx + 1.0, tz + 3.1, CURB + 19, CURB + 19.15, 3, new THREE.Color(0.1, 0.1, 0.1));
+    addCollider({ type: 'box', x0: tx - 3, x1: tx + 3, z0: tz - 3, z1: tz + 3 }, ctx.colliders);
+    const bx = cx - 44, bz = cz, copper = new THREE.Color(0.3, 0.55, 0.5);
+    G.props.extrude(circlePoly(bx, bz, 4.6, 8), CURB + 0.04, CURB + 0.9, 3, 3, stone, 0, false); G.props.cap(circlePoly(bx, bz, 4.6, 8), CURB + 0.9, 3, stone);
+    for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2 + 0.39; G.props.box(bx + Math.cos(a) * 4.1 - 0.15, bz + Math.sin(a) * 4.1 - 0.15, bx + Math.cos(a) * 4.1 + 0.15, bz + Math.sin(a) * 4.1 + 0.15, CURB + 0.9, CURB + 4.2, 3, new THREE.Color(0.92, 0.9, 0.86)); }
+    G.roof.loft(circlePoly(bx, bz, 5.2, 8), CURB + 4.2, circlePoly(bx, bz, 0.2, 8), CURB + 7.4, 5, copper); addCollider({ type: 'circ', x: bx, z: bz, r: 4.6 }, ctx.colliders);
+    for (const s of [-1, 1]) for (let k = 0; k < 4; k++) {
+      const px = cx + s * (16 + k * 15) - 1, pz = cz - 1; G.props.box(px, pz, px + 2, pz + 2, CURB + 0.04, CURB + 0.75, 3, new THREE.Color(0.7, 0.68, 0.65)); L.bushes.push([px + 1, pz + 1, 0.9 + rnd() * 0.5, CURB + 0.75]); addCollider({ type: 'box', x0: px, x1: px + 2, z0: pz, z1: pz + 2 }, ctx.colliders);
+    }
+    const cols = [[0.85, 0.2, 0.15], [0.2, 0.5, 0.8], [0.95, 0.75, 0.2], [0.25, 0.65, 0.35], [0.9, 0.45, 0.1]].map(c => new THREE.Color(...c));
+    for (const rowZ of [cz - 27, cz + 27]) for (let k = 0; k < 6; k++) {
+      const sx = cx - 40 + k * 16 + 1, col = cols[(rnd() * cols.length) | 0];
+      G.props.box(sx, rowZ - 1.4, sx + 3.4, rowZ + 1.4, CURB + 0.04, CURB + 1.0, 3, new THREE.Color(0.55, 0.4, 0.28));                                       // the counter
+      G.props.loft([[sx - 0.3, rowZ + 1.8], [sx + 3.7, rowZ + 1.8], [sx + 3.7, rowZ - 1.8], [sx - 0.3, rowZ - 1.8]], CURB + 2.4, [[sx + 1.7, rowZ + 0.4], [sx + 1.7, rowZ + 0.4], [sx + 1.7, rowZ - 0.4], [sx + 1.7, rowZ - 0.4]], CURB + 3.1, 4, col);
+      for (const dx of [0, 3.4]) for (const dz of [-1.5, 1.5]) G.props.box(sx + dx - 0.05, rowZ + dz - 0.05, sx + dx + 0.05, rowZ + dz + 0.05, CURB + 0.04, CURB + 2.4, 3, new THREE.Color(0.7, 0.7, 0.72));
+      for (let q = 0; q < 4; q++) G.props.box(sx + 0.2 + q * 0.8, rowZ - 0.5, sx + 0.7 + q * 0.8, rowZ + 0.4, CURB + 1.0, CURB + 1.35, 3, cols[(q + k) % cols.length]);          // things for sale
+      addCollider({ type: 'box', x0: sx - 0.2, x1: sx + 3.6, z0: rowZ - 1.5, z1: rowZ + 1.5 }, ctx.colliders);
+    }
+  }
+  // A building site: a fence, the concrete frame of a few storeys, a tall crane with its jib and counterweight, heaps of sand and a site hut.
+  construction(ctx, lot, faces, rnd) {
+    const G = ctx.gb, grey = new THREE.Color(0.6, 0.6, 0.6), org = new THREE.Color(0.95, 0.55, 0.1), yel = new THREE.Color(0.95, 0.8, 0.1);
+    G.lot.flat(lot.x0 + 0.5, lot.z0 + 0.5, lot.x1 - 0.5, lot.z1 - 0.5, CURB + 0.012, 10);
+    for (const [a, c, e, d] of [[lot.x0 + 1, lot.z0 + 1, lot.x1 - 1, lot.z0 + 1.3], [lot.x0 + 1, lot.z1 - 1.3, lot.x1 - 1, lot.z1 - 1], [lot.x0 + 1, lot.z0 + 1, lot.x0 + 1.3, lot.z1 - 1], [lot.x1 - 1.3, lot.z0 + 1, lot.x1 - 1, lot.z1 - 1]]) G.props.box(a, c, e, d, CURB, CURB + 2.2, 3, rnd() < 0.5 ? org : grey);
+    const fx = (lot.x0 + lot.x1) / 2 - 3, fz = (lot.z0 + lot.z1) / 2, W = Math.min(lot.x1 - lot.x0 - 18, 24), D = Math.min(lot.z1 - lot.z0 - 18, 18), floors = 2 + Math.floor(rnd() * 3), conc = new THREE.Color(0.62, 0.61, 0.58);
+    for (let fl = 0; fl <= floors; fl++) { const y = CURB + fl * 3.6; G.props.box(fx - W / 2, fz - D / 2, fx + W / 2, fz + D / 2, y, y + 0.3, 4, conc); }
+    for (let i = 0; i <= 3; i++) for (let j = 0; j <= 2; j++) G.props.box(fx - W / 2 + i * W / 3 - 0.25, fz - D / 2 + j * D / 2 - 0.25, fx - W / 2 + i * W / 3 + 0.25, fz - D / 2 + j * D / 2 + 0.25, CURB, CURB + floors * 3.6 + 2.4, 3, conc);
+    addCollider({ type: 'box', x0: fx - W / 2, x1: fx + W / 2, z0: fz - D / 2, z1: fz + D / 2 }, ctx.colliders);
+    const T = new GB(true), cx = lot.x1 - 8, cz = lot.z1 - 8, mast = 40 + floors * 3;                                    // the crane
+    for (const [dx, dz] of [[-0.7, -0.7], [0.7, -0.7], [0.7, 0.7], [-0.7, 0.7]]) tube(T, [dx, CURB, dz], [dx, mast, dz], 0.12, yel);
+    for (let y = 2; y < mast; y += 3) { tube(T, [-0.7, y, -0.7], [0.7, y + 3, -0.7], 0.06, yel); tube(T, [-0.7, y, 0.7], [0.7, y + 3, 0.7], 0.06, yel); }
+    tube(T, [-9, mast + 1.2, 0], [34, mast + 1.2, 0], 0.4, yel); tube(T, [-9, mast + 1.2, 0.9], [34, mast + 1.2, 0.9], 0.1, yel); T.box(-0.9, -0.9, 0.9, 0.9, mast, mast + 1.2, 3, grey); T.box(-9.5, -1.1, -5, 1.1, mast - 2.4, mast + 1.2, 3, new THREE.Color(0.35, 0.35, 0.37)); T.box(-0.6, 1.0, 1.4, 2.6, mast - 1.6, mast + 0.8, 3, org);
+    tube(T, [24, mast + 0.8, 0], [24, mast - 14, 0], 0.05, grey); T.box(23.5, -0.6, 24.5, 0.6, mast - 16, mast - 14, 3, org);
+    G.props.addTransformed(T, rnd() * Math.PI * 2, cx, 0, cz); addCollider({ type: 'circ', x: cx, z: cz, r: 1.6 }, ctx.colliders);
+    for (let k = 0; k < 3; k++) { const px = lot.x0 + 5 + rnd() * 6, pz = lot.z0 + 5 + rnd() * (lot.z1 - lot.z0 - 10); G.props.loft(circlePoly(px, pz, 2.2, 8), CURB, circlePoly(px, pz, 0.3, 8), CURB + 1.9, 4, new THREE.Color(0.78, 0.7, 0.52)); }
+    G.props.box(lot.x0 + 3, lot.z1 - 7, lot.x0 + 9, lot.z1 - 3, CURB, CURB + 2.6, 3, new THREE.Color(0.9, 0.9, 0.88));
+  }
+  // The signature skyscrapers: each block a different silhouette (see SIGNATURE in grid.js).
+  signature(ctx, r, kind, rnd) {
+    const G = ctx.gb, cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2, fg = this.style.glass.fac, fm = this.style.modern.fac, metal = METAL;
+    const rect = (w, d, ox = 0, oz = 0, a = 0) => { const c = Math.cos(a), s = Math.sin(a); return [[-w / 2, d / 2], [w / 2, d / 2], [w / 2, -d / 2], [-w / 2, -d / 2]].map(([x, z]) => [cx + ox + x * c + z * s, cz + oz - x * s + z * c]); };
+    const chamfer = (w, ch, ox = 0, oz = 0) => chamferRect({ x0: cx + ox - w / 2, x1: cx + ox + w / 2, z0: cz + oz - w / 2, z1: cz + oz + w / 2 }, ch);
+    const colGlass = () => GLASS[(rnd() * GLASS.length) | 0], colMod = () => MODERN[(rnd() * MODERN.length) | 0], trim = new THREE.Color(0.93, 0.92, 0.9), gold = new THREE.Color(0.9, 0.7, 0.25);
+    const sect = (poly, y0, y1, style, col, uo = 0) => {
+      const st = this.style[style]; G[style].extrude(poly, y0, y1, st.fac.w, st.fac.h, col, uo, true);
+      G.roof.cap(poly, y1, 8, new THREE.Color(0.52, 0.52, 0.54)); G.roof.extrude(offsetPoly(poly, 0.05), y1, y1 + 0.9, 8, 8, trim, 0, false);
+    };
+    const light = (x, z, y) => G.props.box(x - 0.5, z - 0.5, x + 0.5, z + 0.5, y, y + 1.4, 3, new THREE.Color(0.95, 0.2, 0.15));
+    const mast = (x, z, y0, len) => { G.props.box(x - 0.25, z - 0.25, x + 0.25, z + 0.25, y0, y0 + len, 3, metal); light(x, z, y0 + len); };
+    const tip = (poly, y0, y1, col, px = cx, pz = cz) => { G.roof.loft(poly, y0, poly.map(() => [px, pz]), y1, 6, col); };
+    // a wide podium under every one of them, with a stone plinth, so they stand on something
+    const plinth = (w, h) => { sect(rect(w, w), CURB, CURB + h, 'modern', new THREE.Color(0.93, 0.91, 0.87)); addCollider({ type: 'box', x0: cx - w / 2, x1: cx + w / 2, z0: cz - w / 2, z1: cz + w / 2 }, ctx.colliders); };
+    if (kind === 'crown') {                                                              // an art-deco tower: setbacks, corner fins, a stepped crown, a spire
+      plinth(110, 12); let y = CURB + 12, c = colMod();
+      for (const [w, h] of [[74, 100], [60, 44], [46, 40], [32, 30]]) { sect(chamfer(w, 5), y, y + h, 'modern', c, 0); for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) G.props.box(cx + sx * (w / 2 - 1.6) - 0.9, cz + sz * (w / 2 - 1.6) - 0.9, cx + sx * (w / 2 - 1.6) + 0.9, cz + sz * (w / 2 - 1.6) + 0.9, y, y + h + 2.5, 3, trim); y += h; }
+      tip(chamfer(22, 3), y, y + 22, gold); mast(cx, cz, y + 22, 30);
+    } else if (kind === 'twist') {                                                       // twenty-degree turns, storey on storey
+      plinth(100, 10); let y = CURB + 10; const c = colGlass();
+      for (let k = 0; k < 11; k++) { sect(rect(46 - k * 1.2, 46 - k * 1.2, 0, 0, k * 0.13), y, y + 17, 'glass', c, k * 0.13); y += 17; }
+      mast(cx, cz, y, 22);
+    } else if (kind === 'pyramid') {
+      plinth(96, 10); const c = colGlass(); sect(chamfer(56, 6), CURB + 10, CURB + 130, 'glass', c);
+      G.glass.loft(chamfer(56, 6), CURB + 130.9, chamfer(56, 6).map(() => [cx, cz]), CURB + 182, 8, new THREE.Color(0.7, 0.82, 0.92)); mast(cx, cz, CURB + 182, 14);
+    } else if (kind === 'twin') {                                                        // two towers and a sky bridge
+      plinth(112, 10);
+      for (const [ox, h] of [[-32, 154], [32, 140]]) { sect(chamfer(38, 4, ox, 0), CURB + 10, CURB + h, 'modern', colMod()); tip(chamfer(24, 3, ox, 0), CURB + h + 1, CURB + h + 14, metal, cx + ox, cz); G.props.box(cx + ox - 0.25, cz - 0.25, cx + ox + 0.25, cz + 0.25, CURB + h + 14, CURB + h + 34, 3, metal); light(cx + ox, cz, CURB + h + 34); }
+      G.glass.box(cx - 14, cz - 9, cx + 14, cz + 9, CURB + 96, CURB + 108, 4, new THREE.Color(0.55, 0.65, 0.8)); G.props.box(cx - 14, cz - 9.2, cx + 14, cz + 9.2, CURB + 108, CURB + 109.2, 3, metal);
+    } else if (kind === 'round') {                                                       // a drum with a ring round it halfway up
+      plinth(100, 10); const c = colGlass(); sect(circlePoly(cx, cz, 26, 36), CURB + 10, CURB + 178, 'glass', c);
+      G.props.extrude(circlePoly(cx, cz, 33, 40), CURB + 118, CURB + 121, 4, 4, new THREE.Color(0.22, 0.24, 0.28), 0, true); G.props.cap(circlePoly(cx, cz, 33, 40), CURB + 121, 4, new THREE.Color(0.3, 0.32, 0.36));
+      G.props.extrude(circlePoly(cx, cz, 10, 20), CURB + 178.9, CURB + 182, 4, 4, trim, 0, true); mast(cx, cz, CURB + 182, 30);
+    } else if (kind === 'lean') {                                                        // each storey a little to one side
+      plinth(100, 10); let y = CURB + 10; const c = colMod();
+      for (let k = 0; k < 9; k++) { sect(rect(44, 44, -16 + k * 3.8, 0), y, y + 17.5, 'modern', c, k * 0.1); y += 17.5; }
+      mast(cx + 15, cz, y, 22);
+    } else if (kind === 'portal') {                                                      // two slabs joined at the top, a gap you can see through
+      plinth(112, 10);
+      for (const ox of [-26, 26]) sect(rect(24, 46, ox, 0), CURB + 10, CURB + 160, 'glass', colGlass());
+      sect(rect(28, 46, 0, 0), CURB + 112, CURB + 160, 'modern', colMod());
+    } else if (kind === 'needle') {                                                      // slim, very tall, with a long spire
+      plinth(84, 10); sect(chamfer(28, 4), CURB + 10, CURB + 190, 'glass', colGlass()); sect(chamfer(20, 3), CURB + 191, CURB + 232, 'glass', colGlass()); tip(chamfer(14, 2), CURB + 233, CURB + 252, metal); mast(cx, cz, CURB + 252, 40);
+    } else if (kind === 'terrace') {                                                     // stepped back, a garden on every roof
+      plinth(110, 8); let y = CURB + 8; const c = colMod();
+      for (const w of [86, 72, 58, 44, 30]) { sect(rect(w, w), y, y + 24, 'modern', c); G.park.cap(rect(w + 6, w + 6).map(p => p), y + 24.2, 18, GRASS_TINT); y += 24; for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; ctx.L.bushes.push([cx + Math.cos(a) * (w / 2 + 1.5), cz + Math.sin(a) * (w / 2 + 1.5), 1.0 + rnd() * 0.6, y + 0.2]); } }
+      mast(cx, cz, y, 24);
+    } else {                                                                             // a thin wide blade, turned off the grid
+      plinth(110, 10); sect(rect(86, 18, 0, 0, 0.35), CURB + 10, CURB + 185, 'glass', colGlass()); sect(rect(60, 14, 0, 0, 0.35), CURB + 186, CURB + 205, 'glass', colGlass()); mast(cx, cz, CURB + 205, 20);
+    }
+  }
+
   // A roundabout: a kerbed island with something on it (a fountain, an obelisk, a grove or a statue), a white line round it, and a
   // small island splitting each side street's traffic. No traffic lights. Cars circle it (traffic.js) and can't drive over it.
   roundabout(ctx, i, j) {
@@ -754,7 +938,7 @@ export class City {
       style = rnd() < 0.6 ? 'brick' : 'modern'; h = 8.4 + Math.floor(rnd() * 2) * 3.5;
     } else if (zone === 'down') {
       style = r < 0.62 ? 'glass' : r < 0.9 ? 'modern' : 'apt';
-      h = style === 'apt' ? 28 + rnd() * 18 : 40 + Math.pow(rnd(), 1.3) * 130 * clamp(1.3 - d / 520, 0.35, 1);
+      h = style === 'apt' ? 28 + rnd() * 18 : 46 + Math.pow(rnd(), 1.15) * 150 * clamp(1.35 - d / 520, 0.4, 1);
     } else if (zone === 'mid') {
       if (onBlvd && r < 0.4) { style = 'shop'; h = 4.8 + rnd() * 1.6; }
       else if (r < 0.62) { style = rnd() < 0.45 ? 'brick' : 'apt'; h = 10.5 + Math.floor(rnd() * 6) * 3.5; }
@@ -802,14 +986,15 @@ export class City {
     }
   }
 
-  buildMass(ctx, b, style, h, faces, rnd) {
+  buildMass(ctx, b, style, h, faces, rnd, opt = {}) {
     const { fac, pal } = this.style[style], gb = ctx.gb[style], G = ctx.gb;
-    const c = pal[(rnd() * pal.length) | 0], uOff = Math.floor(rnd() * 4) / 4;
+    const c = opt.color || pal[(rnd() * pal.length) | 0], uOff = Math.floor(rnd() * 4) / 4;
     const w = b.x1 - b.x0, d = b.z1 - b.z0, cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
     const tower = style === 'glass' || style === 'modern';
     const r = rnd();
     let poly = rectPoly(b), kind = 'rect';
-    if (tower && h > 50 && Math.min(w, d) > 24 && r < 0.3) { kind = 'round'; poly = circlePoly(cx, cz, Math.min(w, d) / 2 - 0.5, 28); }
+    if (opt.rect) kind = 'rect';
+    else if (tower && h > 50 && Math.min(w, d) > 24 && r < 0.3) { kind = 'round'; poly = circlePoly(cx, cz, Math.min(w, d) / 2 - 0.5, 28); }
     else if (tower && r < 0.62) { kind = 'chamfer'; poly = chamferRect(b, 2.5 + rnd() * 3); }
     else if (tower && Math.min(w, d) > 20 && r < 0.8) { kind = 'rounded'; poly = roundedRect(b.x0, b.z0, b.x1, b.z1, 4 + rnd() * 3, 4); }
     const rc = new THREE.Color(0.55 + rnd() * 0.15, 0.53 + rnd() * 0.12, 0.52 + rnd() * 0.1);
@@ -850,6 +1035,7 @@ export class City {
     if ((style === 'apt' || style === 'brick' || style === 'modern') && (kind === 'rect' || kind === 'chamfer') && h >= 10 && h < 70) this.balconies(ctx, b, h, faces, kind === 'chamfer' ? 5.5 : 1.5, rnd);
     if (style === 'shop' && faces.length) {
       for (const f of faces.slice(0, 2)) this.shopSign(ctx, b, f, h, rnd);
+      if (hash3(Math.round(b.x0), Math.round(b.z0), 63) < 0.4) this.terrace(ctx, b, faces[0], rnd);
       if (isBlvd(faces[0].line) && rnd() < 0.3) this.poleSign(ctx, b, faces[0], rnd);
     }
     if (!tower && faces.length && ctx.L.bills.length < 2 && rnd() < 0.05) ctx.L.bills.push({ x: cx, z: cz, y: top + 2, yaw: Math.atan2(faces[0].dir[0], faces[0].dir[1]) });
@@ -881,8 +1067,8 @@ export class City {
     }
   }
 
-  signUV(ctx) {
-    const n = ctx.signN++ % 32, cc = n % 4, rr = (n / 4) | 0;
+  signUV(ctx, special = -1) {
+    const n = special >= 0 ? 28 + special : ctx.signN++ % 28, cc = n % 4, rr = (n / 4) | 0;               // (the last four cells are the bank, hotel, cinema and cash-machine signs)
     return [cc / 4 + 0.004, 1 - (rr + 1) / 8 + 0.004, (cc + 1) / 4 - 0.004, 1 - rr / 8 - 0.004];
   }
   shopSign(ctx, b, f, h, rnd) {

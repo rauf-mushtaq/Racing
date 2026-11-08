@@ -23,3 +23,9 @@ export const LANDMARKS = { '-1,1': 'tower', '3,4': 'stadium', '-3,3': 'cathedral
 export const landmarkAt = (i, j) => LANDMARKS[i + ',' + j] || null;
 export const isPark = (i, j) => isLakeBlock(i, j) || landmarkAt(i, j) === 'wheel' || (Math.max(Math.abs(i + 0.5), Math.abs(j + 0.5)) > 1.6 && hash3(i, j, 99) < 0.065);
 export function blockRect(i, j) { return { x0: i * SP + hw(i), x1: (i + 1) * SP - hw(i + 1), z0: j * SP + hw(j), z1: (j + 1) * SP - hw(j + 1) }; }
+
+// Blocks given over to a signature skyscraper, each a different shape (city.js builds them), and the plaza blocks (a paved square with a
+// fountain, trees and market stalls instead of buildings). Both are decided by the block's number, so everything agrees on where they are.
+export const SIGNATURE = { '0,0': 'crown', '-1,0': 'twist', '1,0': 'pyramid', '0,1': 'twin', '1,1': 'round', '-2,0': 'lean', '2,0': 'portal', '-2,1': 'needle', '1,2': 'terrace', '0,-3': 'blade', '-3,0': 'needle', '2,1': 'lean', '-3,1': 'twist', '2,2': 'crown' };
+export const signatureAt = (i, j) => SIGNATURE[i + ',' + j] || null;
+export const isPlaza = (i, j) => Math.abs(i) < N && Math.abs(j) < N && Math.max(Math.abs(i + 0.5), Math.abs(j + 0.5)) > 2.6 && hash3(i, j, 77) < 0.055 && !isLakeBlock(i, j) && !landmarkAt(i, j) && !signatureAt(i, j) && !(j === -1 || j === -2) ;

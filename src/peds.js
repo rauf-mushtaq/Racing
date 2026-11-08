@@ -36,6 +36,12 @@ function ringAt(r, s) {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, b[0] - a[0], b[1] - a[1]];
 }
 
+// Hands in front of the chest, clapping.
+function clapArms(B, t) {
+  const c = Math.sin(t * 15) * 0.22;
+  B.shoulderL.rotation.x = -(0.95 + c); B.shoulderR.rotation.x = -(0.95 - c); B.shoulderL.rotation.z = -0.2 + c * 0.4; B.shoulderR.rotation.z = 0.2 - c * 0.4; B.elbowL.rotation.x = -1.75; B.elbowR.rotation.x = -1.75;
+}
+
 export class Peds {
   constructor(scene, count, shadows) {
     this.scene = scene; this.count = count; this.rnd = mulberry32(2025); this.list = []; this.onHit = null;
@@ -92,9 +98,9 @@ export class Peds {
       const p = sl.ped; if (!p) continue;
       const sp = Math.min(p.speed, 5.5), lie = p.lie || 0, B = sl.rig, d2 = (p.x - cx) ** 2 + (p.z - cz) ** 2;
       p.mphase = (p.mphase ?? p.phase / 6.283) + sp * dt / Mocap.strideAt(Math.max(sp, 0.7));
-      if (lie > 0.01) { animate(B, { down: lie, t: p.t, speed: 0 }); } else B.root.rotation.x = 0;
+      if (lie > 0.01 || p.clap) { animate(B, { down: lie, t: p.t, speed: 0 }); if (p.clap) clapArms(B, p.t); } else B.root.rotation.x = 0;
       sl.person.faceOn = d2 < 450;
-      sl.person.poseMocap(B, { speed: sp, phase: p.mphase, t: p.t, pLegs: Math.min(1, lie * 3), pUpper: Math.min(1, lie * 3) });
+      sl.person.poseMocap(B, { speed: sp, phase: p.mphase, t: p.t, pLegs: Math.min(1, lie * 3), pUpper: p.clap ? 1 : Math.min(1, lie * 3) });
       sl.person.updateFace(dt);
       B.root.position.set(p.x, p.y + lie * 0.13, p.z); B.root.rotation.y = p.h;
     }
@@ -120,7 +126,9 @@ export class Peds {
   // Everyone within r metres of a point is frightened and runs.
   scare(x, z, r, secs = 4) {
     for (const p of this.list) {
-      if (p.state === 'down' || p.state === 'away' || !p.ring) continue; const dx = p.x - x, dz = p.z - z; if (dx * dx + dz * dz > r * r) continue;
+      if (p.state === 'down' || p.state === 'away') continue; const dx = p.x - x, dz = p.z - z; if (dx * dx + dz * dz > r * r) continue;
+      if (p.state === 'watch') { this.relink(p); p.spot = null; p.clap = 0; p.state = 'panic'; p.panic = secs * (0.7 + this.rnd() * 0.6); p.dir = 1; continue; }     // (the audience scatters)
+      if (!p.ring) continue;
       p.state = 'panic'; p.panic = secs * (0.7 + this.rnd() * 0.6); const [, , tx, tz] = ringAt(p.ring, p.s); p.dir = (tx * dx + tz * dz) >= 0 ? 1 : -1;
     }
   }
@@ -149,6 +157,11 @@ export class Peds {
     const rnd = () => this.rnd(), N0 = this.list.length;
     for (let idx = 0; idx < N0; idx++) {
       const p = this.list[idx];
+      if (p.state === 'watch') {                                                 // standing round a street performer (see buskers.js)
+        p.t += dt; p.speed = damp(p.speed, 0, 5, dt); p.lie = damp(p.lie || 0, 0, 8, dt); p.look = Math.sin(p.t * 0.5 + idx) * 0.3;
+        if (!p.spot || !p.spot.live) { p.state = 'away'; p.spot = null; p.clap = 0; }
+        continue;
+      }
       if (!p.colors || p.state === 'away' || Math.hypot(p.x - focus.x, p.z - focus.z) > 230) { this.spawn(p, focus, camera, !this._started); if (p.state === 'away') continue; }
       p.t += dt;
       if (p.state === 'down') {
@@ -199,6 +212,7 @@ export class Peds {
     for (let s = 0; s < n; s++) {
       const p = inst[s];
       animate(B, { phase: p.phase += p.speed * dt / (p.state === 'panic' ? 2.2 : 1.4) * 6.283, speed: p.speed, run: p.state === 'panic' ? 0.55 : 0.0, t: p.t, down: p.lie, look: p.look });
+      if (p.clap) clapArms(B, p.t);
       B.root.position.set(p.x, p.y + p.lie * 0.13, p.z); B.root.rotation.y = p.h; B.root.updateMatrixWorld(true);
       for (const K of this.kinds) {
         const nb = K.bones.length;
