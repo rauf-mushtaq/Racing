@@ -47,6 +47,21 @@ try {
   check('the town has dozens of solid buildings and lamps', built.willowColliders > 60, 'colliders ' + built.willowColliders);
   check('building all of them took under 3 s on this machine (they are built one a frame behind the loading screen)', built.ms < 3000, 'ms ' + Math.round(built.ms));
 
+  // Graphics memory: a place that is far away is not in the scene at all (so none of its textures or buffers are on the graphics chip), it comes in when
+  // you are near and goes out again when you leave; and all the sign boards together are a page or two of one texture, not a texture each.
+  const lazy = await P.evaluate(async () => {
+    const g = window.__game, T = g.towns, w = await import('./src/world.js'), kit = await import('./src/kit.js'); window.__noRender = true; g.hud.toast = () => {};
+    const inScene = () => T.sites.filter(s => s.group.parent === T.group).map(s => s.S.id);
+    g.car.reset(0, 400, 0); g.car.baseY = 0; for (let i = 0; i < 3; i++) g.tick(1 / 60); const start = inScene();
+    const S = T.sites.find(s => s.S.id === 'willow').S; g.car.reset(S.x - 300, S.z, 0); g.car.baseY = w.groundAt(g.car.x, g.car.z).y; for (let i = 0; i < 3; i++) g.tick(1 / 60); const near = inScene();
+    g.car.reset(0, 400, 0); g.car.baseY = 0; for (let i = 0; i < 3; i++) g.tick(1 / 60); const back = inScene();
+    let signTextures = 0; g.scene.traverse(o => { const t = o.material && o.material.map; if (t && t.image && t.image.width === 512 && t.image.height === 192) signTextures++; });
+    const rend = g.renderer, up = T.sites.reduce((n, s) => { let k = 0; s.group.traverse(o => { if (o.isMesh && !o.isInstancedMesh && rend.properties.get(o.geometry).__webglVAOs !== undefined) k++; }); return n + k; }, 0);
+    window.__noRender = false; return { start, near, back, pages: kit.signPages().length, signTextures, uploadedGeometries: up };
+  });
+  check('a place far away is not in the scene, it comes in when you are near, and goes out when you leave', lazy.start.length === 0 && lazy.near.includes('willow') && lazy.back.length === 0, JSON.stringify(lazy));
+  check('every sign board of every place is on one or two pages of one shared texture (not a texture each), and no place keeps buffers on the graphics chip while far away', lazy.pages >= 1 && lazy.pages <= 2 && lazy.signTextures === 0 && lazy.uploadedGeometries === 0, JSON.stringify(lazy));
+
   // Drive along each street (and out of the town's gate): a car should get along the whole street and stay on the asphalt.
   const drive = await P.evaluate(async () => {
     const g = window.__game, w = await import('./src/world.js'), s = await import('./src/settlements.js'), out = [];

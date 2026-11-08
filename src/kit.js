@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { GB, mergeGeoms, quadToward } from './geom.js';
 import { heightAt } from './world.js';
 import { addStaticCollider } from './city.js';
-import { textPanel } from './textures.js';
 import { Q } from './quality.js';
 
 export const CURB = 0.15;
@@ -20,7 +19,7 @@ export const PAL = {
 
 // A site's meshes, collected by material: painted boxes and prisms (prop), steel (metal), dark glass, and lit things (glow).
 export class Kit {
-  constructor(Y) { this.Y = Y; this.p = new GB(true); this.m = new GB(true); this.g = new GB(true); this.e = new GB(true); this.x = []; this.anim = []; this.group = new THREE.Group(); this.parked = []; }
+  constructor(Y) { this.Y = Y; this.p = new GB(true); this.m = new GB(true); this.g = new GB(true); this.e = new GB(true); this.x = []; this.anim = []; this.group = new THREE.Group(); this.parked = []; this.signs = []; }
   box(x0, z0, x1, z1, y0, y1, c, gb = this.p) { gb.box(x0, z0, x1, z1, this.Y + y0, this.Y + y1, 4, c); }
   // A box at the ground's own height under its middle (for things on a slope).
   boxG(x0, z0, x1, z1, y0, y1, c, gb = this.p) { const y = heightAt((x0 + x1) / 2, (z0 + z1) / 2); gb.box(x0, z0, x1, z1, y + y0, y + y1, 4, c); }
@@ -99,21 +98,48 @@ export class Kit {
       }
     }
   }
+  // A sign board at (x, y above the ground, z), turned by `yaw`, w wide and h tall, from a cell of the shared sign texture.
+  sign(x, y, z, yaw, w, h, cell) { this.signs.push({ x, y: this.Y + y, z, yaw, w, h, cell }); }
   finish(mats) {
     const add = (gb, mat, cast = true) => { if (gb.count) { const m = new THREE.Mesh(gb.geometry(), mat); m.castShadow = cast && Q.shadows; m.receiveShadow = Q.shadows; this.group.add(m); } };
     const geos = [...this.x]; if (this.p.count) geos.unshift(this.p.geometry());
     if (geos.length) { const m = new THREE.Mesh(mergeGeoms(geos), mats.prop); m.castShadow = Q.shadows; m.receiveShadow = Q.shadows; this.group.add(m); }
     add(this.m, mats.metal); add(this.g, mats.glass, false); add(this.e, mats.glow, false);
+    for (const page of new Set(this.signs.map(s => s.cell.page))) {                                  // the sign boards: all of a page's in one mesh
+      const pos = [], nor = [], uv = [], idx = [];
+      for (const s of this.signs) { if (s.cell.page !== page) continue; const c = Math.cos(s.yaw), sn = Math.sin(s.yaw), b = pos.length / 3, { u0, u1, v0, v1 } = s.cell;
+        for (const [lx, ly, lu, lv] of [[-1, -1, 0, 0], [1, -1, 1, 0], [1, 1, 1, 1], [-1, 1, 0, 1]]) { pos.push(s.x + lx * s.w / 2 * c, s.y + ly * s.h / 2, s.z - lx * s.w / 2 * sn); nor.push(sn, 0, c); uv.push(u0 + (u1 - u0) * lu, v0 + (v1 - v0) * lv); }
+        idx.push(b, b + 1, b + 2, b, b + 2, b + 3); }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+      this.group.add(new THREE.Mesh(g, page.mat));
+    }
     return this.group;
   }
 }
 export function paint(geo, c) { const a = []; for (let i = 0; i < geo.attributes.position.count; i++) a.push(c.r, c.g, c.b); geo.setAttribute('color', new THREE.Float32BufferAttribute(a, 3)); if (geo.index) geo = geo.toNonIndexed(); if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2)); return geo; }
-export const signTex = (text, sub, bg = '#7a1f1a', fg = '#f4efe2') => textPanel(512, 192, (g, W, H) => {
-  g.fillStyle = bg; g.fillRect(0, 0, W, H); g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(10, 10, W - 20, H - 20);
-  g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '800 70px "Barlow Condensed", Arial, sans-serif'; g.fillText(text, W / 2, sub ? H * 0.4 : H / 2);
-  if (sub) { g.font = '600 34px "Barlow", Arial, sans-serif'; g.fillText(sub, W / 2, H * 0.74); }
-});
-
+// All the sign boards of all the places share a few pages of one texture (cells of 320 x 120, 4 across and 10 down) instead of a texture each: 37 signs
+// were 37 textures and 18 MB of graphics memory, and a tablet short of memory shows a black picture.
+const SIGN = { cw: 320, ch: 120, cols: 4, rows: 10, pages: [] };
+function signPage() {
+  let p = SIGN.pages[SIGN.pages.length - 1];
+  if (!p || p.n >= SIGN.cols * SIGN.rows) {
+    const c = document.createElement('canvas'); c.width = SIGN.cols * SIGN.cw; c.height = SIGN.rows * SIGN.ch;
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    p = { c, g: c.getContext('2d'), tex, mat: new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, side: THREE.DoubleSide }), n: 0 }; SIGN.pages.push(p);
+  }
+  return p;
+}
+export const signPages = () => SIGN.pages;
+// Paint one sign into the next free cell; returns where it is (the page and its UV rectangle).
+export function signCell(text, sub, bg = '#7a1f1a', fg = '#f4efe2') {
+  const p = signPage(), i = p.n++, W = p.c.width, H = p.c.height, { cw, ch, cols } = SIGN, x = (i % cols) * cw, y = Math.floor(i / cols) * ch, g = p.g;
+  g.save(); g.translate(x, y);
+  g.fillStyle = bg; g.fillRect(0, 0, cw, ch); g.strokeStyle = fg; g.lineWidth = 4; g.strokeRect(7, 7, cw - 14, ch - 14);
+  g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '800 ' + Math.round(ch * 0.37) + 'px "Barlow Condensed", Arial, sans-serif'; g.fillText(text, cw / 2, sub ? ch * 0.4 : ch / 2, cw - 24);
+  if (sub) { g.font = '600 ' + Math.round(ch * 0.18) + 'px "Barlow", Arial, sans-serif'; g.fillText(sub, cw / 2, ch * 0.74, cw - 24); }
+  g.restore(); p.tex.needsUpdate = true;
+  return { page: p, u0: x / W, u1: (x + cw) / W, v0: 1 - (y + ch) / H, v1: 1 - y / H };
+}
 
 // Instanced copies of one of the city's plant models (a pine, a cactus, a rock): list = [[x, z, scale, rotation01], ...], put on the ground's height.
 export function planted(city, kit, geoName, matName, list, cast = true) {

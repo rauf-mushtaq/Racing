@@ -7,7 +7,7 @@ import { SITES } from './settlements.js';
 import { addStaticCollider } from './city.js';
 import { mulberry32 } from './util.js';
 import { Q } from './quality.js';
-import { Kit, CURB, WHITE, PAL, signTex } from './kit.js';
+import { Kit, CURB, WHITE, PAL, signCell, signPages } from './kit.js';
 import { BUILDERS as COAST } from './sites-coast.js';
 import { BUILDERS as INLAND } from './sites-inland.js';
 
@@ -24,10 +24,7 @@ export async function initTowns(scene, city, hooks = {}) {
   const sites = [], anim = [];
   const built = new Map();
 
-  function signBoard(kit, text, sub, x, y, z, yaw, w = 6, h = 2.25, bg, fg) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: signTex(text, sub, bg, fg), roughness: 0.6, side: THREE.DoubleSide }));
-    m.position.set(x, kit.Y + y, z); m.rotation.y = yaw; kit.group.add(m);
-  }
+  const signBoard = (kit, text, sub, x, y, z, yaw, w = 6, h = 2.25, bg, fg) => kit.sign(x, y, z, yaw, w, h, signCell(text, sub, bg, fg));
   let n = 0;
   for (const S of SITES) {
     const fn = BUILDERS[S.kind]; if (!fn) continue;
@@ -38,16 +35,26 @@ export async function initTowns(scene, city, hooks = {}) {
     const env = { S, kit, ctx, rnd, city, signBoard: (...a) => signBoard(kit, ...a), mats, anim: kit.anim, scene };
     fn(env);
     const region = city.buildSite(ctx);                                                  // the city's own pieces: houses, lamps, trees, benches, hedges
-    const group = new THREE.Group(); group.add(kit.finish(mats), region.group);
-    root.add(group);
+    const group = new THREE.Group(); group.add(kit.finish(mats), region.group);                       // (not in the scene yet: see update)
     city.sites.push({ parked: ctx.L.parked }); city.version++;
     sites.push({ S, group, region, anim: kit.anim, show: S.show, buildMs: performance.now() - t0 });
   }
+  // The places' materials are compiled now, from tiny hidden stand-ins, so that the first time a place comes into view the graphics chip does not stop to
+  // compile its shaders. (The places themselves are not in the scene until you are near: a place far away must not take graphics memory.)
+  { const tri = new THREE.BufferGeometry(); tri.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0.01, 0, 0, 0, 0.01, 0], 3)); tri.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    tri.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3)); tri.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
+    const warm = new THREE.Group(); warm.visible = false; for (const m of [...Object.values(mats), ...signPages().map(p => p.mat)]) { const o = new THREE.Mesh(tri, m); o.frustumCulled = false; warm.add(o); } scene.add(warm); }
+  const leave = s => {                                                            // out of the scene, and its graphics memory given back (it is uploaded again if you return)
+    root.remove(s.group); s.inScene = false;
+    s.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); else if (o.isMesh && o.geometry) o.geometry.dispose(); });
+  };
   return {
     group: root, sites,
     update(x, z, dt, t) {
       for (const s of sites) {
-        const d = Math.hypot(s.S.x - x, s.S.z - z), vis = d < s.show; s.group.visible = vis;
+        const d = Math.hypot(s.S.x - x, s.S.z - z), vis = d < s.show;
+        if (vis && !s.inScene) { root.add(s.group); s.inScene = true; } else if (!vis && s.inScene && d > s.show * 1.12) leave(s);
+        s.group.visible = vis;
         if (!vis) continue;
         s.region.detail.visible = d < s.show * 0.6; s.region.trees.visible = d < Math.max(Q.treeR, 900) + 400;
         for (const a of s.anim) a(t, dt);
