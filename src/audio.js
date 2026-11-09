@@ -133,6 +133,9 @@ export class AudioEngine {
   }
   gun() { const t = this.ctx && this.ctx.currentTime; if (!t || t - (this.lastGun || 0) < 0.045) return; this.lastGun = t; this.burst(2400, 700, 0.07, 0.3, 'bandpass', 0.8); }
   whoosh() { this.burst(500, 4000, 0.6, 0.3, 'bandpass', 0.6); }
+  // Hand to hand: the air of a swung fist, boot or blade; a blade going in; a bone-and-cloth smack.
+  swish(v = 0.4) { this.burst(1200, 5200, 0.12 + 0.06 * v, 0.1 + 0.2 * v, 'bandpass', 0.9); }
+  slice() { this.burst(3200, 6500, 0.09, 0.2, 'bandpass', 1.4); this.burst(900, 300, 0.06, 0.12, 'lowpass', 1); }
   // The weapons on foot: each a crack through a band-pass plus a low thump (the pistol is silenced: a soft cough instead of a bang).
   shot(key) {
     if (!this.ctx) return; const t = this.ctx.currentTime;

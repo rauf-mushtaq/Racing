@@ -227,6 +227,7 @@ export function animate(B, a) {
   B.elbowL.rotation.x = -eL; B.elbowR.rotation.x = -eR; B.elbowL.rotation.z = 0.06 * w; B.elbowR.rotation.z = -0.06 * w;
   B.wristL.rotation.x = -0.1; B.wristR.rotation.x = -0.1;
   if (wk > 0.001) aimArms(B, W, wk);
+  if (a.melee && !down && Math.abs(air) < 0.5) blowPose(B, a.melee, W && wk > 0.001 ? W : null);
   // In the air: a stride held in the legs, the arms thrown up; falling spreads them.
   if (air) {
     const k = Math.abs(air), up = air < 0 ? 1 : 0.6;
@@ -242,6 +243,65 @@ export function animate(B, a) {
     B.hipJL.rotation.z = lerp(B.hipJL.rotation.z, -0.22, down); B.hipJR.rotation.z = lerp(B.hipJR.rotation.z, 0.26, down);
     B.kneeL.rotation.x = lerp(B.kneeL.rotation.x, 0.5, down); B.kneeR.rotation.x = lerp(B.kneeR.rotation.x, 0.15, down);
   }
+}
+
+// ---- Blows ---------------------------------------------------------------------------------------------------------------------
+// M: { kind: 'jab' | 'cross' | 'kick' | 'slash' | 'stab', k (0..1 through the blow), hit (where in it the blow lands), hand: 'left' | 'right' | null, blade }.
+// A punch winds the fist back, throws it at the end of the arm with the chest turning into it, and brings it home to a guard by the chin; the
+// other fist stays up. A kick lifts the knee, snaps the leg out at the moment of the hit and leans the body back against it. A slash swings the knife
+// across from high on the right; a stab pulls it back to the hip and drives it forward. W (when a weapon is in hand) is told where the palm is.
+const _bp = new THREE.Vector3(), _bo = new THREE.Vector3(), _bpoleS = new THREE.Vector3(), _bpoleO = new THREE.Vector3(), _be = new THREE.Euler(), _bQ = new THREE.Quaternion();
+const ease = x => x * x * (3 - 2 * x), seg = (k, a, b) => clamp((k - a) / (b - a), 0, 1);
+const toward = (v, arr, t) => v.set(lerp(v.x, arr[0], t), lerp(v.y, arr[1], t), lerp(v.z, arr[2], t));
+function armTo(B, side, target, pole, k) {                                            // side 'L' is the character's right arm
+  solveArm(B, side, [side === 'L' ? -J.shoulderX : J.shoulderX, J.shoulderY, 0], 'elbow' + side, target, pole, k);
+  B['wrist' + side].rotation.set(-0.1, 0, 0);
+}
+export function blowPose(B, M, W) {
+  const k = M.k, h = M.hit, env = ease(Math.min(seg(k, 0, 0.1), 1 - seg(k, 0.86, 1)));
+  if (env <= 0.001) return;
+  if (M.kind === 'kick') {
+    const chamber = ease(seg(k, 0, h * 0.82)), snap = ease(seg(k, h * 0.82, h)), back = ease(seg(k, h + 0.1, 0.96));
+    const thigh = (1.15 * chamber + 0.45 * snap) * (1 - back), knee = (1.9 * chamber * (1 - snap) + 0.1 * snap) * (1 - back);
+    const lean = (0.22 * chamber + 0.2 * snap) * (1 - back);
+    B.hipJL.rotation.x = -thigh; B.kneeL.rotation.x = knee; B.ankleL.rotation.x = (thigh - knee) * 0.9; B.hipJL.rotation.z = -0.05 - 0.14 * snap * (1 - back);
+    B.hipJR.rotation.x = 0.06 * env; B.kneeR.rotation.x = 0.28 * env; B.ankleR.rotation.x = -0.2 * env; B.hipJR.rotation.z = 0.02;
+    B.hips.position.y -= 0.05 * env; B.hips.rotation.x -= lean * 0.5; B.torso.rotation.x -= lean * 0.55; B.hips.rotation.y += 0.25 * snap * (1 - back);
+    B.shoulderL.rotation.x = 0.35 * env; B.shoulderR.rotation.x = -0.5 * env;                                    // arms out for balance
+    B.shoulderL.rotation.z = lerp(B.shoulderL.rotation.z, -0.75, env); B.shoulderR.rotation.z = lerp(B.shoulderR.rotation.z, 0.8, env);
+    B.elbowL.rotation.x = lerp(B.elbowL.rotation.x, -0.5, env); B.elbowR.rotation.x = lerp(B.elbowR.rotation.x, -0.6, env);
+    return;
+  }
+  const right = M.hand !== 'left', sk = right ? 'L' : 'R', ok = right ? 'R' : 'L', s = right ? -1 : 1;
+  const guard = [s * 0.1, 0.5, 0.26], oguard = [-s * 0.1, 0.5, 0.26];
+  _bpoleS.set(s * 0.5, -1, -0.15); _bpoleO.set(-s * 0.5, -1, -0.15);
+  _bp.set(guard[0], guard[1], guard[2]);
+  let wind, thrust, back, reach, cock;
+  if (!M.blade) {
+    const cross = M.kind === 'cross';
+    wind = ease(seg(k, 0, h * 0.55)); thrust = ease(seg(k, h * 0.55, h)); back = ease(seg(k, h + 0.1, 0.96));
+    toward(_bp, [s * 0.2, 0.42, 0.04], wind); toward(_bp, [s * 0.05, 0.48, cross ? 0.53 : 0.5], thrust); toward(_bp, guard, back);
+    reach = thrust * (1 - back); cock = wind * (1 - thrust);
+    const tw = (right ? 1 : -1) * (cross ? 0.5 : 0.24);
+    B.torso.rotation.y += tw * (reach - 0.3 * cock) * env; B.hips.rotation.y += tw * 0.45 * (reach - 0.3 * cock) * env; B.torso.rotation.x += 0.1 * reach * env;
+    B['hipJ' + ok].rotation.x += -0.22 * env;                                                              // a step in with the foot on the other side
+    armTo(B, sk, _bp, _bpoleS, env);
+    _bo.set(oguard[0], oguard[1], oguard[2]); _bo.x += -s * 0.04 * Math.sin(k * 6.28); armTo(B, ok, _bo, _bpoleO, env * 0.9);
+    return;
+  }
+  // The knife is in the right hand.
+  const stab = M.kind === 'stab';
+  wind = ease(seg(k, 0, h * 0.62)); thrust = ease(seg(k, h * 0.62, h + 0.05)); back = ease(seg(k, h + 0.12, 0.96));
+  toward(_bp, stab ? [-0.12, 0.4, 0.1] : [-0.3, 0.64, 0.22], wind); toward(_bp, stab ? [-0.05, 0.47, 0.56] : [0.22, 0.3, 0.42], thrust); toward(_bp, guard, back);
+  reach = thrust * (1 - back); cock = wind * (1 - thrust);
+  B.torso.rotation.y += (stab ? 0.18 * (reach - 0.5 * cock) : 0.42 * (reach * 1.2 - 0.8 * cock)) * env; B.torso.rotation.x += 0.12 * reach * env;
+  B.hipJR.rotation.x += -0.2 * env;
+  armTo(B, sk, _bp, _bpoleS, env);
+  if (W) {                                                                                                   // the blade lies along the palm's direction: swept across, or driven straight
+    _be.set(stab ? lerp(-0.5, -0.05, thrust) : lerp(-0.9, 0.1, thrust), stab ? 0 : lerp(-0.75, 0.8, thrust), stab ? 0 : lerp(0.5, -0.4, thrust));
+    W.out.palm.lerp(_bp, env); W.out.q.slerp(_bQ.setFromEuler(_be), env);
+  }
+  _bo.set(-s * 0.16, 0.46, 0.2); armTo(B, ok, _bo, _bpoleO, env * 0.8);
 }
 
 // ---- Sitting at the wheel ------------------------------------------------------------------------------------------

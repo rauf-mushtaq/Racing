@@ -60,7 +60,7 @@ export class Input {
     const map = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'pause', KeyE: 'shiftUp', KeyQ: 'shiftDown', Enter: 'confirm', KeyU: 'mute', KeyM: 'map', Tab: 'map', KeyF: e && e.shiftKey ? 'fullscreen' : 'use' };
     if (map[code]) this.emit(map[code]);
     // The weapons on foot (the game ignores these in the car): R reloads, G throws a grenade, 1 to 4 choose a gun, 0 puts it away.
-    if (code === 'KeyR') this.emit('reload'); else if (code === 'KeyG') this.emit('grenade'); else if (/^Digit[0-4]$/.test(code)) this.emit('weapon', +code.slice(5));
+    if (code === 'KeyR') this.emit('reload'); else if (code === 'KeyG') this.emit('grenade'); else if (code === 'KeyZ' || code === 'KeyB') this.emit('kick'); else if (/^Digit[0-5]$/.test(code)) this.emit('weapon', +code.slice(5));
   }
 
   // --- Touch ----------------------------------------------------------------

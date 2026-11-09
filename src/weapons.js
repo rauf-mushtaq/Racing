@@ -18,8 +18,9 @@ export const WEAPONS = {
   smg:      { name: 'SUBMACHINE GUN',  slot: 2, mag: 30, reserve: 210, rate: 13, dmg: 7.5, pellets: 1, spread: 0.024, kick: 0.22, reload: 1.9, range: 130, cfg: { rx: 0.09, ry: -0.06, rz: 0.30, lx: 0.0, ly: 0.02, lz: 0.17, kick: 0.035 }, hold: 0.6 },
   shotgun:  { name: 'PUMP SHOTGUN',    slot: 3, mag: 6, reserve: 30, rate: 1.15, dmg: 12, pellets: 9, spread: 0.055, kick: 1.0, reload: 2.4, range: 60, cfg: { rx: 0.09, ry: -0.07, rz: 0.28, lx: 0.0, ly: 0.01, lz: 0.19, kick: 0.09 }, hold: 0.6 },
   launcher: { name: 'ROCKET LAUNCHER', slot: 4, mag: 1, reserve: 5, rate: 0.7, dmg: 0, pellets: 0, spread: 0.0, kick: 1.0, reload: 2.6, range: 400, cfg: { launcher: true, rx: 0.14, ry: -0.05, rz: 0.26, lx: -0.02, ly: 0.0, lz: 0.2, kick: 0.12 }, hold: 0.7 },
+  knife:    { name: 'KNIFE', slot: 5, mag: 1, reserve: 0, rate: 2.4, dmg: 26, pellets: 0, spread: 0, kick: 0, reload: 0, range: 1.5, melee: true, cfg: { one: true, rx: 0.02, ry: -0.06, rz: 0.4, lx: 0, ly: 0, lz: 0, kick: 0, lowY: 0.02, lowZ: 0.34 }, hold: 0.5 },
 };
-export const ORDER = ['pistol', 'smg', 'shotgun', 'launcher'];
+export const ORDER = ['pistol', 'smg', 'shotgun', 'launcher', 'knife'];
 const GRENADES = 4;
 
 const steel = new THREE.MeshStandardMaterial({ color: 0x35383f, roughness: 0.36, metalness: 0.92, envMapIntensity: 1.0 });
@@ -105,6 +106,16 @@ function makeLauncher() {
   k.box(0.02, 0.05, 0.09, dark, 0.062, 0.175, 0.12).box(0.03, 0.02, 0.1, dark, 0.062, 0.2, 0.12);   // sight
   k.box(0.13, 0.13, 0.035, poly, 0, 0.1, -0.5, 0, 0, 0, 0.02);                       // shoulder pad
   const g = k.build('launcher'); g.userData.muzzle = new THREE.Vector3(0, 0.1, 0.82); return g;
+}
+function makeKnife() {
+  const k = new Kit();
+  k.box(0.026, 0.03, 0.115, poly, 0, 0, 0.0, 0, 0, 0, 0.01);                       // handle
+  for (let i = 0; i < 4; i++) k.box(0.028, 0.032, 0.006, dark, 0, 0, -0.04 + i * 0.026);   // grip bands
+  k.box(0.044, 0.014, 0.012, steel, 0, 0, 0.066);                                   // guard
+  k.box(0.007, 0.036, 0.15, chrome, 0, 0.004, 0.147, 0, 0, 0, 0.002);                // blade
+  k.add(new THREE.ConeGeometry(0.0185, 0.07, 3).rotateX(Math.PI / 2).scale(0.19, 1, 1).translate(0, 0.004, 0.255), chrome, 0, 0, 0);      // the point
+  k.box(0.0068, 0.006, 0.12, steel, 0, 0.0215, 0.15);                               // the spine
+  const g = k.build('knife'); g.userData.muzzle = new THREE.Vector3(0, 0.004, 0.29); return g;
 }
 function makeGrenade() {
   const k = new Kit();
@@ -209,9 +220,10 @@ export class Arsenal {
   // env: { scene, fx (the particle system), police, traffic, city, peds, audio, camera, hud (toast), crime (kind), walker }
   constructor(env) {
     this.env = env; const { scene } = env;
-    this.models = { pistol: makePistol(), smg: makeSMG(), shotgun: makeShotgun(), launcher: makeLauncher() };
+    this.models = { pistol: makePistol(), smg: makeSMG(), shotgun: makeShotgun(), launcher: makeLauncher(), knife: makeKnife() };
     this.holder = new THREE.Group(); this.holder.visible = false; scene.add(this.holder);
     for (const k of ORDER) { this.models[k].visible = false; this.holder.add(this.models[k]); }
+    this.models.knife.scale.setScalar(1.15);
     // Rockets and grenades in flight.
     this.rocketMeshes = []; this.grenadeMeshes = [];
     for (let i = 0; i < 4; i++) { const r = new THREE.Group(); r.add(new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.7, 12).rotateX(Math.PI / 2), olive)); r.add(new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.16, 12).rotateX(Math.PI / 2).translate(0, 0, 0.43), redM));
@@ -322,7 +334,8 @@ export class Arsenal {
     const drawn = this.cur >= 0 && this.swapT <= 0 && active && walker.down < 0.3;
     this.draw = lerp(this.draw, drawn ? 1 : 0, 1 - Math.exp(-dt * (drawn ? 9 : 14)));
     if (!drawn && this.draw < 0.02) this.draw = 0;
-    const wantAim = (a.aim || this.aimToggle) && drawn && !a.sprint;
+    const kk0 = this.key, isMelee = !!(kk0 && WEAPONS[kk0].melee);
+    const wantAim = (a.aim || this.aimToggle) && drawn && !a.sprint && !isMelee;
     this.aimK += ((wantAim ? 1 : 0) - this.aimK) * Math.min(1, dt * 11);
     this.bootT = Math.max(0, this.bootT - dt); if (active) this.pickups.update(dt, walker, k => this.take(k));
     this.fireT -= dt; this.lastFire += dt; this.recoil = Math.max(0, this.recoil - dt * 7); this.hitT = Math.max(0, this.hitT - dt); this.fresh = Math.max(0, this.fresh - dt);
@@ -341,11 +354,13 @@ export class Arsenal {
     const k = this.key; if (k) W.cfg = WEAPONS[k].cfg;
     const yaw = hd > 0.5 ? Math.atan2(dx, dz) : walker.h;
     W.pitch = clamp(Math.atan2(dy, Math.max(hd, 2)), -0.85, 0.85); W.twist = wrapAngle(yaw - walker.h);
-    walker.faceYaw = (this.aimK > 0.5 || this.lastFire < 1.6) && this.draw > 0.5 ? yaw : null;
+    walker.faceYaw = !isMelee && (this.aimK > 0.5 || this.lastFire < 1.6) && this.draw > 0.5 ? yaw : null;
     // Firing.
-    if (a.fire && this.cur < 0 && this.swapT <= 0 && active && walker.down < 0.3 && !a.sprint) this.select2(this.last ?? 0);      // pulling the trigger with nothing in hand draws the last gun
+    // Nothing in hand: the trigger button throws a punch (the melee, melee.js). A knife in hand: it slashes and stabs.
+    if (a.fire && this.cur < 0 && this.swapT <= 0 && active && walker.down < 0.3 && !a.sprint && this.env.melee) this.env.melee.attack('fist');
     const firing = !!a.fire && drawn && this.draw > 0.85 && !a.sprint;
-    if (firing && this.key) {
+    if (firing && isMelee) { if (this.env.melee) this.env.melee.attack('knife'); }
+    else if (firing && this.key) {
       const w = WEAPONS[this.key], ammo = this.ammo[this.key];
       if (this.reloadT <= 0 && this.fireT <= 0) {
         if (ammo.mag > 0) { this.shoot(w, walker); ammo.mag--; this.fireT = 1 / w.rate; if (ammo.mag === 0) this.reload(); }
@@ -473,6 +488,6 @@ export class Arsenal {
   // What the HUD shows.
   get hud() {
     const k = this.key, a = k ? this.ammo[k] : null;
-    return { key: k, name: k ? WEAPONS[k].name : null, mag: a ? a.mag : 0, reserve: a ? a.reserve : 0, reloading: this.reloadT > 0, reload: this.reloadT > 0 ? 1 - this.reloadT / this.reloadTotal : 0, drawn: this.drawn, aim: this.aimK, hit: this.hitT > 0, gren: this.gren, slots: ORDER.map((n, i) => ({ n: WEAPONS[n].name, i: i + 1, cur: i === this.cur, empty: this.ammo[n].mag + this.ammo[n].reserve === 0 })), kind: this.aimKind, spread: 1 };
+    return { key: k, name: k ? WEAPONS[k].name : null, mag: a ? a.mag : 0, reserve: a ? a.reserve : 0, reloading: this.reloadT > 0, reload: this.reloadT > 0 ? 1 - this.reloadT / this.reloadTotal : 0, melee: !!(k && WEAPONS[k].melee), drawn: this.drawn && !(k && WEAPONS[k].melee), aim: this.aimK, hit: this.hitT > 0, gren: this.gren, slots: ORDER.map((n, i) => ({ n: WEAPONS[n].name, i: i + 1, cur: i === this.cur, empty: this.ammo[n].mag + this.ammo[n].reserve === 0 })), kind: this.aimKind, spread: 1 };
   }
 }

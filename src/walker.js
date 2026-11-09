@@ -4,13 +4,16 @@
 import * as THREE from 'three';
 import { animate, buildRig, PERSON_H } from './person.js';
 import { makeSmoothFigure } from './figure.js';
-import { loadPerson, personKey, COPS } from './people.js';
+import { loadPerson, personKey, COPS, PEDS } from './people.js';
 import { Mocap } from './mocap.js';
 import { groundAt, isWater, coastX, WORLD_LIM } from './world.js';
 import { pushFromWater } from './rivercourse.js';
 import { queryColliders, EDGE } from './city.js';
 import { clamp, damp, lerp, wrapAngle } from './util.js';
 
+// Everything that is seen from inside a building (camera layer 1) is also on the default layer: the character, the guns and the sparks are the same
+// objects in the street and in a shop; the city is on layer 0 only and the rooms on layer 1 only (see interior.js).
+export const lay1 = o => { o.traverse(c => c.layers.enable(1)); return o; };
 export const SPEED = { walk: 1.9, jog: 3.9, sprint: 6.7, crouch: 1.45 };
 const RAD = 0.34, GRAV = 15, JUMP = 5.0;
 const found = [], _fp = new THREE.Vector3();
@@ -35,27 +38,32 @@ export class Walker {
     this.kind = 'asphalt'; this.px = 0; this.pz = 0; this.onStep = null; this.person = null;
     this.noClip = false;                                              // (true while an officer vaults an obstacle)
     this.arms = null; this.faceYaw = null; this.placeWeapon = null;      // (a weapon in hand: see weapons.js)
+    this.melee = null; this.meleeYaw = null; this.mw = 0;               // (a blow being thrown: see melee.js)
+    this.hands = 0;                                                      // (0..1: hands up, for someone being held up)
+    this.interior = null;                                                // inside a building (interior.js): its own floor, walls and ceiling instead of the city's
+    lay1(this.mesh); lay1(this.blob);
     this.setOutfit(outfit);
   }
   get bodyY() { return this.y + 0.9; }
+  gnd(x, z) { return this.interior ? this.interior.ground(x, z) : groundAt(x, z); }
   worldVel() { return [this.vx, this.vz]; }
   // The character: one of the real people (people.js). The stick figure animates; until the real model has loaded (or if it cannot be loaded)
   // the smooth made-up figure stands in.
   attachPerson(p) {
     if (this.person && this.person !== p) { this.rig.root.remove(this.person.root); if (!this.lite) for (const k in this.person.mats) { const m = this.person.mats[k]; for (const t of [m.map, m.normalMap, m.roughnessMap]) t && t.dispose(); } }
-    this.person = p; this.rig.root.add(p.root);
+    this.person = p; this.rig.root.add(p.root); lay1(p.root);
     for (const m of this.rig.meshes) m.visible = false;
     this.pose(0);
   }
   async setOutfit(key) {
-    key = this.lite && COPS[key] ? key : personKey(key); if (this.person && this.person.key === key) return; this.want = key;
+    key = this.lite && (COPS[key] || PEDS[key]) ? key : personKey(key); if (this.person && this.person.key === key) return; this.want = key;
     try { const p = await loadPerson(key); if (this.want === key) this.attachPerson(p); } catch (e) { console.warn('character model not loaded', e); }
   }
 
   // Stand somewhere, facing a way.
   place(x, z, h) {
     this.x = this.px = x; this.z = this.pz = z; this.h = h; this.vx = this.vz = this.vy = 0; this.speed = 0; this.crouch = 0; this.crouching = false; this.down = 0; this.downT = 0;
-    this.y = groundAt(x, z).y; this.grounded = true; this.air = 0; this.phase = 0;
+    this.y = this.gnd(x, z).y; this.grounded = true; this.air = 0; this.phase = 0;
     this.show(true); this.pose(0);
   }
   show(v) { this.active = v; this.mesh.visible = v; this.blob.visible = v; }
@@ -76,11 +84,11 @@ export class Walker {
     let mx = knocked ? 0 : f.mx, my = knocked ? 0 : f.my; const mag = Math.min(1, Math.hypot(mx, my));
     // Crouch toggles on while held.
     this.crouching = !!f.crouch && !knocked; this.crouch = damp(this.crouch, this.crouching ? 1 : 0, 10, dt);
-    const armed = !!this.arms && this.arms.draw > 0.5, aiming = armed && this.faceYaw != null;      // (with a gun up you face where it points, and you cannot sprint)
-    const sprint = !!f.sprint && !this.crouching && mag > 0.1 && !aiming;
+    const armed = !!this.arms && this.arms.draw > 0.5, aiming = armed && this.faceYaw != null, striking = !!this.melee && this.meleeYaw != null && !aiming;      // (with a gun up you face where it points, and you cannot sprint)
+    const sprint = !!f.sprint && !this.crouching && mag > 0.1 && !aiming && !striking;
     // The speed asked for: an analogue stick walks gently and runs fully; the keyboard is a jog; Shift sprints.
     let want = sprint ? SPEED.sprint : this.crouching ? SPEED.crouch : lerp(SPEED.walk, SPEED.jog, clamp((mag - 0.35) / 0.55, 0, 1));
-    want *= mag > 0.05 ? Math.min(1, mag * 1.6) : 0; if (aiming) want = Math.min(want, this.crouching ? SPEED.crouch : SPEED.walk * 1.1);
+    want *= mag > 0.05 ? Math.min(1, mag * 1.6) : 0; if (striking) want *= this.melee.kind === 'kick' ? 0.2 : 0.4; if (aiming) want = Math.min(want, this.crouching ? SPEED.crouch : SPEED.walk * 1.1);
     const sn = Math.sin(camYaw), cs = Math.cos(camYaw);
     let dx = sn * my - cs * mx, dz = cs * my + sn * mx;                  // forward is (sin, cos); right is (-cos, sin)
     const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
@@ -90,7 +98,7 @@ export class Walker {
     else { const k = Math.exp(-3.2 * dt); this.vx *= k; this.vz *= k; }
     // Face the way we are going.
     const sp = Math.hypot(this.vx, this.vz);
-    if (aiming && !knocked) { const d = wrapAngle(this.faceYaw - this.h); this.h += d * Math.min(1, dt * 13); this.turn = damp(this.turn, clamp(d * 0.8, -1, 1), 8, dt); }
+    if ((aiming || striking) && !knocked) { const d = wrapAngle((aiming ? this.faceYaw : this.meleeYaw) - this.h); this.h += d * Math.min(1, dt * (aiming ? 13 : 18)); this.turn = damp(this.turn, clamp(d * 0.8, -1, 1), 8, dt); }
     else if (sp > 0.4 && !knocked) { const target = Math.atan2(this.vx, this.vz), d = wrapAngle(target - this.h); this.h += d * Math.min(1, dt * (sprint ? 9 : 12)); this.turn = damp(this.turn, clamp(d * 1.2, -1, 1), 8, dt); }
     else this.turn = damp(this.turn, 0, 8, dt);
     // Jump.
@@ -101,7 +109,7 @@ export class Walker {
     for (let i = 0; i < n; i++) { this.x += this.vx * dt / n; this.z += this.vz * dt / n; if (!this.noClip) this.collide(obstacles); }
     this.speed = Math.hypot((this.x - this.px) / dt, (this.z - this.pz) / dt) || 0; if (this.speed < 0.05) this.speed = 0;
     // Vertical: step onto kerbs, fall off ledges, land.
-    const gy = groundAt(this.x, this.z);
+    const gy = this.gnd(this.x, this.z);
     this.kind = gy.kind || (gy.grass ? 'grass' : 'asphalt');
     if (this.grounded) {
       const dy = gy.y - this.y; this.y = Math.abs(dy) < 0.5 ? this.y + dy * Math.min(1, dt * 22) : gy.y;
@@ -123,13 +131,15 @@ export class Walker {
 
   pose(dt) {
     const B = this.rig, armed = this.arms && this.arms.draw > 0.001;
-    animate(B, { phase: this.phase, speed: this.speed, run: this.run, crouch: this.crouch, air: this.air, t: this.t, turn: this.turn, down: this.down, look: this.look, weapon: armed ? this.arms : null });
+    animate(B, { phase: this.phase, speed: this.speed, run: this.run, crouch: this.crouch, air: this.air, t: this.t, turn: this.turn, down: this.down, look: this.look, weapon: armed ? this.arms : null, melee: this.melee, hands: this.hands });
     if (this.person) {
       const lnch = armed && this.arms.cfg.launcher;                                                  // (a pistol grip has a trigger finger lying along the guard; a launcher's grip is fully closed)
-      this.person.grip('R', armed ? 1 : 0, armed && !lnch ? 0.38 : 1); this.person.grip('L', armed && !this.arms.cfg.one ? 1 : 0);
+      const fist = this.melee && !this.melee.blade && this.melee.kind !== 'kick' ? this.mw : 0;
+      this.person.grip('R', Math.max(armed ? 1 : 0, fist), armed && !lnch ? 0.38 : 1); this.person.grip('L', Math.max(armed && !this.arms.cfg.one ? 1 : 0, fist));
       // Recorded walking, running and standing; the stick skeleton takes over the legs when crouching, in the air or knocked down, and the arms and spine with a gun up.
       const air = Math.abs(this.air), wk = armed ? this.arms.draw * (1 - air * 0.85) * (1 - this.down) : 0;
-      const pLegs = clamp(this.crouch * 1.3 + air * 1.3 + this.down * 3, 0, 1), pUpper = clamp(wk + air * 1.3 + this.down * 3 + this.crouch * 0.9, 0, 1);
+      this.mw = damp(this.mw, this.melee ? 1 : 0, this.melee ? 22 : 12, dt || 1 / 60); const kick = this.melee && this.melee.kind === 'kick' ? this.mw : 0;
+      const pLegs = clamp(this.crouch * 1.3 + air * 1.3 + this.down * 3 + kick, 0, 1), pUpper = clamp(wk + air * 1.3 + this.down * 3 + this.crouch * 0.9 + this.mw + this.hands * 1.5, 0, 1);
       this.person.poseMocap(B, { speed: this.vs || 0, phase: this.phase / (Math.PI * 2), t: this.t, pLegs, pUpper });
       this.person.updateFace(dt);
     }
@@ -138,17 +148,18 @@ export class Walker {
     // Feet on a slope or a kerb: if either ankle would sink into the ground, the whole body is lifted by that much (smoothed).
     if (this.person && this.grounded && this.down < 0.1 && dt > 0) {
       this.mesh.updateMatrixWorld(true); let lift = 0;
-      for (const n of ['Bip01_L_Foot', 'Bip01_R_Foot']) { this.person.worldPos(n, _fp); lift = Math.max(lift, groundAt(_fp.x, _fp.z).y + this.person.ankleH - 0.025 - _fp.y); }
+      for (const n of ['Bip01_L_Foot', 'Bip01_R_Foot']) { this.person.worldPos(n, _fp); lift = Math.max(lift, this.gnd(_fp.x, _fp.z).y + this.person.ankleH - 0.025 - _fp.y); }
       this.footLift = damp(this.footLift || 0, clamp(lift, 0, 0.35), lift > (this.footLift || 0) ? 28 : 7, dt);
       this.mesh.position.y += this.footLift;
     } else this.footLift = damp(this.footLift || 0, 0, 10, dt || 1 / 60);
     if (armed && this.placeWeapon) { this.mesh.updateMatrixWorld(true); this.placeWeapon(this); }      // the gun goes where the hand is
-    this.blob.position.set(this.x, this.y + 0.04, this.z); this.blob.scale.setScalar(1 + this.down * 1.2); this.blob.material.opacity = this.grounded ? 1 : clamp(1 - (this.y - groundAt(this.x, this.z).y) * 0.5, 0.3, 1);
+    this.blob.position.set(this.x, this.y + 0.04, this.z); this.blob.scale.setScalar(1 + this.down * 1.2); this.blob.material.opacity = this.grounded ? 1 : clamp(1 - (this.y - this.gnd(this.x, this.z).y) * 0.5, 0.3, 1);
   }
 
   // Push out of buildings, poles, trees, cars and the sea.
   collide(obstacles) {
-    queryColliders(this.x, this.z, RAD + 1.2, found);
+    if (this.interior) { this.interior.solids(this.x, this.z, RAD + 1.2, found); }
+    else queryColliders(this.x, this.z, RAD + 1.2, found);
     for (const c of found) {
       if (c.type === 'box') {
         const qx = clamp(this.x, c.x0, c.x1), qz = clamp(this.z, c.z0, c.z1); let dx = this.x - qx, dz = this.z - qz, d = Math.hypot(dx, dz);
@@ -164,6 +175,7 @@ export class Walker {
       const list = obstacles(this.x, this.z);
       for (const o of list) { const dx = this.x - o.x, dz = this.z - o.z, d = Math.hypot(dx, dz), r = RAD + o.r; if (d >= r || d < 1e-5) continue; this.x += dx / d * (r - d); this.z += dz / d * (r - d); }
     }
+    if (this.interior) { this.interior.keepIn(this, RAD); return; }
     pushFromWater(this, 0.7);                                               // the river is a wall (the bridges are fine)
     // The sea, steep slopes and the edge of the world.
     if (Math.abs(this.x) > EDGE - 40 || Math.abs(this.z) > EDGE - 40) {
@@ -200,14 +212,15 @@ export class FootCamera {
     let k = 1;
     for (let i = 0; i <= 8; i++) {                                          // walk out along the line, stopping short of anything solid
       const t = i / 8, px = _t.x + (bx + rx) * t, pz = _t.z + (bz + rz) * t, py = _t.y + sp * dist * t;
-      queryColliders(px, pz, 0.7, found);
-      let hit = false;
+      if (w.interior) w.interior.solids(px, pz, 0.7, found); else queryColliders(px, pz, 0.7, found);
+      let hit = w.interior ? !w.interior.inside(px, pz, 0.25) || py > w.interior.ceil() - 0.2 : false;
       for (const c of found) { if (c.type === 'box' && px > c.x0 - 0.35 && px < c.x1 + 0.35 && pz > c.z0 - 0.35 && pz < c.z1 + 0.35) hit = true; else if (c.type === 'circ' && Math.hypot(px - c.x, pz - c.z) < c.r + 0.2 && c.r > 0.9) hit = true; }
-      if (hit || py < groundAt(px, pz).y + 0.25) { k = Math.max(0.12, (i - 1) / 8); break; }
+      if (hit || py < w.gnd(px, pz).y + 0.25) { k = Math.max(w.interior ? 0.07 : 0.12, (i - 1) / 8); break; }
     }
     this.cur = this.init ? damp(this.cur, k, k < this.cur ? 18 : 3, dt) : k; this.init = true;
     const c = this.cur;
-    _p.set(_t.x + (bx + rx) * c, Math.max(_t.y + sp * dist * c, groundAt(_t.x + (bx + rx) * c, _t.z + (bz + rz) * c).y + 0.3), _t.z + (bz + rz) * c);
+    _p.set(_t.x + (bx + rx) * c, Math.max(_t.y + sp * dist * c, w.gnd(_t.x + (bx + rx) * c, _t.z + (bz + rz) * c).y + 0.3), _t.z + (bz + rz) * c);
+    if (w.interior) { _p.y = Math.min(_p.y, w.interior.ceil() - 0.25); const b = w.interior.room.bounds; _p.x = clamp(_p.x, b.x0 + 0.25, b.x1 - 0.25); _p.z = clamp(_p.z, b.z0 + 0.25, b.z1 - 0.25); }
     camera.position.copy(_p);
     // Look at the character's shoulders, a bit ahead of where they are going.
     let lx = _t.x + sn * 0.0 + (rx * -0.5) + Math.sin(this.yaw) * 2.2, ly = w.y + 1.28 - crouchK - Math.sin(this.pitch) * 0.2 + w.down * -0.8, lz = _t.z + (rz * -0.5) + Math.cos(this.yaw) * 2.2;
