@@ -4,10 +4,10 @@
 //    in the water, the roads are really cut away where the water is, roundabout paths are smooth and keep clear of the island, landmarks are there
 import { check, open, step, finish } from './lib.mjs';
 import { RIVER, BRIDGES, LAKES, riverSdf, bridgeAt, deckY } from '../src/rivercourse.js';
-import { SP, N, hw, blockRect, LANDMARKS, SIGNATURE } from '../src/grid.js';
+import { SP, N, hw, blockRect, LANDMARKS, SIGNATURE, isPark, landmarkAt, signatureAt, isLakeBlock } from '../src/grid.js';
 import { plaza as isPlaza, heightBL, nodeH, steepest, HILLS } from '../src/hills.js';
 import { isRound, RB } from '../src/junctions.js';
-import { AVENUES, roadSdf, wideSdf, lotPieces, polyArea } from '../src/avenues.js';
+import { AVENUES, roadSdf, wideSdf, lotPieces, polyArea, nearestAvenue } from '../src/avenues.js';
 
 try {
   console.log('the course');
@@ -53,6 +53,26 @@ try {
     check('and none is steeper than one in seven', steep < 0.14, (steep * 100).toFixed(1) + '%');
     const lot = { x0: -380, z0: 950, x1: -340, z1: 990 }, res = lotPieces(lot), hit = !!res, pieces = res ? res.pieces : [];
     check('a lot the roads run through is cut into pieces clear of every road and its pavements (here the diagonal and the Old Town\'s outer ring both cross it)', pieces.length >= 1 && pieces.some(p => polyArea(p) > 100) && pieces.every(p => p.every(([x, z]) => wideSdf(x, z) > -0.8)), JSON.stringify({ hit, n: pieces.length, areas: pieces.map(p => Math.round(polyArea(p))) }));
+  }
+  console.log('squares: plain blocks that no road but the grid touches');
+  {                                                              // (before the crescents there were 307 of them, 23 within 900 m of where you start; they must be 28% fewer)
+    const BEFORE = { all: 307, near: 23 }, START = [6, 480]; let all = 0, near = 0, ordinary = 0, rows = [];
+    for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) {
+      if (isPark(i, j) || isPlaza(i, j) || landmarkAt(i, j) || signatureAt(i, j) || isLakeBlock(i, j)) continue; ordinary++;
+      const b = blockRect(i, j); let hit = false;
+      for (let x = b.x0; x <= b.x1 && !hit; x += 10) for (let z = b.z0; z <= b.z1; z += 10) { const r = nearestAvenue(x, z); if (r && r.d < r.a.W + 2) { hit = true; break; } }
+      if (hit) continue; all++; if (Math.hypot((b.x0 + b.x1) / 2 - START[0], (b.z0 + b.z1) / 2 - START[1]) < 900) near++;
+    }
+    check(`at least 28% fewer plain square blocks across the city (was ${BEFORE.all}, now ${all} of ${ordinary})`, all <= Math.floor(BEFORE.all * 0.72), `${all} > ${Math.floor(BEFORE.all * 0.72)}`);
+    check(`and at least 28% fewer within 900 m of where you start (was ${BEFORE.near}, now ${near})`, near <= Math.floor(BEFORE.near * 0.72), `${near} > ${Math.floor(BEFORE.near * 0.72)}`);
+    { let plain = 0, nearPlain = 0;                          // (the strict count: a block counts as broken only if a road runs through the middle of it, not just along an edge)
+      for (let i = -N; i < N; i++) for (let j = -N; j < N; j++) {
+        if (isPark(i, j) || isPlaza(i, j) || landmarkAt(i, j) || signatureAt(i, j) || isLakeBlock(i, j)) continue;
+        const b = blockRect(i, j); if (AVENUES.some(A => { for (let k = 0; k < A.n; k++) if (A.x[k] > b.x0 + 12 && A.x[k] < b.x1 - 12 && A.z[k] > b.z0 + 12 && A.z[k] < b.z1 - 12) return true; return false; })) continue;
+        plain++; if (Math.hypot((b.x0 + b.x1) / 2 - START[0], (b.z0 + b.z1) / 2 - START[1]) < 900) nearPlain++;
+      }
+      check(`counting only blocks a road really runs through, still at least 28% fewer (310 before, now ${plain}; near the start 25 before, now ${nearPlain})`, plain <= Math.floor(310 * 0.72) && nearPlain <= Math.floor(25 * 0.72), `${plain} / ${nearPlain}`); }
+    check('the new crescents are all there and none is a stub', ['c-north', 'c-grand', 'c-compass', 'c-east', 'c-merid', 'c-stad', 'c-west', 'c-circle', 'c-plaza', 'c-river', 'c-orchard'].every(id => AVENUES.some(a => a.id === id && a.length > 400)));
   }
   console.log('in the game');
   const A = await open({ w: 800, h: 450 }), P = A.page;
@@ -189,6 +209,8 @@ try {
   const bk = await P.evaluate(() => { const g = window.__game, B = g.buskers, live = B.pool.filter(p => p.spot); return { spots: B.constructor === Object ? 0 : (live.length ? live.map(p => p.spot.style + ':' + p.spot.watchers.length) : []), pool: B.pool.length, notes: window.__notes, visible: live.every(p => p.rig.root.visible) }; });
   const nSpots = await P.evaluate(async () => (await import('./src/buskers.js')).SPOTS.length);
   check('there are street performers all over the city', nSpots >= 30, 'spots ' + nSpots);
+  { const onRoad = await P.evaluate(async () => { const { SPOTS } = await import('./src/buskers.js'), { wideSdf } = await import('./src/avenues.js'); return SPOTS.filter(q => wideSdf(q.x, q.z) < 0.5).map(q => q.name + ' ' + Math.round(q.x) + ',' + Math.round(q.z)); });
+    check('no street performer stands on a road or its pavement, including the roads that cut across the grid', onRoad.length === 0, onRoad.join(' | ')); }
   check('the nearest performers appear (as real people) when you are close, with an audience, and play music', bk.pool > 0 && bk.spots.length > 0 && bk.visible && bk.spots.some(s => +s.split(':')[1] >= 2) && bk.notes > 5, JSON.stringify(bk));
   // streaming: a region built a sliver of time at a time is the same as one built all at once, and nothing of a half-built one is left behind
   const stm = await P.evaluate(async () => {

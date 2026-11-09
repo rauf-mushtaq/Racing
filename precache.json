@@ -48,6 +48,7 @@
   "src/audio.js",
   "src/avenues.js",
   "src/bench.js",
+  "src/bigmap.js",
   "src/breakables.js",
   "src/bridges.js",
   "src/buskers.js",

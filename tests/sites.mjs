@@ -76,15 +76,14 @@ try {
     window.__noRender = false; return out;
   });
   check('a car drives straight down the main street of every town, harbour, village, resort and gulch without hitting anything', drive.length >= 5 && drive.every(d => d.reached > Math.min(110, d.len * 0.5) && d.off === 0), JSON.stringify(drive));
-  console.log('the big map');
+  console.log('the map\'s land');
   const mp = await P.evaluate(async () => {
-    const g = window.__game, h = g.hud, cv = document.getElementById('bigmap-c'); h.worldLayer = null; const t0 = performance.now(); h.drawBigMap(cv, g.car, null, null, []); const ms = performance.now() - t0;
-    const ctx = cv.getContext('2d'), px = (wx, wz) => { const s = h.bigScale, x = Math.round((wx - h.bigC[0]) * s + cv.width / 2), y = Math.round((wz - h.bigC[1]) * s + cv.height / 2); return Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3)); };
-    const s = await import('./src/settlements.js'); let edges = 0, n = 0;                          // a smooth coast: along the shore a pixel is rarely far from its neighbours' colour
-    return { ms: Math.round(ms), sea: px(-4250, 2400), grass: px(-600, 4600), desert: px(5300, -900), snow: px(1200, -5600), city: px(-1500, 400), site: px(s.SITES[0].x, s.SITES[0].z - 0), grid: h.mg && h.mg.done };
+    const g = window.__game, h = g.hud, w = await import('./src/world.js'); const t0 = performance.now(); const L = h.terrainLayer(1000); const ms = performance.now() - t0;
+    const ctx = L.getContext('2d'), px = (wx, wz) => { const x = Math.round((wx - w.WORLD.x0) / (w.WORLD.x1 - w.WORLD.x0) * L.width), y = Math.round((wz - w.WORLD.z0) / (w.WORLD.z1 - w.WORLD.z0) * L.height); return Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3)); };
+    return { ms: Math.round(ms), w: L.width, h: L.height, sea: px(-4250, 2400), grass: px(-600, 4600), desert: px(5300, -900), snow: px(1200, -5600) };
   });
   const near = (c, t, d) => c.every((v, i) => Math.abs(v - t[i]) <= d);
-  check('the big map draws in under 2.5 s the first time and has the sea, the grass, the desert and the snow in their own colours', mp.ms < 2500 && near(mp.sea, [63, 127, 166], 14) && near(mp.grass, [150, 176, 104], 40) && near(mp.desert, [218, 182, 124], 40) && mp.snow.every(v => v > 190), JSON.stringify(mp));
+  check('the map\'s land is made in under 2.5 s and has the sea, the grass, the desert and the snow in their own colours', mp.ms < 2500 && near(mp.sea, [61, 126, 166], 14) && near(mp.grass, [150, 176, 104], 40) && near(mp.desert, [218, 182, 124], 40) && mp.snow.every(v => v > 190), JSON.stringify(mp));
   check('no script errors', A.logs.length === 0, A.logs.slice(0, 3).join(' | '));
 } catch (e) {
   check('site tests ran to the end', false, e.stack || String(e));

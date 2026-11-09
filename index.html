@@ -113,7 +113,35 @@
   #bench.hidden { display: none; }
   #bench button { font: 800 13px Barlow, sans-serif; letter-spacing: 2px; color: #fff; background: #c0392b; border: 0; border-radius: 999px; padding: 7px 14px; cursor: pointer; }
   #fps { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: 12px; font: 600 13px Barlow, monospace; opacity: 0.8; text-shadow: 0 1px 3px #000; white-space: pre; text-align: right; }
-  #bigmap-c { height: min(80vh, 118vw); width: auto; aspect-ratio: 1100 / 1400; border-radius: 10px; display: block; cursor: crosshair; touch-action: manipulation; }
+  /* ---------- The big map ---------- */
+  #bigmap { display: block; background: #3d7ea6; backdrop-filter: none; -webkit-backdrop-filter: none; user-select: none; -webkit-user-select: none; }
+  #bigmap-c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  #bigmap-c:active { cursor: grabbing; }
+  #bm-top { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); display: flex; gap: 8px; align-items: center; pointer-events: none; }
+  #bm-top > * { pointer-events: auto; }
+  #bm-title { font-family: 'Barlow Condensed', sans-serif; font-style: italic; font-weight: 900; font-size: 26px; letter-spacing: 1px; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.55); margin-right: 6px; pointer-events: none; }
+  .bmb { font: 800 14px Barlow, sans-serif; letter-spacing: 1.5px; color: #1f2a3f; background: rgba(255,255,255,.92); border: 0; border-radius: 12px; min-width: 46px; height: 46px; padding: 0 14px; box-shadow: 0 2px 10px rgba(0,0,0,.28); cursor: pointer; touch-action: manipulation; }
+  .bmb.on { background: var(--accent); color: #1a0c06; }
+  .bmb:active { transform: scale(.96); }
+  #bm-side { position: absolute; right: max(12px, env(safe-area-inset-right)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; }
+  #bm-side .bmb { font-size: 24px; padding: 0; width: 50px; height: 50px; line-height: 1; }
+  #bm-hint { position: absolute; left: 50%; bottom: max(10px, env(safe-area-inset-bottom)); transform: translateX(-50%); font: 700 12px Barlow, sans-serif; letter-spacing: 1.5px; color: #1f2a3f; background: rgba(255,255,255,.85); border-radius: 999px; padding: 6px 14px; pointer-events: none; white-space: nowrap; }
+  #bm-chips { position: absolute; left: max(12px, env(safe-area-inset-left)); top: calc(max(12px, env(safe-area-inset-top)) + 58px); width: min(250px, 70vw); max-height: calc(100% - 140px); overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: rgba(255,255,255,.95); border-radius: 14px; padding: 8px; box-shadow: 0 4px 18px rgba(0,0,0,.3); display: flex; flex-direction: column; gap: 3px; }
+  #bm-chips .grp { font: 800 11px Barlow, sans-serif; letter-spacing: 2px; color: #7a8399; padding: 8px 8px 3px; text-transform: uppercase; }
+  #bm-chips button { text-align: left; font: 700 15px Barlow, sans-serif; color: #1f2a3f; background: transparent; border: 0; border-radius: 9px; padding: 11px 10px; cursor: pointer; touch-action: manipulation; }
+  #bm-chips button:hover, #bm-chips button:active { background: #ffe3d0; }
+  #bm-pop { position: absolute; width: min(270px, 80vw); background: rgba(255,255,255,.97); color: #1f2a3f; border-radius: 14px; padding: 14px 14px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.38); text-align: left; }
+  #bm-pop-x { position: absolute; right: 6px; top: 4px; border: 0; background: none; font-size: 22px; line-height: 1; color: #7a8399; width: 34px; height: 34px; cursor: pointer; }
+  #bm-pop-name { font: 900 21px 'Barlow Condensed', sans-serif; font-style: italic; letter-spacing: .5px; padding-right: 28px; }
+  #bm-pop-sub { font: 600 13px Barlow, sans-serif; color: #5a647c; margin: 2px 0 10px; }
+  #bm-pop .row { display: flex; gap: 6px; }
+  #bm-pop button.act { flex: 1; font: 800 13px Barlow, sans-serif; letter-spacing: 1px; border: 0; border-radius: 10px; padding: 12px 6px; cursor: pointer; background: #e8ebf2; color: #1f2a3f; touch-action: manipulation; }
+  #bm-pop button.act#bm-tp { background: #2b5db3; color: #fff; }
+  #bm-pop button.act#bm-tp.arm { background: var(--accent); color: #1a0c06; }
+  #bm-pop button.act:disabled { opacity: .4; cursor: not-allowed; }
+  #bm-pop-why { font: 600 12px Barlow, sans-serif; color: #a33; margin-top: 6px; }
+  #bm-pop-why:empty { display: none; }
   #title-card { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-weight: 700; font-size: 14px; letter-spacing: 3px; opacity: 0.6; text-transform: uppercase; }
 
   /* ---------- Touch controls ---------- */
@@ -325,10 +353,22 @@
 </div>
 
 <div id="bigmap" class="overlay hidden">
-  <div class="box" style="padding:14px">
-    <canvas id="bigmap-c" width="1100" height="1400"></canvas>
-    <div class="hint" style="margin:8px 0 0">Click the map to set a waypoint · <button class="ghost" id="bm-clear" style="margin:0 0 0 8px;padding:5px 12px">Clear waypoint</button> <button class="ghost" id="bm-close" style="margin:0 0 0 4px;padding:5px 12px">Close (Tab)</button></div>
+  <canvas id="bigmap-c" width="1100" height="800"></canvas>
+  <div id="bm-top">
+    <span id="bm-title">MAP</span>
+    <button class="bmb" id="bm-city">CITY</button><button class="bmb" id="bm-world">WORLD</button><button class="bmb" id="bm-me">ME</button><button class="bmb" id="bm-places">PLACES</button>
+    <span style="flex:1"></span>
+    <button class="bmb" id="bm-clear">CLEAR WAYPOINT</button><button class="bmb" id="bm-close">CLOSE</button>
   </div>
+  <div id="bm-chips" class="hidden"></div>
+  <div id="bm-side"><button class="bmb" id="bm-in" aria-label="Zoom in">+</button><button class="bmb" id="bm-out" aria-label="Zoom out">&minus;</button></div>
+  <div id="bm-pop" class="hidden">
+    <button id="bm-pop-x" aria-label="Close">&times;</button>
+    <div id="bm-pop-name"></div><div id="bm-pop-sub"></div>
+    <div class="row"><button class="act" id="bm-wp">SET WAYPOINT</button><button class="act" id="bm-tp">TELEPORT HERE</button></div>
+    <div id="bm-pop-why"></div>
+  </div>
+  <div id="bm-hint">DRAG TO MOVE · PINCH TO ZOOM · TAP A SPOT</div>
 </div>
 
 <div id="pause" class="overlay hidden">

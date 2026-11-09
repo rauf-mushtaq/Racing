@@ -47,12 +47,20 @@ const CURVES = [
 ].map(([id, name, [cx, cz], r, a0, a1, hw, sw, kind = 'diag']) => ({ id, name, kind, hw, sw, pts: densify(clearOfNodes(densify(arc(cx, cz, r, a0, a1)), kind === 'hill' ? 62 : hw + 28)) }));
 // The old town's lanes: seven narrow streets running out from the cathedral square between the rings.
 const LANES = [0.784, 1.307, 1.831, 2.354, 2.878, 3.402, 3.925].map((a, k) => ({ id: 'lane' + k, name: 'Old Town Lane ' + (k + 1), kind: 'diag', hw: 3.6, sw: 3, pts: densify(clearOfNodes(densify(spoke(OLD[0], OLD[1], a, 150, 430)), 34)) }));
+// Crescents and sweeps through the districts that were still plain grid (found by searching: tests/map.mjs counts the plain blocks left). Each is a stretch of a circle
+// that keeps clear of the river, the lakes, the skyscraper blocks, the landmarks, the plazas, the parks and the steep ground, and ends on a street.
+const CRESCENTS = [
+  ['c-north', 'Northgate Crescent', [-300, -800], 800, 0.89, 2.294, 6.5, 4], ['c-grand', 'Grand Crescent', [0, -1200], 700, 2.397, 6.146, 6.5, 4], ['c-compass', 'Compass Ring', [200, -1300], 350, 0.034, 5.528, 5.5, 3.5],
+  ['c-east', 'Eastbank Curve', [1000, -700], 800, 0, 1.739, 6.5, 4], ['c-merid', 'Meridian Sweep', [-600, -400], 550, 1.462, 4.887, 6, 3.5], ['c-stad', 'Stadium Sweep', [1500, 1400], 650, 0.259, 2.901, 6.5, 4],
+  ['c-west', 'Westfield Sweep', [-1300, 1300], 800, 0.315, 3.644, 6, 3.5], ['c-circle', 'Sunset Circle', [0, 550], 150, 0, 6.283, 5.5, 3.5], ['c-plaza', 'Plaza Crescent', [200, 100], 500, 4.748, 5.684, 6.5, 4], ['c-river', 'Riverside Sweep', [700, -200], 750, 4.221, 6.283, 6.5, 4],
+].map(([id, name, [cx, cz], r, a0, a1, hw, sw]) => ({ id, name, kind: 'diag', hw, sw, pts: densify(clearOfNodes(densify(arc(cx, cz, r, a0, a1)), 40)) }));
+CRESCENTS.push({ id: 'c-orchard', name: 'Orchard Diagonal', kind: 'diag', hw: 8, sw: 4, pts: densify([[-715, 995], [178, 1888]]) });       // (a straight one at 45 degrees, half way between junctions like the two big diagonals)
 export const AVENUES = [
   { id: 'grand', name: 'Grand Diagonal', kind: 'diag', hw: 11, sw: 5, pts: densify([[-2160, -810], [810, 2160]]) },
   { id: 'cross', name: 'Cross Diagonal', kind: 'diag', hw: 11, sw: 5, pts: densify([[2160, -450], [450, 1260]]) },
   { id: 'skyline', name: 'Skyline Drive', kind: 'hill', hw: 5.4, sw: 2.4, pts: densify(clearOfNodes(densify(spiral(-1450, -1350, [-1260, -990], 120, 1.12, 1)))) },
   { id: 'mesa', name: 'Mesa Drive', kind: 'hill', hw: 5.4, sw: 2.4, pts: densify(clearOfNodes(densify(spiral(1500, 1250, [1260, 990], 110, 1.1, -1)))) },
-  ...CURVES, ...LANES,
+  ...CURVES, ...LANES, ...CRESCENTS,
 ];
 for (const A of AVENUES) {
   const n = A.pts.length; A.n = n; A.x = new Float32Array(n); A.z = new Float32Array(n); A.s = new Float32Array(n); A.tx = new Float32Array(n); A.tz = new Float32Array(n);

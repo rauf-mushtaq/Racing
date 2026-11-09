@@ -13,7 +13,10 @@ import { Q, GPU } from './quality.js';
 import { WIND } from './props.js';
 import { buildSky, placeSun, SUN_DIR, LIGHT_DIR, applyHDRI } from './sky.js';
 import { City, SP, N, EDGE, laneOffset, queryColliders, signalState, breakProp, WETNESS } from './city.js';
-import { groundAt, ROADS, BUNKERS, AIRFIELD } from './world.js';
+import { groundAt, ROADS, BUNKERS, AIRFIELD, WORLD_LIM, isWater } from './world.js';
+import { inWater } from './rivercourse.js';
+import { nearestAvenue } from './avenues.js';
+import { BigMap } from './bigmap.js';
 import { buildTerrain } from './terrain.js';
 import { initRoads } from './roads.js';
 import { initScatter } from './scatter.js';
@@ -223,7 +226,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, towns, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
+let bigmap = null, heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, towns, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -290,6 +293,10 @@ async function build() {
   police.officers = officers; setTimeout(() => officers.prepare(), 12000);
   heli = new Heli({ scene, police, audio, hud: { toast: (t, s) => hud.toast(t, s) }, fx: police.fx, camera, boom: (x, z, p) => police.onBoom && police.onBoom(x, z, p), target: () => (game.onFoot ? walker : car), traffic }); police.heli = heli; arsenal.env.heli = heli;
   hud = new HUD();
+  bigmap = new BigMap(hud, {
+    focus: mapFocus, route: () => game.route, waypoint: () => game.waypoint, found: () => settings.found || [], canTeleport: teleportWhy, teleport: teleportTo,
+    setWaypoint: p => { game.waypoint = p; if (!p) hud.nav(null); else hud.toast('WAYPOINT SET', 1.2); },
+  });
   car.reset(START.x, START.z, START.h);
   traffic.setDensity(trafficLevel(), car);
   applyAids();
@@ -644,22 +651,77 @@ function respawnOnRoad() {
 // Input events
 // ---------------------------------------------------------------------------
 function toggleMap() {
-  if (game.state === 'map') { setState(game.prev); return; }
+  if (game.state === 'map') { bigmap.close(); setState(game.prev); return; }
   if (!['free', 'race', 'countdown'].includes(game.state)) return;
-  game.prev = game.state; setState('map'); drawBigMap();
+  game.prev = game.state; setState('map'); bigmap.open();
 }
 const _mf = { x: 0, z: 0, h: 0 };
 function mapFocus() { if (!game.onFoot) return car; _mf.x = walker.x; _mf.z = walker.z; _mf.h = footCam.yaw; return _mf; }
-function drawBigMap() { const m = mapFocus(); hud.drawBigMap($('bigmap-c'), m, game.route, game.waypoint, settings.found); }
 input.on('map', toggleMap);
 $('map-btn').addEventListener('click', e => { e.stopPropagation(); toggleMap(); });
 $('bm-close').addEventListener('click', toggleMap);
-$('bm-clear').addEventListener('click', () => { game.waypoint = null; drawBigMap(); hud.nav(null); });
-$('bigmap-c').addEventListener('click', e => {
-  const r = e.currentTarget.getBoundingClientRect(), k = e.currentTarget.width / r.width;
-  game.waypoint = hud.bigToWorld((e.clientX - r.left) * k, (e.clientY - r.top) * k);
-  drawBigMap(); hud.toast('WAYPOINT SET', 1.4);
-});
+
+// --- Teleporting from the big map ---------------------------------------------------------------------------------------------------
+// Where the map was tapped becomes a spot in a lane of the nearest road (the city's streets and winding roads, the motorways and the streets of the
+// towns), facing along it the way you were already facing. Out in open country, with no road near, you land where you tapped. Water is refused.
+const teleportWhy = () => (bench.on ? 'NOT DURING THE PERFORMANCE TEST' : game.chaseOn ? 'NOT DURING A POLICE CHASE' : game.prev !== 'free' || game.route ? 'NOT DURING A RACE' : null);
+function spotClear(x, z) {
+  if (isWater(x, z) || inWater(x, z, 3)) return false;
+  if (Math.abs(x) < EDGE + 40 && Math.abs(z) < EDGE + 40) { const ni = Math.round(x / SP), nj = Math.round(z / SP); if (isRound(ni, nj) && Math.hypot(x - ni * SP, z - nj * SP) < 32) return false; }
+  queryColliders(x, z, 3, tmpQ);
+  return !tmpQ.some(o => o.type === 'box' ? (x > o.x0 - 1.4 && x < o.x1 + 1.4 && z > o.z0 - 1.4 && z < o.z1 + 1.4) : Math.hypot(x - o.x, z - o.z) < o.r + 2);
+}
+function avenueSpot(A, s, sgn) {                                       // the lane spot on avenue A at arc length s, travelling in direction sgn
+  s = clamp(s, 0, A.length); let i = 0; while (i < A.n - 2 && A.s[i + 1] < s) i++;
+  const t = clamp((s - A.s[i]) / ((A.s[i + 1] - A.s[i]) || 1), 0, 1), tx = A.tx[i] * sgn, tz = A.tz[i] * sgn, h = Math.atan2(tx, tz), off = A.hw * 0.5;
+  return { x: A.x[i] + (A.x[i + 1] - A.x[i]) * t - Math.cos(h) * off, z: A.z[i] + (A.z[i + 1] - A.z[i]) * t + Math.sin(h) * off, h };
+}
+// Candidates, nearest first, then the first with room for a car; null if the tap is on water or nothing near has room.
+function snapToRoad(x, z) {
+  const hint = car.h, fx = Math.sin(hint), fz = Math.cos(hint), out = [];
+  if (isWater(x, z) || inWater(x, z, 0)) return null;                      // (the tap itself, before it is pulled inside the world's edge)
+  const lim = WORLD_LIM; x = clamp(x, lim.x0, lim.x1); z = clamp(z, lim.z0, lim.z1);
+  const inCity = Math.abs(x) < EDGE + 20 && Math.abs(z) < EDGE + 20;
+  if (inCity) {
+    x = clamp(x, -EDGE, EDGE); z = clamp(z, -EDGE, EDGE);
+    const av = nearestAvenue(x, z);
+    if (av && av.d < av.a.W + 16) {
+      const A = av.a, s0 = A.s[av.i] + av.t * ((A.s[av.i + 1] - A.s[av.i]) || 0), sgn = (A.tx[av.i] * fx + A.tz[av.i] * fz) >= 0 ? 1 : -1;
+      for (let k = 0; k <= 36; k++) for (const e of k ? [1, -1] : [1]) out.push(avenueSpot(A, s0 + e * k * 12, sgn));
+    } else {
+      const kx = clamp(Math.round(x / SP), -N, N), kz = clamp(Math.round(z / SP), -N, N), alongZ = Math.abs(x - kx * SP) <= Math.abs(z - kz * SP);
+      for (let k = 0; k <= 36; k++) for (const e of k ? [1, -1] : [1]) {
+        if (alongZ) { const d = Math.cos(hint) >= 0 ? 1 : -1; out.push({ x: kx * SP - d * laneOffset(kx, 1), z: clamp(z + e * k * 12, -EDGE, EDGE), h: d > 0 ? 0 : Math.PI }); }
+        else { const d = Math.sin(hint) >= 0 ? 1 : -1; out.push({ x: clamp(x + e * k * 12, -EDGE, EDGE), z: kz * SP + d * laneOffset(kz, 1), h: d > 0 ? Math.PI / 2 : -Math.PI / 2 }); }
+      }
+    }
+  } else {
+    let br = null, bi = 0, bd = 1e18;
+    for (const R of ROADS) { if (R.kind === 'runway') continue; for (let i = 0; i < R.x.length - 1; i++) { const d = (R.x[i] - x) ** 2 + (R.z[i] - z) ** 2; if (d < bd) { bd = d; br = R; bi = i; } } }
+    if (br && bd < 220 * 220) {
+      const sgn = ((br.x[bi + 1] - br.x[bi]) * fx + (br.z[bi + 1] - br.z[bi]) * fz) >= 0 ? 1 : -1, off = br.kind === 'motorway' ? 5.6 : 1.6;
+      for (let k = 0; k <= 36; k++) for (const e of k ? [1, -1] : [1]) {
+        const i = clamp(bi + e * k * 2, 0, br.x.length - 2), tx = (br.x[i + 1] - br.x[i]) * sgn, tz = (br.z[i + 1] - br.z[i]) * sgn, h = Math.atan2(tx, tz);
+        out.push({ x: br.x[i] - Math.cos(h) * off, z: br.z[i] + Math.sin(h) * off, h });
+      }
+    } else out.push({ x, z, h: hint });                                      // open country: where you tapped
+  }
+  for (const c of out) { if (Math.abs(c.x) < EDGE + 40 && Math.abs(c.z) < EDGE + 40) city.loadNow(c.x, c.z, 0); if (spotClear(c.x, c.z)) return c; }
+  return null;
+}
+function teleportTo(x, z) {
+  const why = teleportWhy(); if (why) { hud.toast(why, 1.8); return null; }
+  const spot = snapToRoad(x, z); if (!spot) { hud.toast('NO ROOM THERE: TRY ANOTHER SPOT', 2); return null; }
+  bigmap.close(); game.head = null;
+  resetCar(spot.x, spot.z, spot.h);
+  if (Math.abs(spot.x) < EDGE + 120 && Math.abs(spot.z) < EDGE + 120) city.loadNow(spot.x, spot.z, 1);
+  terrain.loadNow(spot.x, spot.z, 1); if (grass) grass.now(spot.x, spot.z); resetCar(spot.x, spot.z, spot.h);           // (the ground is there now: the car sits on it)
+  if (game.onFoot) { const sp = exitSpot() || { x: spot.x + 2.4, z: spot.z }; walker.place(sp.x, sp.z, spot.h); footCam.reset(spot.h); }
+  traffic.setDensity(trafficLevel(), car); for (const c of traffic.cars) traffic.spawn(c, car, 40, 500, true);
+  guard.pause(8); beginBlend(0.5); setState('free'); audio.beep(660, 0.12);
+  const name = bigmap.sel ? bigmap.sel.name : 'the spot'; hud.toast('TELEPORTED: ' + name.toUpperCase(), 2.2);
+  return { x: spot.x, z: spot.z, name };
+}
 function toggleFullscreen() {
   try { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen(); } catch (e) { /* not allowed here */ }
 }
@@ -1200,4 +1262,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-if (DEBUG) window.__game = { bench, startBench, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get towns() { return towns; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+if (DEBUG) window.__game = { bench, startBench, get bigmap() { return bigmap; }, toggleMap, teleportTo, snapToRoad, spotClear, teleportWhy, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get towns() { return towns; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
