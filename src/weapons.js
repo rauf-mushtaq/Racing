@@ -212,7 +212,7 @@ class Pickups {
 
 // ---- The arsenal ------------------------------------------------------------------------------------------------------------------
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _aim = new THREE.Vector3(), _mz = new THREE.Vector3(), _dir = new THREE.Vector3(), _q = new THREE.Quaternion();
-const HIT = { none: 0, wall: 1, ground: 2, cop: 3, car: 4, parked: 5, officer: 6, heli: 7 };
+const HIT = { none: 0, wall: 1, ground: 2, cop: 3, car: 4, parked: 5, officer: 6, heli: 7, actor: 8 };
 const hitOut = { t: 0, type: 0, ref: null }, officerOut = { t: 0, type: 0, ref: null };
 const BOOT_COOLDOWN = 90;
 
@@ -280,6 +280,12 @@ export class Arsenal {
   // The first thing along a ray: a building, the ground, a police car, a car in the traffic, or a parked car.
   trace(ox, oy, oz, dx, dy, dz, maxD, out = hitOut, skipOfficers = false) {
     const { police, traffic, city } = this.env; let best = maxD, type = HIT.none, ref = null;
+    const room = this.env.interior;                                       // inside a building: its own walls, and the people in it (see interior.js, heist.js)
+    if (room) {
+      const r = room.trace(ox, oy, oz, dx, dy, dz, maxD); best = r.t; type = r.type === 2 ? HIT.ground : r.type === 1 ? HIT.wall : HIT.none;
+      const ha = this.env.heist && this.env.heist.rayActors(ox, oy, oz, dx, dy, dz, best); if (ha) { best = ha.t; type = HIT.actor; ref = ha.ref; }
+      out.t = best; out.type = type; out.ref = ref; out.y = oy + dy * best; return out;
+    }
     const hl = Math.hypot(dx, dz);
     if (hl > 1e-4) { const th = raycastStatic(ox, oz, dx / hl, dz / hl, maxD * hl), t = th / hl; if (t < best) { best = t; type = HIT.wall; } }
     // The ground: march, then refine.
@@ -429,9 +435,10 @@ export class Arsenal {
       if (killed) { hud.toast(head ? 'HEADSHOT: OFFICER DOWN' : 'OFFICER DOWN', 1.3); this.env.heat(0.3); }
     }
     else if (r.type === HIT.heli) { r.ref.damage(w.dmg * fall); spark(3); this.hitT = 0.15; this.env.heat(0.01); }
+    else if (r.type === HIT.actor) { const a = r.ref; a.hit(w.dmg * fall * 1.6, { dir: { x: d.x, z: d.z }, head: !!a.walker && r.y - a.y > 1.5, gun: true }); spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = 0.2; }
     else if (r.type === HIT.parked) { spark(2); this.env.audio.clang(3); this.marks.add(ex, ey, ez, -d.x, -d.y, -d.z, 0.1); }
     else if (r.type === HIT.wall) {
-      const n = wallNormal(ex, ez, d.x, d.z, this.nrm), glassy = ey > 2.4 && ey < 60; spark(glassy ? 4 : 2); fx.puff(ex, ey, ez, 0, 0.4, 0, 0.35, 0.8, glassy ? 0.7 : 0.5, 0.3, 1.2);
+      const n = this.env.interior ? this.nrm.set(-d.x, 0, -d.z) : wallNormal(ex, ez, d.x, d.z, this.nrm), glassy = ey > 2.4 && ey < 60; spark(glassy ? 4 : 2); fx.puff(ex, ey, ez, 0, 0.4, 0, 0.35, 0.8, glassy ? 0.7 : 0.5, 0.3, 1.2);
       this.marks.add(ex, ey, ez, n.x, 0, n.z, glassy ? 0.1 : 0.14, glassy);
       if (glassy && w.pellets < 2) for (let s = 0; s < 3; s++) fx.spark(ex, ey, ez, n.x * 2 + (Math.random() - 0.5) * 3, -1 - Math.random() * 2, n.z * 2 + (Math.random() - 0.5) * 3, 0.9);       // (glass falling)
     }

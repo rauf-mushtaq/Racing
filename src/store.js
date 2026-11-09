@@ -25,6 +25,8 @@ const defaults = {
   bests: {},
   found: [],            // secret places you've discovered (shown on the map)
   wheel: null,          // learned steering wheel / pedal mapping
+  cash: 0,              // money from robberies that got away (see heist.js)
+  heists: 0,            // how many places have been robbed
   chaseBest: null,      // fastest escape from the police, in seconds
   benchLast: null,      // the last performance test (see bench.js): { when, fps, low, quality, text }
 };

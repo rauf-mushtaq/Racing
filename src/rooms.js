@@ -45,7 +45,7 @@ export const PLANS = {
     fridge(R, -4.4, -0.2, 6.35, 0.6, rnd); R.slab('prop', 3.6, 4.7, 4.4, 6.9, 0, 1.0, C(0x5a4636), C(0xe8e2d6));  // coffee and hot food
     R.box('emit', 3.7, 4.9, 4.3, 5.2, 1.0, 1.25, C(0xff7a30).multiplyScalar(1.6));
     ceilLights(R, [-2.3, 2.3], [2, 5]); R.light(-2.3, 2.7, 3.2, 1); R.light(2.3, 2.7, 3.2, 1); R.light(0, 2.7, 6, 0.8); R.light(2.5, 2.7, 1, 0.6);
-    R.spot('clerk', 2.8, 3.2, 0); R.spot('customer', -2.1, 4.2, 0, { aisle: true });
+    R.spot('clerk', 2.8, 3.2, Math.PI); R.spot('customer', -2.1, 4.2, 0, { aisle: true });
   },
   // ---- 2. Convenience store: aisles, a counter, a back room with a safe ---------------------------------------------------------------------------------
   shop(R, v, rnd) {
@@ -60,7 +60,7 @@ export const PLANS = {
     R.box('metal', 4.7, 8.1, 5.6, 8.9, 0, 0.9, C(0x2b2e33), true); R.box('emit', 5.0, 8.05, 5.3, 8.1, 0.55, 0.65, C(0xff3a2a).multiplyScalar(2));
     R.item({ id: 'safe', type: 'safe', x: 5.15, z: 7.7, y: 0.6, r: 1.6, label: 'CRACK THE SAFE', dur: 7, value: 1800 + Math.round(rnd() * 1500), loud: false, obj: null });
     ceilLights(R, [-3, 0, 3], [2.4, 5.2, 7.6]); R.light(-3, 2.9, 3, 1); R.light(3, 2.9, 3, 1); R.light(-3, 2.9, 7, 0.9); R.light(3, 2.9, 7.5, 0.5);
-    R.spot('clerk', 4.6, 3.3, 0); R.spot('customer', -3.7, 4.6, 0, { aisle: true }); R.spot('customer', -0.9, 3.4, 0, { aisle: true });
+    R.spot('clerk', 4.6, 3.3, Math.PI); R.spot('customer', -3.7, 4.6, 0, { aisle: true }); R.spot('customer', -0.9, 3.4, 0, { aisle: true });
   },
   // ---- 3. Jeweller: glass cases, an owner, an armed guard, two cameras -----------------------------------------------------------------------------------
   jeweller(R, v, rnd) {
@@ -82,7 +82,7 @@ export const PLANS = {
     for (const x of [-3, 3]) R.drum('prop', x, 0.9, 0.12, 0, 1.0, C(0xc9a24a), true, 8);                                  // stanchions at the door
     for (const [x, z] of [[-4.6, 0.7], [4.6, 0.7]]) R.cams.push({ x: R.ox + x, y: R.oy + 3.2, z: R.oz + z, yaw: x < 0 ? 0.6 : -0.6, sweep: 0.7, range: 11, fov: 0.55 });
     ceilLights(R, [-2.6, 2.6], [2.2, 5.2], 1.6, 0.3, 2.6); R.light(-2.5, 3.0, 2.5, 1); R.light(2.5, 3.0, 2.5, 1); R.light(-2.5, 3.0, 6.4, 1); R.light(2.5, 3.0, 6.4, 1);
-    R.spot('owner', 0, 8.6, 0); R.spot('guard', 3.3, 1.9, -0.6, { armed: true, post: true }); R.spot('customer', -1, 5.2, 0);
+    R.spot('owner', 0, 8.6, Math.PI); R.spot('guard', 3.3, 1.9, Math.PI, { armed: true, post: true }); R.spot('customer', -1, 5.2, 0);
   },
   // ---- 4. Bank: tellers behind glass, two armed guards, a manager with a key card, and a vault ----------------------------------------------------------
   bank(R, v, rnd) {
@@ -114,8 +114,8 @@ export const PLANS = {
     R.box('emit', 3.95, 9.95, 8.45, 10.0, 3.3, 3.5, C(0xff3a2a).multiplyScalar(1.4));
     for (const [x, z] of [[-8, 0.7], [8, 0.7], [0, 13.4]]) R.cams.push({ x: R.ox + x, y: R.oy + 4.3, z: R.oz + z, yaw: z > 5 ? Math.PI : x < 0 ? 0.55 : -0.55, sweep: 0.8, range: 15, fov: 0.6 });
     ceilLights(R, [-6, 0, 6], [2, 5, 8.4, 12], 1.8, 0.3, 2.4); R.light(-5, 4.0, 3, 1.1); R.light(5, 4.0, 3, 1.1); R.light(-5, 4.0, 10, 0.9); R.light(5, 4.0, 11.5, 0.8);
-    R.spot('teller', -5, 8.1, 0); R.spot('teller', 0, 8.1, 0); R.spot('teller', 5, 8.1, 0); R.spot('manager', -6.6, 10.6, 0, { key: true });
-    R.spot('guard', -3.6, 1.9, 0, { armed: true, post: true }); R.spot('guard', 6.0, 4.4, 3.1, { armed: true, post: true }); R.spot('customer', -1.5, 3.0, 0); R.spot('customer', 3.2, 4.2, 0);
+    R.spot('teller', -5, 8.1, Math.PI); R.spot('teller', 0, 8.1, Math.PI); R.spot('teller', 5, 8.1, Math.PI); R.spot('manager', -6.6, 10.6, Math.PI, { key: true });
+    R.spot('guard', -3.6, 1.9, Math.PI, { armed: true, post: true }); R.spot('guard', 6.0, 4.4, 3.1, { armed: true, post: true }); R.spot('customer', -1.5, 3.0, 0); R.spot('customer', 3.2, 4.2, 0);
   },
   // ---- 5. Museum: a grand hall, four treasures, laser beams, cameras, patrolling guards, and a security room ------------------------------------------------
   museum(R, v, rnd) {

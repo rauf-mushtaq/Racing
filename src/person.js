@@ -228,6 +228,12 @@ export function animate(B, a) {
   B.wristL.rotation.x = -0.1; B.wristR.rotation.x = -0.1;
   if (wk > 0.001) aimArms(B, W, wk);
   if (a.melee && !down && Math.abs(air) < 0.5) blowPose(B, a.melee, W && wk > 0.001 ? W : null);
+  if (a.hands > 0.001 && !down) {                                                                              // hands up (someone being held up)
+    const h = a.hands;
+    B.shoulderL.rotation.x = lerp(B.shoulderL.rotation.x, -2.65, h); B.shoulderR.rotation.x = lerp(B.shoulderR.rotation.x, -2.65, h);
+    B.shoulderL.rotation.z = lerp(B.shoulderL.rotation.z, -0.28, h); B.shoulderR.rotation.z = lerp(B.shoulderR.rotation.z, 0.28, h);
+    B.elbowL.rotation.x = lerp(B.elbowL.rotation.x, -0.5, h); B.elbowR.rotation.x = lerp(B.elbowR.rotation.x, -0.5, h);
+  }
   // In the air: a stride held in the legs, the arms thrown up; falling spreads them.
   if (air) {
     const k = Math.abs(air), up = air < 0 ? 1 : 0.6;

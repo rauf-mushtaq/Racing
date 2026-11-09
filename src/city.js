@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import * as T from './textures.js';
 import { mulberry32, clamp, hash3 } from './util.js';
+import { buildVenue, venueKindFor, addVenue } from './venues.js';
 import { GB, rectPoly, chamferRect, roundedRect, circlePoly, scalePoly, offsetPoly, mergeGeoms, ccw, quadToward, tube } from './geom.js';
 import { makeProps } from './props.js';
 import { TOD } from './tod.js';
@@ -613,7 +614,10 @@ export class City {
       if (iz1 - lot.z1 < 0.5) faces.push({ dir: [0, 1], line: j + 1, axis: 'z' });
       const onBlvd = faces.some(f => isBlvd(f.line)), hz = hash3(Math.round(lot.x0), Math.round(lot.z0), 61);
       const civic = faces.length && !houseBlock && lot.x1 - lot.x0 > 22 && lot.z1 - lot.z0 > 22 ? (zone === 'down' || zone === 'mid' ? (hz < 0.02 ? 'bank' : hz < 0.04 ? 'hotel' : hz < 0.055 ? 'cinema' : null) : zone === 'low' && hz < 0.012 ? 'bank' : null) : null;
+      const vk = !civic && !houseBlock ? venueKindFor(zone, lot, faces) : null;
       if (civic) this.civic(ctx, lot, faces, zone, civic, rnd);
+      else if (vk === 'museum') this.civic(ctx, lot, faces, zone, 'museum', rnd);
+      else if (vk) buildVenue(this, ctx, lot, faces, zone, vk, rnd);
       else if (!houseBlock && zone !== 'sub' && !faces.length === false && hz > 0.97 && lot.x1 - lot.x0 > 26) this.construction(ctx, lot, faces, rnd);
       else if (houseBlock && !onBlvd) this.addHouse(ctx, lot, faces, rnd);
       else if (!faces.length && (zone === 'low' || zone === 'sub') && rnd() < 0.4) this.parkingLot(ctx, lot, rnd);
@@ -805,8 +809,9 @@ export class City {
     const f = faces[0], g = 1.0 + rnd() * 1.4, b = { x0: lot.x0 + g, z0: lot.z0 + g, x1: lot.x1 - g, z1: lot.z1 - g }, G = ctx.gb;
     for (const ff of faces) { if (ff.dir[0] < 0) b.x0 = lot.x0 + 0.3; if (ff.dir[0] > 0) b.x1 = lot.x1 - 0.3; if (ff.dir[1] < 0) b.z0 = lot.z0 + 0.3; if (ff.dir[1] > 0) b.z1 = lot.z1 - 0.3; }
     const stone = new THREE.Color(0.86, 0.82, 0.74), dark = new THREE.Color(0.16, 0.12, 0.09), gold = new THREE.Color(0.85, 0.65, 0.2), along = f.dir[0] !== 0 ? b.z1 - b.z0 : b.x1 - b.x0;
-    if (kind === 'bank') {
-      this.buildMass(ctx, b, 'modern', 20 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: stone });
+    if (kind === 'bank' || kind === 'museum') {
+      this.buildMass(ctx, b, 'modern', kind === 'museum' ? 17 : 20 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: kind === 'museum' ? new THREE.Color(0.9, 0.86, 0.78) : stone });
+      { const [vx, vz] = this.facePt(b, f, 0, 4.4); addVenue({ kind, x: vx, z: vz, dx: f.dir[0], dz: f.dir[1] }); }
       const W = Math.min(along - 6, 20), n = 6, step = W / (n - 1);
       this.faceBox(G.props, b, f, -W / 2 - 1.2, W / 2 + 1.2, 0, 3.4, CURB, CURB + 0.5, stone); this.faceBox(G.props, b, f, -W / 2 - 0.6, W / 2 + 0.6, 0, 2.6, CURB + 0.5, CURB + 1.0, stone);     // steps
       for (let k = 0; k < n; k++) { const [cx, cz] = this.facePt(b, f, -W / 2 + k * step, 1.7); G.props.extrude(circlePoly(cx, cz, 0.55, 10), CURB + 1.0, CURB + 10.2, 4, 4, stone, 0, true); G.props.cap(circlePoly(cx, cz, 0.55, 10), CURB + 10.2, 4, stone); addCollider({ type: 'circ', x: cx, z: cz, r: 0.6 }, ctx.colliders); }
@@ -815,7 +820,7 @@ export class City {
       const ridge = f.dir[0] !== 0 ? [[(x0 + x1) / 2, z1], [(x0 + x1) / 2, z1], [(x0 + x1) / 2, z0], [(x0 + x1) / 2, z0]] : [[x0, (z0 + z1) / 2], [x0, (z0 + z1) / 2], [x1, (z0 + z1) / 2], [x1, (z0 + z1) / 2]];
       G.roof.loft([[x0, z1], [x1, z1], [x1, z0], [x0, z0]], CURB + 12.2, ridge, CURB + 14.6, 5, new THREE.Color(0.8, 0.76, 0.7));                                                   // the pediment
       this.faceBox(G.props, b, f, -1.3, 1.3, -0.02, 0.4, CURB + 1.0, CURB + 5.6, dark);                                                                                               // the doors
-      this.faceSign(ctx, b, f, 0, 0, 2.52, CURB + 10.3, Math.min(8, W * 0.5), 1.75);
+      this.faceSign(ctx, b, f, kind === 'museum' ? 7 : 0, 0, 2.52, CURB + 10.3, Math.min(8, W * 0.5), 1.75);
       const [kx, kz] = this.facePt(b, f, W / 2 + 3.2, 1.0); const kb = { x0: kx - 0.55, x1: kx + 0.55, z0: kz - 0.55, z1: kz + 0.55 };                                                    // a cash machine on the pavement, with its queue marker
       G.props.box(kb.x0, kb.z0, kb.x1, kb.z1, CURB, CURB + 2.2, 3, new THREE.Color(0.25, 0.27, 0.3)); this.faceSign(ctx, { x0: kb.x0 + 0.55, x1: kb.x0 + 0.55, z0: kb.z0 + 0.55, z1: kb.z0 + 0.55 }, f, 3, 0, 0.58, CURB + 1.5, 0.9, 0.45);
       addCollider({ type: 'box', ...kb }, ctx.colliders);
@@ -1214,7 +1219,7 @@ export class City {
   }
 
   signUV(ctx, special = -1) {
-    const n = special >= 0 ? 28 + special : ctx.signN++ % 28, cc = n % 4, rr = (n / 4) | 0;               // (the last four cells are the bank, hotel, cinema and cash-machine signs)
+    const n = special >= 4 ? 20 + special : special >= 0 ? 28 + special : ctx.signN++ % 24, cc = n % 4, rr = (n / 4) | 0;     // (cells 24 to 27: petrol, shop, jeweller, museum; 28 to 31: the bank, hotel, cinema and cash-machine signs)
     return [cc / 4 + 0.004, 1 - (rr + 1) / 8 + 0.004, (cc + 1) / 4 - 0.004, 1 - rr / 8 - 0.004];
   }
   shopSign(ctx, b, f, h, rnd) {

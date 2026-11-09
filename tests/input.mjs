@@ -59,7 +59,7 @@ try {
     await toFoot(page);
     await page.evaluate(() => window.__game.input.emit('any'));
     check('touch buttons are shown on foot', await page.evaluate(() => { const t = document.getElementById('touch'); return !t.classList.contains('hidden') && getComputedStyle(document.getElementById('t-fire')).display !== 'none'; }));
-    const overlaps = await page.evaluate(() => { const ids = ['t-fire', 't-aim', 't-swap', 't-reload', 't-nade', 't-jump', 't-sprint', 't-crouch']; const r = ids.map(i => [i, document.getElementById(i).getBoundingClientRect()]); const out = []; for (let i = 0; i < r.length; i++) for (let j = i + 1; j < r.length; j++) { const a = r[i][1], b = r[j][1]; if (a.width && b.width && a.left < b.right - 2 && b.left < a.right - 2 && a.top < b.bottom - 2 && b.top < a.bottom - 2) out.push(r[i][0] + '/' + r[j][0]); } const off = r.filter(([, a]) => a.left < 0 || a.top < 0 || a.right > innerWidth || a.bottom > innerHeight).map(x => x[0]); return { out, off }; });
+    const overlaps = await page.evaluate(() => { const ids = ['t-fire', 't-kick', 't-aim', 't-swap', 't-reload', 't-nade', 't-jump', 't-sprint', 't-crouch']; const r = ids.map(i => [i, document.getElementById(i).getBoundingClientRect()]); const out = []; for (let i = 0; i < r.length; i++) for (let j = i + 1; j < r.length; j++) { const a = r[i][1], b = r[j][1]; if (a.width && b.width && a.left < b.right - 2 && b.left < a.right - 2 && a.top < b.bottom - 2 && b.top < a.bottom - 2) out.push(r[i][0] + '/' + r[j][0]); } const off = r.filter(([, a]) => a.left < 0 || a.top < 0 || a.right > innerWidth || a.bottom > innerHeight).map(x => x[0]); return { out, off }; });
     check('no touch buttons overlap each other or hang off the screen', overlaps.out.length === 0 && overlaps.off.length === 0, JSON.stringify(overlaps));
     // GUN button: a tap draws the first gun
     let [x, y] = await centre('#t-swap'); await touch('touchStart', [[x, y, 0]]); await touch('touchEnd', []); await step(page, 40);
@@ -96,6 +96,9 @@ try {
     const g0 = (await hud(page)).gren;
     [x, y] = await centre('#t-nade'); await touch('touchStart', [[x, y, 0]]); await touch('touchEnd', []); await step(page, 5);
     const g1 = (await hud(page)).gren; check('tap NADE throws a grenade', g1 === g0 - 1, `${g0} -> ${g1}`);
+    await page.evaluate(() => { const m = window.__game.melee; m.cool = 0; m.queued = null; window.__game.arsenal.holster(); }); await step(page, 40);
+    const k0 = await page.evaluate(() => window.__game.melee.swung); [x, y] = await centre('#t-kick'); await touch('touchStart', [[x, y, 0]]); await touch('touchEnd', []); await step(page, 5);
+    check('tap KICK throws a kick', await page.evaluate(k0 => window.__game.melee.swung > k0 && window.__game.melee.kind === 'kick', k0));
     // GET OUT, in the car with the police after you: on the left, clear of every other button, and a tap gets you out
     await page.evaluate(() => { const g = window.__game; g.game.onFoot = false; g.walker.show(false); g.setState('free'); g.car.vx = 0; g.car.vz = 0; g.startWanted('gun'); window.__game.input.lastDevice = 'touch'; g.setState('free'); });
     await step(page, 30);

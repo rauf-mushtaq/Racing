@@ -200,7 +200,7 @@ export class Heist {
       if (it.state === 'done' || it.state === 'taken') continue; const d = Math.hypot(it.x - P.x, it.z - P.z); if (d < it.r && d < bd && Math.abs(P.y - (R.oy)) < 3) { bd = d; best = it; }
     }
     // The manager (when he has his hands up): his key card.
-    if (!this.keycard) for (const a of this.actors) if (a.role === 'manager' && a.alive && a.state === 'hands') { const d = Math.hypot(a.x - P.x, a.z - P.z); if (d < 1.9 && d < bd) { bd = d; best = { id: 'keycard', type: 'keycard', label: 'TAKE THE KEY CARD', dur: 1.2, r: 1.9, x: a.x, z: a.z, y: R.oy + 1, state: 'ready', actor: a }; } }
+    if (!this.keycard) for (const a of this.actors) if (a.role === 'manager' && a.alive && a.state === 'hands') { const d = Math.hypot(a.x - P.x, a.z - P.z); if (d < 1.9) { bd = d; best = { id: 'keycard', type: 'keycard', label: 'TAKE THE KEY CARD', dur: 1.2, r: 1.9, x: a.x, z: a.z, y: R.oy + 1, state: 'ready', actor: a }; } }
     return best;
   }
   blocker(it) {                                                                                                // why not yet?

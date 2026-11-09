@@ -113,6 +113,7 @@
   "src/traffic.js",
   "src/util.js",
   "src/vehicle.js",
+  "src/venues.js",
   "src/walker.js",
   "src/weapons.js",
   "src/world.js",

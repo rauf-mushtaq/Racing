@@ -6,7 +6,7 @@
   "scripts": {
     "serve": "python3 -m http.server 8765",
     "precache": "node tools/gen-precache.js",
-    "test": "node tests/perf.mjs && node tests/map.mjs && node tests/sites.mjs && node tests/bigmap.mjs && node tests/bench.mjs && node tests/audio.mjs && node tests/smoke.mjs && node tests/melee.mjs && node tests/input.mjs",
+    "test": "node tests/perf.mjs && node tests/map.mjs && node tests/sites.mjs && node tests/bigmap.mjs && node tests/bench.mjs && node tests/audio.mjs && node tests/smoke.mjs && node tests/melee.mjs && node tests/heist.mjs && node tests/input.mjs",
     "audio": "node tests/audio.mjs out-audio 24"
   },
   "devDependencies": {

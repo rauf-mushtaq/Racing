@@ -429,8 +429,8 @@ export function railTex() {
 // Shop signs: 32 made-up names in a 4 x 8 atlas of 512 x 256 cells.
 export const SIGN_NAMES = ['DINER', 'TACOS', 'MOTEL', 'DONUTS', 'PIZZA', 'COFFEE', 'TIRES', 'GARAGE', 'BURGERS', 'LAUNDRY', 'SUSHI', 'BOWLING', 'VIDEO', 'GYM', 'BAKERY', 'AUTO PARTS'];
 // The last four cells of the atlas are for the civic buildings: a bank, a hotel, a cinema, a cash machine.
-export const SPECIAL_NAMES = ['BANK', 'HOTEL', 'CINEMA', 'ATM'];
-const SPECIAL_SCHEMES = [{ bg: '#0d3b2a', fg: '#f2d27a', glow: '#f2d27a' }, { bg: '#101a3a', fg: '#f4e2a8', glow: '#f4e2a8' }, { bg: '#1a0a1c', fg: '#ff5ac8', glow: '#ff5ac8' }, { bg: '#0a3c8c', fg: '#ffffff', glow: '#9fd0ff' }];
+export const SPECIAL_NAMES = ['PETROL', '24H SHOP', 'JEWELLER', 'MUSEUM', 'BANK', 'HOTEL', 'CINEMA', 'ATM'];       // (cells 24 to 31: the four places you can walk into, then the bank, hotel, cinema and cash machine)
+const SPECIAL_SCHEMES = [{ bg: '#b0121a', fg: '#ffffff', glow: '#ffd27a' }, { bg: '#0b5a30', fg: '#ffffff', glow: '#9dffb8' }, { bg: '#0c0a10', fg: '#f4d27a', glow: '#f4d27a' }, { bg: '#2a1442', fg: '#ffe3a8', glow: '#d9a6ff' }, { bg: '#0d3b2a', fg: '#f2d27a', glow: '#f2d27a' }, { bg: '#101a3a', fg: '#f4e2a8', glow: '#f4e2a8' }, { bg: '#1a0a1c', fg: '#ff5ac8', glow: '#ff5ac8' }, { bg: '#0a3c8c', fg: '#ffffff', glow: '#9fd0ff' }];
 export function signAtlas() {
   const [c, g] = mk(2048, 2048);
   const schemes = [
@@ -439,7 +439,7 @@ export function signAtlas() {
   ];
   for (let n = 0; n < 32; n++) {
     const col = n % 4, row = (n / 4) | 0, x = col * 512, y = row * 256;
-    const special = n >= 28, s = special ? SPECIAL_SCHEMES[n - 28] : schemes[(n + row) % 4], name = special ? SPECIAL_NAMES[n - 28] : SIGN_NAMES[n % 16];
+    const special = n >= 24, s = special ? SPECIAL_SCHEMES[n - 24] : schemes[(n + row) % 4], name = special ? SPECIAL_NAMES[n - 24] : SIGN_NAMES[n % 16];
     g.fillStyle = s.bg; g.fillRect(x + 8, y + 8, 496, 240);
     g.strokeStyle = s.glow; g.lineWidth = 10; g.strokeRect(x + 24, y + 24, 464, 208);
     g.font = `900 ${name.length > 7 ? 76 : 104}px "Barlow Condensed", "Arial Narrow", Arial, sans-serif`;

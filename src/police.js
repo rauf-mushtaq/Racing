@@ -150,6 +150,7 @@ export class PoliceChase {
     return false;
   }
   canSee(ax, az, bx, bz, maxDist) {
+    if (this.hideout) return false;                                           // (the player is inside a building: see interior.js)
     const dx = bx - ax, dz = bz - az, d = Math.hypot(dx, dz); if (d > maxDist) return false; if (d < 6) return true;
     if (raycastStatic(ax, az, dx, dz, d) < d - 3) return false;
     if (d > 60) {
@@ -345,7 +346,7 @@ export class PoliceChase {
   }
   // Police cars and a person on foot: a cruiser at speed knocks you flat.
   collideWalker(w) {
-    if (!this.active || this.result !== 'running') return;
+    if (!this.active || this.result !== 'running' || w.interior) return;
     for (const c of this.cops) {
       const dx = w.x - c.x, dz = w.z - c.z; if (dx * dx + dz * dz > 49 || c.speed < 4) continue;
       const fx = Math.sin(c.h), fz = Math.cos(c.h), a = clamp(dx * fx + dz * fz, -c.len / 2, c.len / 2), d = Math.hypot(dx - fx * a, dz - fz * a);
@@ -425,6 +426,7 @@ export class PoliceChase {
     if (this.stars !== this.lastStars) { if (this.stars > this.lastStars) this.messages.push('HEAT ' + this.stars); this.lastStars = this.stars; this.maxStars = Math.max(this.maxStars, this.stars); }
     // To get away you must stay out of sight for a whole minute. Being seen for more than half a second starts the minute again.
     if (this.spotted) { this.spotAcc += dt; if (this.spotAcc > 0.5) this.hidden = 0; } else { this.spotAcc = Math.max(0, this.spotAcc - dt * 2); this.hidden += dt; }
+    if (this.hideout) this.hidden = Math.min(this.hidden, 0);                 // (waiting outside a building you are in does not make them give up)
     if (this.hidden >= this.hiddenNeeded) { this.result = 'escaped'; this.messages.push('YOU LOST THEM'); return; }
     // Cops: spawn up to the wanted level, drive, retire the wrecks.
     this._firers = 0; for (const c of this.cops) if (c.burst > 0 && !c.wreck) this._firers++;
@@ -507,6 +509,7 @@ export class PoliceChase {
     if (this.officers) { const n = this.officers.nearCount(p, 2.8); grab += n; close += n; }        // an officer right beside you arrests you too
     // In a car you are caught when boxed in and stopped; on foot, when a cop is right beside you for a couple of seconds.
     // Walking or standing still beside them lets them cuff you; a jog (about 4 m/s) or a sprint breaks away, and the progress drains twice as fast as it fills.
+    if (this.hideout) { grab = 0; close = 0; }
     this.bustMax = p.onFoot ? 3.4 : 4;
     if (p.onFoot ? grab >= 1 && pspeed < 3.0 : pspeed < 2.5 && close >= 2) { if (this.bustT <= 0.001) this.messages.push(p.onFoot ? 'POLICE: STOP! HANDS WHERE WE CAN SEE THEM' : 'BOXED IN: BREAK OUT'); this.bustT += dt; } else this.bustT = Math.max(0, this.bustT - dt * 2);
     this.bustFrac = clamp(this.bustT / this.bustMax, 0, 1);
