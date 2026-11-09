@@ -9,6 +9,8 @@ import { ROADS, groundAt } from './world.js';
 import { isRound, RB } from './junctions.js';
 import { AVENUES } from './avenues.js';
 import { trafficModels } from './carModel.js';
+import { CarSet } from './fleet.js';
+import { carMaterials } from './cardetail.js';
 import { mulberry32, clamp, wrapAngle } from './util.js';
 
 const COLORS = ['#e8e8e8', '#111214', '#9aa0a6', '#5b6066', '#1e2f55', '#8a1c1c', '#c8b89a', '#2f4a3a', '#d7d3cc', '#30343a', '#6b1f2e', '#2a5d8f'].map(c => new THREE.Color(c));
@@ -26,6 +28,7 @@ export class Traffic {
     this.parkedWrap = { cars: this.nearParked, velocityOf: c => this.velocityOf(c), knock: (...a) => this.knock(...a) };       // (what collideTraffic needs)
     this.city = city;
     this.scene = scene;
+    this.mats = carMaterials(); this.dt = 1 / 60;
     this.meshes = this.models.map(md => this.makeSet(md));
     // Soft contact shadows under every car (cheaper than shadow-mapping them).
     const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
@@ -38,15 +41,7 @@ export class Traffic {
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1); this.up = new THREE.Vector3(0, 1, 0);
   }
 
-  makeSet(md) {
-    const body = new THREE.InstancedMesh(md.geo, attachSSR(new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 }), { range: 50, rough: 0.45, view: 110 }), CAP);
-    const lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), CAP);
-    body.castShadow = false; body.count = 0; lights.count = 0;
-    body.receiveShadow = true;
-    body.frustumCulled = false; lights.frustumCulled = false;
-    this.scene.add(body); this.scene.add(lights);
-    return { body, lights, list: [] };
-  }
+  makeSet(md) { return { set: new CarSet(this.scene, md, CAP, this.mats), list: [] }; }
   // A further kind of car (the detailed sports car), picked for about one car in ten.
   addModel(md) { this.models.push(md); this.meshes.push(this.makeSet(md)); this.sports = this.models.length - 1; }
   pickType() { const r = this.rnd(); return r < 0.07 ? 4 : r < 0.1 ? 5 : r < 0.2 ? 3 : this.sports && r < 0.3 ? this.sports : (this.rnd() * 3) | 0; }
@@ -272,6 +267,7 @@ export class Traffic {
   }
 
   update(dt, player, signals) {
+    this.dt = Math.min(dt, 0.1);
     for (let i = this.adopted.length - 1; i >= 0; i--) {
       const c = this.adopted[i]; this.stepKnocked(c, dt, player, false);
       if ((c.x - player.x) ** 2 + (c.z - player.z) ** 2 > 700 * 700) this.adopted.splice(i, 1);
@@ -342,16 +338,14 @@ export class Traffic {
     const { m4, q, v, one, up } = this;
     let nb = 0;
     for (const m of this.meshes) {
-      let i = 0;
+      let i = 0; m.set.begin();
       for (const c of m.list) {
         this.eul.set(-(c.pitch || 0), c.h, c.roll || 0, 'YXZ'); q.setFromEuler(this.eul); v.set(c.x, c.y ?? 0, c.z); m4.compose(v, q, one);
-        const wr = c.mode === 'wreck'; m.body.setMatrixAt(i, m4); m.lights.setMatrixAt(i, wr ? ZERO : m4); m.body.setColorAt(i, wr ? WRECK_COLOR : c.color);
+        const wr = c.mode === 'wreck'; m.set.add(m4, wr ? WRECK_COLOR : c.color, (c.x - player.x) ** 2 + (c.z - player.z) ** 2, c, c.speed || 0, c.h, this.dt, wr);
         v.y += 0.03; m4.compose(v, q, one); if (nb < CAP * 2) this.blobs.setMatrixAt(nb++, m4);
         if (++i >= CAP) break;
       }
-      m.body.count = m.lights.count = i;
-      m.body.instanceMatrix.needsUpdate = true; m.lights.instanceMatrix.needsUpdate = true;
-      if (m.body.instanceColor) m.body.instanceColor.needsUpdate = true;
+      m.set.end();
     }
     this.blobs.count = nb; this.blobs.instanceMatrix.needsUpdate = true;
   }

@@ -10,6 +10,8 @@ import { pushFromWater, inWater } from './rivercourse.js';
 import { pushFromIsland } from './junctions.js';
 import { wideSdf } from './avenues.js';
 import { policeModels } from './carModel.js';
+import { CarSet } from './fleet.js';
+import { carMaterials } from './cardetail.js';
 import { applyImpulse } from './collide.js';
 import { Particles } from './particles.js';
 import { clamp, wrapAngle } from './util.js';
@@ -53,14 +55,8 @@ export class PoliceChase {
     this.cops = []; this.missiles = []; this.bombs = []; this.oils = []; this.smokes = []; this.messages = [];
     this.reset();
     // Meshes: instanced cruisers and trucks (with their light bars), pools of missiles, bombs and oil slicks.
-    const mk = md => {
-      const mat = attachSSR(new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.4, roughness: 0.34, clearcoat: 0.9, clearcoatRoughness: 0.06, envMapIntensity: 1.3 }), { range: 50, rough: 0.45, view: 110 });
-      const body = new THREE.InstancedMesh(md.geo, mat, CAP), lights = new THREE.InstancedMesh(md.lights, new THREE.MeshBasicMaterial({ vertexColors: true }), CAP);
-      for (const m of [body, lights]) { m.count = 0; m.frustumCulled = false; scene.add(m); }
-      body.receiveShadow = true;
-      return { body, lights, md };
-    };
-    this.kinds = [mk(this.models.cruiser), mk(this.models.truck)];
+    const mats = carMaterials();                                          // (the same physically based car materials as the traffic: see cardetail.js)
+    this.kinds = [this.models.cruiser, this.models.truck].map(md => ({ set: new CarSet(scene, md, CAP, mats), md }));
     const barGeo = new THREE.BoxGeometry(0.46, 0.11, 0.2), barMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.bars = [0, 1].map(() => [0, 1].map(() => { const m = new THREE.InstancedMesh(barGeo, barMat, CAP); m.count = 0; m.frustumCulled = false; scene.add(m); return m; }));
     this.zero = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -138,7 +134,7 @@ export class PoliceChase {
     this.active = false; if (this.officers) this.officers.clear(); if (this.heli) this.heli.reset(); this.reset(); this.fx.clear(); this.render(0, null, 0);
     this.bubble.visible = false;
   }
-  setVisible(v) { for (const k of this.kinds) { k.body.visible = k.lights.visible = v; } }
+  setVisible(v) { for (const k of this.kinds) k.set.setVisible(v); }
 
   // --- Seeing ----------------------------------------------------------------------------------------------------------
   smokeBlocks(ax, az, bx, bz) {
@@ -525,11 +521,12 @@ export class PoliceChase {
     const { m4, q, e, v, one, col } = this.tmp;
     const show = this.active;
     let nb = 0; const counts = [0, 0];
+    for (const k of this.kinds) k.set.begin();
     for (const c of this.cops) {
       if (!show) break;
       const k = this.kinds[c.kind], i = counts[c.kind]++; if (i >= CAP) continue;
       e.set(-c.pitch, c.h, c.roll, 'YXZ'); q.setFromEuler(e); v.set(c.x, c.y, c.z); m4.compose(v, q, one);
-      k.body.setMatrixAt(i, m4); k.lights.setMatrixAt(i, c.wreck ? this.zero : m4); k.body.setColorAt(i, c.wreck ? col.setRGB(0.12, 0.11, 0.1) : col.setRGB(1, 1, 1));
+      k.set.add(m4, c.wreck ? col.setRGB(0.12, 0.11, 0.1) : col.setRGB(1, 1, 1), (c.x - p.x) ** 2 + (c.z - p.z) ** 2, c, c.speed || 0, c.h, dt, !!c.wreck);
       if (nb < CAP) { v.y += 0.03; e.set(0, c.h, 0, 'YXZ'); q.setFromEuler(e); m4.compose(v, q, one); this.blobs.setMatrixAt(nb++, m4); }
       // The light bar: red on one side, blue on the other, swapping about three times a second.
       const phase = ((clock * 3.4 + c.flash) % 1) < 0.5, bz = c.kind ? -0.55 : -0.2, by = c.kind ? 1.84 : 1.5, sn = Math.sin(c.h), cs = Math.cos(c.h);
@@ -546,7 +543,7 @@ export class PoliceChase {
     }
     for (let ki = 0; ki < 2; ki++) {
       const k = this.kinds[ki], n = Math.min(CAP, counts[ki]);
-      k.body.count = k.lights.count = n; k.body.instanceMatrix.needsUpdate = k.lights.instanceMatrix.needsUpdate = true; if (k.body.instanceColor) k.body.instanceColor.needsUpdate = true;
+      k.set.end();
       for (const m of this.bars[ki]) { m.count = n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     }
     this.blobs.count = nb; this.blobs.instanceMatrix.needsUpdate = true;

@@ -6,6 +6,7 @@ import { attachSSR } from './ssr.js';
 import { curve, lerp, clamp } from './util.js';
 import { plateTex, glowTex } from './textures.js';
 import { mergeGeoms } from './geom.js';
+import { detailParts, wheelGeometry, policeDecals } from './cardetail.js';
 import { buildCockpit } from './cockpit.js';
 import { addGadgets } from './gadgets.js';
 
@@ -314,6 +315,14 @@ export function setPaint(car, key) {
 // Traffic cars: one merged geometry per type with vertex colours (white body
 // tinted per instance, dark glass, black tyres), plus a separate light mesh.
 // ---------------------------------------------------------------------------
+function sliceGeo(g, from, count) {
+  const out = new THREE.BufferGeometry();
+  for (const k of ['position', 'normal', 'color']) { const a = g.attributes[k], n = a.itemSize; out.setAttribute(k, new THREE.BufferAttribute(a.array.slice(from * n, (from + count) * n), n)); }
+  return out;
+}
+// One kind of car, at two levels of detail (see cardetail.js): FAR is the body with its glass painted on, the wheels as plain drums and the lamps; NEAR is the
+// body without painted glass, with real glass over a seat, a dashboard and a wheel, mirrors, handles, grille and bumpers, and the wheels as separate parts
+// (tyre with a tread, rim, brake disc) that turn. A police car also has a push bar, a light bar housing, spotlights, an aerial and lettering.
 function trafficType(o) {
   const P = {
     zf: o.len / 2, zr: -o.len / 2, noseR: o.noseR, tailR: o.tailR, endW: 0.88, endH: 0.75,
@@ -323,7 +332,7 @@ function trafficType(o) {
     isGlass: (band, z) => (band >= 8 && band <= 10 && z > o.gz[0] && z < o.gz[1]) || (band >= 11 && ((z > o.ws[0] && z < o.ws[1]) || (z > o.rw[0] && z < o.rw[1]))),
   };
   P.bottom = archBottom(P, () => o.clear);
-  const g = loft(P, stationsFor(P, 16, 3));
+  const g = loft(P, stationsFor(P, 26, 4));
   // Colour by group, then split into triangles so colours stay crisp.
   const gi = g.toNonIndexed();
   const n = gi.attributes.position.count, colr = new Float32Array(n * 3);
@@ -332,31 +341,33 @@ function trafficType(o) {
     const glass = i >= bodyTris;
     colr.set(glass ? [0.05, 0.06, 0.07] : [1, 1, 1], i * 3);
   }
-  if (o.livery) {   // a police car: dark body, white doors
-    const pa = gi.attributes.position;
-    for (let t = 0; t < bodyTris; t += 3) {
-      const ax = pa.getX(t), ay = pa.getY(t), az = pa.getZ(t), bx = pa.getX(t + 1), by = pa.getY(t + 1), bz = pa.getZ(t + 1), cx2 = pa.getX(t + 2), cy2 = pa.getY(t + 2), cz2 = pa.getZ(t + 2);
-      const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx2 - ax, vy = cy2 - ay, vz = cz2 - az;
-      let nx = uy * vz - uz * vy; const ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, nl = Math.hypot(nx, ny, nz) || 1; nx /= nl;
-      const cy = (ay + by + cy2) / 3, cz = (az + bz + cz2) / 3;
-      const door = Math.abs(nx) > 0.6 && cz > -o.len * 0.28 && cz < o.len * 0.18 && cy > o.clear + 0.14 && cy < P.shoulder(cz) - 0.04;
-      for (let k = 0; k < 3; k++) colr.set(door ? [0.92, 0.93, 0.95] : [0.03, 0.035, 0.05], (t + k) * 3);
+  if (o.livery) {   // a police car: dark body, white doors, a blue line along the foot of them (a quad of the loft at a time, so the edges are straight)
+    const pa = gi.attributes.position, quadEnd = bodyTris - 6 * (HALF * 2 - 2);
+    for (let t = 0; t < quadEnd; t += 6) {
+      let cx = 0, cy = 0, cz = 0, nx = 0; for (let k = 0; k < 6; k++) { cx += pa.getX(t + k); cy += pa.getY(t + k); cz += pa.getZ(t + k); } cx /= 6; cy /= 6; cz /= 6;
+      { const ux = pa.getX(t + 1) - pa.getX(t), uy = pa.getY(t + 1) - pa.getY(t), uz = pa.getZ(t + 1) - pa.getZ(t), vx = pa.getX(t + 2) - pa.getX(t), vy = pa.getY(t + 2) - pa.getY(t), vz = pa.getZ(t + 2) - pa.getZ(t); const X = uy * vz - uz * vy, Y = uz * vx - ux * vz, Z = ux * vy - uy * vx; nx = X / (Math.hypot(X, Y, Z) || 1); }
+      const side = Math.abs(nx) > 0.55 && Math.abs(cx) > o.w * 0.6, along = cz > -o.len * 0.28 && cz < o.len * 0.2;
+      const door = side && along && cy > o.clear + 0.1 && cy < P.shoulder(cz) - 0.04, stripe = side && along && cy > o.clear + 0.04 && cy <= o.clear + 0.16;
+      for (let k = 0; k < 6; k++) colr.set(stripe ? [0.04, 0.12, 0.5] : door ? [0.92, 0.93, 0.95] : [0.03, 0.035, 0.05], (t + k) * 3);
     }
+    for (let t = quadEnd; t < bodyTris; t++) colr.set([0.03, 0.035, 0.05], t * 3);
   }
   gi.setAttribute('color', new THREE.BufferAttribute(colr, 3));
   gi.clearGroups();
-  const parts = [gi];
   const black = (geo) => { const c = []; for (let i = 0; i < geo.attributes.position.count; i++) c.push(0.04, 0.04, 0.045); geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3)); return geo; };
   const grey = (geo) => { const c = []; for (let i = 0; i < geo.attributes.position.count; i++) c.push(0.35, 0.36, 0.38); geo.setAttribute('color', new THREE.Float32BufferAttribute(c, 3)); return geo; };
+  const bumper = () => black(new THREE.BoxGeometry(o.w * 1.6, 0.18, 0.08).translate(0, o.clear + 0.12, P.zr - 0.02).toNonIndexed());
+  // FAR.
+  const far = [gi];
   for (const wz of [P.wzf, P.wzr]) for (const s of [-1, 1]) {
-    const t = new THREE.CylinderGeometry(o.wr, o.wr, 0.22, 12).rotateZ(Math.PI / 2).translate(s * (o.w - 0.14), o.wr, wz);
-    parts.push(black(t.toNonIndexed()));
+    const t = new THREE.CylinderGeometry(o.wr * 0.94, o.wr * 0.94, 0.22, 12).rotateZ(Math.PI / 2).translate(s * (o.w - 0.14), o.wr, wz);
+    far.push(black(t.toNonIndexed()));
     const r = new THREE.CylinderGeometry(o.wr * 0.6, o.wr * 0.6, 0.02, 8).rotateZ(Math.PI / 2).translate(s * (o.w - 0.02), o.wr, wz);
-    parts.push(grey(r.toNonIndexed()));
+    far.push(grey(r.toNonIndexed()));
   }
-  parts.push(black(new THREE.BoxGeometry(o.w * 1.6, 0.18, 0.08).translate(0, o.clear + 0.12, P.zr - 0.02).toNonIndexed()));
-  for (const p of parts) { p.deleteAttribute('uv'); }
-  const geo = mergeGeoms(parts);
+  far.push(bumper());
+  for (const p of far) { p.deleteAttribute('uv'); }
+  const geo = mergeGeoms(far);
   // Lights.
   const lp = [];
   const tl = new THREE.Color(5, 0.35, 0.15), hl = new THREE.Color(5, 4.6, 4);
@@ -364,7 +375,14 @@ function trafficType(o) {
     lp.push(colorize(new THREE.BoxGeometry(0.34, 0.1, 0.04).translate(s * (o.w - 0.25), o.tlY, P.zr - 0.01), tl));
     lp.push(colorize(new THREE.BoxGeometry(0.3, 0.09, 0.04).translate(s * (o.w - 0.28), o.hlY, P.zf + 0.0), hl));
   }
-  return { geo, lights: mergeGeoms(lp), len: o.len, width: o.w * 2, mass: o.mass || 1400, rad: o.rad || 0.95 };
+  // NEAR.
+  const bodyG = sliceGeo(gi, 0, bodyTris), glassG = sliceGeo(gi, bodyTris, n - bodyTris), det = detailParts(o, P, !!o.livery);
+  const near = {
+    body: mergeGeoms([bodyG, bumper()]), glass: glassG, details: mergeGeoms([...det.trim, ...det.inside]), lamps: mergeGeoms(det.lamps),
+    wheel: wheelGeometry(o.wr, 0.24, !!o.livery), decal: o.livery ? policeDecals(o, P) : null,
+  };
+  const wheelAt = [P.wzf, P.wzr].flatMap((wz, i) => [-1, 1].map(s => [s * (o.w - 0.14), wz, i === 0]));
+  return { geo, lights: mergeGeoms(lp), near, wheelAt, wr: o.wr, wb: P.wzf - P.wzr, len: o.len, width: o.w * 2, mass: o.mass || 1400, rad: o.rad || 0.95 };
 }
 function colorize(g, c) { g = g.toNonIndexed(); g.deleteAttribute('uv'); const a = []; for (let i = 0; i < g.attributes.position.count; i++) a.push(c.r, c.g, c.b); g.setAttribute('color', new THREE.Float32BufferAttribute(a, 3)); return g; }
 
@@ -418,6 +436,6 @@ export function trafficModels() {
 }
 
 // Police vehicles: the saloon and the SUV in black and white, with their light bars added in police.js.
-export function policeModels() { return { cruiser: trafficType({ ...SALOON, livery: true }), truck: trafficType({ ...SUV, livery: true, mass: 2600 }) }; }
+export function policeModels() { return { cruiser: trafficType({ ...SALOON, livery: true, barZ: -0.2, barY: 1.5 }), truck: trafficType({ ...SUV, livery: true, mass: 2600, barZ: -0.55, barY: 1.84 }) }; }
 export { loft, stationsFor, archBottom, mergeByMaterial };
 

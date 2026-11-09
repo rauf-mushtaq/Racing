@@ -228,6 +228,7 @@ export class FootCamera {
       lx = lerp(lx, _p.x + sn * cp * 14, aim); ly = lerp(ly, _p.y - sp * 14, aim); lz = lerp(lz, _p.z + cs * cp * 14, aim);
     }
     camera.lookAt(lx, ly, lz);
+    if (w.active) w.mesh.visible = Math.hypot(_p.x - w.x, _p.y - (w.y + 1.4), _p.z - w.z) > 0.6;            // (a camera pressed up against the character, by a wall or a counter, looks through them: they fade out)
     camera.fov = damp(camera.fov, lerp(60 + w.run * 6 + (w.speed > 5.5 ? 2 : 0), 47, aim), 5, dt); camera.updateProjectionMatrix();
   }
 }
