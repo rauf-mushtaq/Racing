@@ -3,6 +3,8 @@
 // street lights and signs. The city is built in regions of 2 x 2 blocks that
 // stream in around the player (and out again behind), merged by material so
 // each region is a few dozen draw calls.
+import { addPool } from './pools.js';
+import { poolMaterial, rippleTex } from './water.js';
 import * as THREE from 'three';
 import * as T from './textures.js';
 import { mulberry32, clamp, hash3 } from './util.js';
@@ -135,11 +137,11 @@ const TILES = ['#ffffff', '#f2d8c8', '#c8a090', '#9a7a6a'].map(col);
 const WHITE = new THREE.Color(1, 1, 1), STONE = new THREE.Color(0.2, 0.2, 0.22), METAL = new THREE.Color(0.55, 0.6, 0.66);
 const GRASS_TINT = new THREE.Color(0.95, 1, 0.9);
 
-const COLORED = new Set(['park', 'mark', 'amark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props']);
-const KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot', 'props', 'sign', 'rail', 'gantry'];
+const COLORED = new Set(['park', 'mark', 'amark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props', 'pool']);
+const KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot', 'props', 'sign', 'rail', 'gantry', 'pool', 'water'];
 const FAR_KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot'];
-const DETAIL_KEYS = ['props', 'sign', 'rail', 'gantry'];
-const CASTS = new Set(['glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props']);
+const DETAIL_KEYS = ['props', 'sign', 'rail', 'gantry', 'pool', 'water'];
+const CASTS = new Set(['glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props', 'pool']);
 const snap = h => Math.max(3.5, Math.round(h / 3.5) * 3.5);
 
 const GROUND = new Set(['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'lot']);            // (surfaces that follow the ground; everything else stands level on a base)
@@ -295,11 +297,14 @@ export class City {
       tile: std({ map: misc.tile, vertexColors: true, roughness: 0.85 }),
       lot: std({ color: 0x8a8486, map: asp.map, roughnessMap: asp.roughnessMap, roughness: 1 }),
       props: std({ vertexColors: true, roughness: 0.7, metalness: 0.2 }),
+      pool: std({ vertexColors: true, roughness: 0.35, metalness: 0 }),
+      water: poolMaterial(TOD.lampsOn, rippleTex()),
       sign: std({ map: misc.sign, emissiveMap: misc.sign, emissive: 0xffffff, emissiveIntensity: TOD.signs, roughness: 0.5, side: THREE.DoubleSide }),
       rail: std({ map: misc.rail, alphaTest: 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.4 }),
       gantry: std({ map: misc.gantry, emissiveMap: misc.gantry, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.6, side: THREE.DoubleSide }),
     };
     for (const k of ['glass', 'modern', 'shop']) attachSSR(m[k], { range: 110, rough: 0.45, view: 160, strength: 0.85 });
+    attachSSR(m.water, { range: 60, rough: 0.3, view: 90 });
     m.asphalt = makeAsphalt();
     m.amark = std({ vertexColors: true, color: 0xd4d2cc, roughness: 0.82, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); m.acurb = std({ color: 0xc8c0bc, map: con.map, roughness: 0.9 });      // (the markings and kerb of the roads cut across the grid: never cut away themselves)
     m.hillAsphalt = makeAsphalt();
@@ -1317,9 +1322,23 @@ export class City {
     if (alongX) { const zf = f[1] < 0 ? lot.z0 : hb.z1, zt = f[1] < 0 ? hb.z0 : lot.z1; G.walk.flat(cx + W / 2 - dw - 1, Math.min(zf, zt), cx + W / 2 - 1, Math.max(zf, zt), CURB + 0.05, 6, WHITE); }
     else { const xf = f[0] < 0 ? lot.x0 : hb.x1, xt = f[0] < 0 ? hb.x0 : lot.x1; G.walk.flat(Math.min(xf, xt), cz + W / 2 - dw - 1, Math.max(xf, xt), cz + W / 2 - 1, CURB + 0.05, 6, WHITE); }
     if (faces.length) this.hedgeRow(ctx, lot, faces[0]);
+    // A swimming pool in the back garden (a little under half of the houses have room for one).
+    let pool = null;
+    if (rnd() < 0.5) {
+      const pw = 3.6 + rnd() * 1.2, pl = 7 + rnd() * 2.5, lx = alongX ? pl : pw, lz = alongX ? pw : pl, m = 1.9;
+      let bx0, bx1, bz0, bz1;
+      if (alongX) { bx0 = lot.x0 + 1; bx1 = lot.x1 - 1; if (f[1] < 0) { bz0 = hb.z1 + 1.2; bz1 = lot.z1 - 1; } else { bz1 = hb.z0 - 1.2; bz0 = lot.z0 + 1; } }
+      else { bz0 = lot.z0 + 1; bz1 = lot.z1 - 1; if (f[0] < 0) { bx0 = hb.x1 + 1.2; bx1 = lot.x1 - 1; } else { bx1 = hb.x0 - 1.2; bx0 = lot.x0 + 1; } }
+      if (bx1 - bx0 >= lx + 2 * m && bz1 - bz0 >= lz + 2 * m) {
+        const px = (bx0 + bx1) / 2 + (rnd() - 0.5) * Math.max(0, bx1 - bx0 - lx - 2 * m), pz = (bz0 + bz1) / 2 + (rnd() - 0.5) * Math.max(0, bz1 - bz0 - lz - 2 * m);
+        pool = { x0: px - lx / 2, z0: pz - lz / 2, x1: px + lx / 2, z1: pz + lz / 2 };
+        addPool(ctx, CURB, (a, b, c, d) => addCollider({ type: 'box', x0: a, z0: b, x1: c, z1: d }, ctx.colliders), pool.x0, pool.z0, pool.x1, pool.z1, rnd);
+      }
+    }
     for (let k = 0; k < 1 + Math.floor(rnd() * 3); k++) {
       const tx = lot.x0 + 3 + rnd() * (lw - 6), tz = lot.z0 + 3 + rnd() * (ld - 6);
       if (tx > hb.x0 - 2.5 && tx < hb.x1 + 2.5 && tz > hb.z0 - 2.5 && tz < hb.z1 + 2.5) continue;
+      if (pool && tx > pool.x0 - 3.5 && tx < pool.x1 + 3.5 && tz > pool.z0 - 3.5 && tz < pool.z1 + 3.5) continue;
       this.tree(ctx, tx, tz, 0.8 + rnd() * 0.7, CURB + 0.03, rnd() < 0.3);
     }
   }

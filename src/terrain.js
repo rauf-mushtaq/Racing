@@ -9,6 +9,7 @@ import { EDGE } from './city.js';
 import { heightAt, climate, coastX, lakeDist, AIRFIELD, WORLD, SEA_Y } from './world.js';
 import * as T from './textures.js';
 import { Q } from './quality.js';
+import { WATER, seaGeometry, seaMaterial, rippleTex } from './water.js';
 
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 export const TILE = 500;
@@ -33,7 +34,7 @@ export function buildTerrain(scene, day) {
   const tex = { grass: T.ground(), sand: T.sandTex(), snow: T.snowTex(), rock: T.rockTex(), lake: T.lakeTex() };
   const U = {
     tGrass: { value: tex.grass }, tSand: { value: tex.sand }, tSnow: { value: tex.snow }, tRock: { value: tex.rock }, tLake: { value: tex.lake },
-    uHole: { value: new THREE.Vector4(1, 1, -1, -1) }, uCity: { value: EDGE + 0.3 },
+    uHole: { value: new THREE.Vector4(1, 1, -1, -1) }, uCity: { value: EDGE + 0.3 }, uTime: WATER.uTime, uSeaY: { value: SEA_Y },
   };
   const makeMat = coarse => {
     const m = new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0, envMapIntensity: 0.6, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 2 });
@@ -45,8 +46,8 @@ export function buildTerrain(scene, day) {
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBiome = aBiome; vWP = position; vNY = normal.y; vN = normal;');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
-          uniform sampler2D tGrass, tSand, tSnow, tRock, tLake; uniform vec4 uHole; uniform float uCity; varying vec4 vBiome; varying vec3 vWP; varying float vNY; varying vec3 vN;
-          float gFn, gBumpH, gBumpF;
+          uniform sampler2D tGrass, tSand, tSnow, tRock, tLake; uniform vec4 uHole; uniform float uCity, uTime, uSeaY; varying vec4 vBiome; varying vec3 vWP; varying float vNY; varying vec3 vN;
+          float gFn, gBumpH, gBumpF, gWet;
           float hsh(vec2 q) { return fract(sin(dot(q, vec2(127.1, 311.7))) * 43758.5453); }
           float vnoise(vec2 q) { vec2 i = floor(q), f = fract(q); f = f * f * (3.0 - 2.0 * f); return mix(mix(hsh(i), hsh(i + vec2(1.0, 0.0)), f.x), mix(hsh(i + vec2(0.0, 1.0)), hsh(i + vec2(1.0, 1.0)), f.x), f.y); }`)
         .replace('#include <map_fragment>', `#include <map_fragment>
@@ -72,10 +73,16 @@ export function buildTerrain(scene, day) {
           gFn = vnoise(p * 2.7) * 0.55 + vnoise(p * 7.1 + 3.0) * 0.33 + vnoise(p * 16.0 + 9.0) * 0.12;
           base *= 1.0 + (gFn - 0.5) * 0.75 * nearF;
           gBumpH = (dot(base, vec3(0.3, 0.55, 0.15)) * 0.9 + gFn * 0.7) * 0.035; gBumpF = nearF;
+          // The beach by the sea: sand is dark and glossy where the waves have just been, with a lace of foam left at the edge of the wash, which comes and goes.
+          float swash = uSeaY + 0.2 + 0.2 * sin(uTime * 0.7 + vWP.z * 0.03) + 0.12 * sin(uTime * 0.43 + vWP.z * 0.09 + 2.0), sandy = clamp(vBiome.y * 1.6, 0.0, 1.0);
+          gWet = (1.0 - smoothstep(swash, swash + 0.55, vWP.y)) * sandy;
+          float lace = (1.0 - smoothstep(0.0, 0.07, abs(vWP.y - swash))) * sandy * (0.4 + 0.6 * vnoise(p * 1.3 + uTime * 0.05));
+          base = mix(base, base * vec3(0.55, 0.52, 0.5), gWet);
+          base = mix(base, vec3(0.92, 0.93, 0.9), lace * 0.55);
           diffuseColor.rgb = base;`)
         .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
           // Snow and the lakebed catch the low sun; sand and grass stay matt.
-          roughnessFactor = clamp(1.0 - vBiome.z * (0.6 - 0.32 * gFn) - vBiome.w * 0.28 - vBiome.y * 0.05, 0.3, 1.0);`)
+          roughnessFactor = clamp(1.0 - vBiome.z * (0.6 - 0.32 * gFn) - vBiome.w * 0.28 - vBiome.y * 0.05 - gWet * 0.5, 0.25, 1.0);`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
           if (gBumpF > 0.001) {
             vec3 sX = dFdx(-vViewPosition), sY = dFdy(-vViewPosition), R1 = cross(sY, normal), R2 = cross(normal, sX);
@@ -162,12 +169,10 @@ export function buildTerrain(scene, day) {
     const m = new THREE.Mesh(g, matCoarse); m.receiveShadow = Q.shadows; m.frustumCulled = false; m.position.y = -0.5; group.add(m);
   }
 
-  // --- The sea, with ripples that drift -------------------------------------------------
-  const ripple = T.rippleNormal(); ripple.repeat.set(420, 420);
-  const sea = new THREE.Mesh(new THREE.PlaneGeometry(11000, 18000).rotateX(-Math.PI / 2), attachSSR(new THREE.MeshStandardMaterial({
-    color: day ? 0x1b5f7c : 0x3a3550, roughness: 0.07, metalness: 0.2, envMapIntensity: 1.6, normalMap: ripple, normalScale: new THREE.Vector2(0.7, 0.7),
-  }), { range: 160, rough: 0.4, view: 400 }));
-  sea.position.set(-3000 - 5500, SEA_Y, 0); group.add(sea);
+  // --- The sea: a grid that knows its own depth (see water.js: swell, foam, shallows, glitter) -------------------------------------------------
+  const ripple = rippleTex();
+  const sea = new THREE.Mesh(seaGeometry(heightAt, SEA_Y, coastX), attachSSR(seaMaterial(day, ripple), { range: 160, rough: 0.4, view: 400 }));
+  sea.position.set(0, SEA_Y, 0); sea.frustumCulled = false; group.add(sea);
 
   // --- Detail tiles streaming in and out --------------------------------------------------
   const tiles = new Map(), hooks = [];
@@ -236,7 +241,6 @@ export function buildTerrain(scene, day) {
       updateHole(ptx, ptz);
     },
     update(dt, x, z, budget = 3) {
-      ripple.offset.x += dt * 0.004; ripple.offset.y += dt * 0.003;
       const ptx = Math.floor(x / TILE), ptz = Math.floor(z / TILE), R = Q.tR;
       for (const [k, t] of tiles) if (Math.max(Math.abs(t.tx - ptx), Math.abs(t.tz - ptz)) > R + 1) unloadTile(k, t);
       if (job && Math.max(Math.abs(job.tx - ptx), Math.abs(job.tz - ptz)) > R + 1) job = null;

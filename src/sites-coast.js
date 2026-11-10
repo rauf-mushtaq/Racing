@@ -1,4 +1,5 @@
 // The places on the coast: a working harbour, a seaside village with a pier, and a lighthouse. See towns.js and kit.js.
+import { addPool } from './pools.js';
 import * as THREE from 'three';
 import { heightAt, SEA_Y } from './world.js';
 import { Kit, PAL, WHITE, CURB, hex, paint } from './kit.js';
@@ -119,6 +120,10 @@ BUILDERS.village = ({ S, kit, ctx, rnd, city, signBoard, anim }) => {
   // Beach umbrellas and sunbeds, a lifeguard tower and a kiosk, between the boardwalk and the sea.
   for (let n = 0; n < 16; n++) { const ux = bx - 8 - rnd() * 40, uz = Z - 170 + rnd() * 340; if (Math.abs(uz - zc) < 12 || heightAt(ux, uz) < SEA_Y + 0.3) continue; const c = colours[(rnd() * colours.length) | 0], y = heightAt(ux, uz) - kit.Y; kit.beam([ux, y, uz], [ux, y + 2.2, uz], 0.04, PAL.dark); kit.cone(1.4, 0.5, 8, ux, y + 2.1, uz, c); kit.box(ux + 1.4, uz - 0.4, ux + 3, uz + 0.4, y, y + 0.35, PAL.white); }
   { const lx = bx - 16, lz = Z - 60, y = Math.max(0, heightAt(lx, lz) - kit.Y); for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) kit.beam([lx + a, y, lz + b], [lx + a * 0.9, y + 2.8, lz + b * 0.9], 0.08, PAL.wood); kit.box(lx - 1.6, lz - 1.6, lx + 1.6, lz + 1.6, y + 2.8, y + 5, PAL.white); kit.gable(lx - 1.6, lz - 1.6, lx + 1.6, lz + 1.6, y + 5, 1.2, PAL.white, PAL.red, true, 0.4); kit.ring(lx, lz, 2); kit.panel(lx, y + 3, lz, 1, 0, 2.4, 1.3, PAL.glass, kit.g, 0.05); }
+  // The resort's swimming pool, between the sea-front boardwalk and the first houses, with sunbeds along its edge.
+  { const px0 = xs - 1, pz1 = zc - 33.5, px1 = px0 + 13, pz0 = pz1 - 5.6;
+    addPool(ctx, CURB, (a, b, c, d) => kit.collide(a, b, c, d), px0, pz0, px1, pz1, rnd);
+    for (let k = 0; k < 4; k++) { const lx = px0 + 1.6 + k * 2.6; kit.box(lx - 0.3, pz0 - 3.0, lx + 0.3, pz0 - 1.1, 0.05, 0.4, PAL.white); kit.box(lx - 0.3, pz0 - 1.1, lx + 0.3, pz0 - 0.85, 0.05, 0.58, PAL.white); } }
   // Palms along the main street and the sea front, lamps along the street.
   for (let x = xs + 8; x < xi; x += 24) { city.tree(ctx, x, zc - 8.2, 1.1, CURB, true); city.tree(ctx, x + 10, zc + 8.2, 1.1, CURB, true); }
   for (let z = Z - 180; z < Z + 180; z += 28) city.tree(ctx, bx + 2, z, 1.2, CURB, true);

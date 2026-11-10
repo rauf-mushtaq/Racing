@@ -21,6 +21,7 @@ import { inWater } from './rivercourse.js';
 import { nearestAvenue } from './avenues.js';
 import { BigMap } from './bigmap.js';
 import { buildTerrain } from './terrain.js';
+import { updateWater } from './water.js';
 import { initRoads } from './roads.js';
 import { initScatter } from './scatter.js';
 import { initGrass } from './grass.js';
@@ -1305,6 +1306,7 @@ function tickBody(dt) {
     updatePrompt();
   }
   city.update(F.x, F.z, st === 'paused' || st === 'map' ? 2 : 3.5);
+  updateWater(dt);
   terrain.update(dt, F.x, F.z, st === 'paused' || st === 'map' ? 1.5 : 3);
   structures.update(F.x, F.z); towns.update(F.x, F.z, dt, performance.now() / 1000);
   river.update(dt, F.x, F.z); landmarks.update(dt, F.x, F.z);
