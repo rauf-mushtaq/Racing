@@ -5,6 +5,7 @@
 // are lit by the sun, shadowed, reflect the sky and (through attachSSR) the street, like everything else.
 import * as THREE from 'three';
 import * as T from './textures.js';
+import { Q } from './quality.js';
 
 export const WATER = { uTime: { value: 0 } };
 export const updateWater = dt => { WATER.uTime.value += dt; };
@@ -47,6 +48,7 @@ export function seaGeometry(heightAt, seaY, coastX) {
 // day: the sea by day (deep blue-green, turquoise shallows) or at night (dark, violet).
 export function seaMaterial(day, ripple) {
   ripple.wrapS = ripple.wrapT = THREE.RepeatWrapping;
+  const lite = Q.name === 'low' || Q.name === 'medium';                                              // (the cheap sea for tablets and phones: the foam line and the swell, no noise-built foam stripes, caustics, ripples or glitter)
   const dbg = typeof window !== 'undefined' && window.__seaDebug ? 1 : 0;                                  // (a test aid: draws the depth and the foam as colours)
   const m = new THREE.MeshStandardMaterial({ color: day ? 0x1b5f7c : 0x3a3550, roughness: 0.07, metalness: 0, envMapIntensity: 1.6 });
   const shallow = day ? new THREE.Vector3(0.04, 0.3, 0.29) : new THREE.Vector3(0.03, 0.05, 0.09), sand = day ? new THREE.Vector3(0.5, 0.4, 0.22) : new THREE.Vector3(0.1, 0.09, 0.08);
@@ -62,32 +64,33 @@ export function seaMaterial(day, ripple) {
         vec2 q = vSeaW.xz; float t = uTime, d = max(vDepth, 0.0) * 4.0;                                      // (the beach here is a gentle 1.5% slope; the surf zone is drawn as if it were four times as steep, as a real one is)
         gSw = seaWave(q, t, smoothstep(0.05, 3.0, d));
         float dl = d + gSw.x * 0.6 * smoothstep(0.0, 1.2, d);                                           // the water rises and falls with the swell
-        float n1 = wNoise(q * 0.9 + vec2(t * 0.05, 0.0)), n2 = wNoise(q * 2.7 - vec2(0.0, t * 0.08));
+${lite ? `        float edge = smoothstep(0.62, 0.0, dl); gFoam = clamp(edge * 0.85, 0.0, 1.0); vec3 bed = uSand * 0.85;` : `        float n1 = wNoise(q * 0.9 + vec2(t * 0.05, 0.0)), n2 = wNoise(q * 2.7 - vec2(0.0, t * 0.08));
         float surge = 0.5 + 0.5 * sin(dl * 15.0 - t * 1.0 + 3.0 * wNoise(q * 0.07));
         float edge = smoothstep(0.62, 0.0, dl - 0.15 * surge);                                           // foam at the waterline,
         float runs = smoothstep(0.62, 1.0, surge) * smoothstep(1.7, 0.25, dl) * smoothstep(0.35, 0.8, n1);  // stripes of it running in as the waves break,
         float caps = smoothstep(0.80, 0.92, wNoise(q * 0.22 + vec2(t * 0.12, t * 0.05))) * smoothstep(4.0, 12.0, d) * (0.4 + 0.6 * n2);   // and whitecaps out at sea
         gFoam = clamp(edge * (0.45 + 0.75 * n2) + runs * 0.7 + caps * 0.55, 0.0, 1.0);
         float cau = pow(0.5 + 0.5 * sin(q.x * 0.9 + t * 0.6 + 2.0 * sin(q.y * 0.7 - t * 0.5)) * sin(q.y * 0.8 - t * 0.45 + 2.0 * sin(q.x * 0.6 + t * 0.35)), 3.0);
-        vec3 bed = uSand * (0.7 + 0.6 * cau);                                                            // the sea floor, seen through the shallows with the light playing on it
+        vec3 bed = uSand * (0.7 + 0.6 * cau);                                                            // the sea floor, seen through the shallows with the light playing on it`}
         vec3 col = mix(uShallow, diffuseColor.rgb, smoothstep(0.4, 7.0, d));
         col = mix(col, bed * 0.7 + uShallow * 0.4, 1.0 - smoothstep(0.0, 0.55, d));
         diffuseColor.rgb = mix(col, vec3(0.86, 0.9, 0.92), gFoam);
         ${dbg ? 'diffuseColor.rgb = vec3(clamp(d / 4.0, 0.0, 1.0), gFoam, step(vDepth, 0.0));' : ''}`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(0.045, 0.85, gFoam);')
-      .replace('#include <normal_fragment_maps>', `
+      .replace('#include <normal_fragment_maps>', lite ? `
+        normal = normalize((viewMatrix * vec4(normalize(vec3(-gSw.y, 1.0, -gSw.z)), 0.0)).xyz);` : `
         vec2 r1 = texture2D(tRip, q * 0.045 + vec2(t * 0.006, t * 0.004)).xy * 2.0 - 1.0, r2 = texture2D(tRip, q * 0.13 + vec2(-t * 0.009, t * 0.007)).xy * 2.0 - 1.0;
         float calm = mix(1.0, 0.35, gFoam);
         vec3 nw = normalize(vec3(-(gSw.y + (r1.x * 0.10 + r2.x * 0.07) * calm), 1.0, -(gSw.z + (r1.y * 0.10 + r2.y * 0.07) * calm)));
         normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz);`)
-      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      .replace('#include <emissivemap_fragment>', lite ? '#include <emissivemap_fragment>' : `#include <emissivemap_fragment>
         #if NUM_DIR_LIGHTS > 0
         { vec3 Hh = normalize(directionalLights[0].direction + normalize(vViewPosition)); float nh = max(dot(normal, Hh), 0.0);
           float sp = pow(nh, 600.0) * (0.5 + 0.9 * step(0.82, wHash(floor(q * 3.0) + floor(t * 2.0)))) * (1.0 - gFoam);                   // the sun glittering on the waves
           totalEmissiveRadiance += directionalLights[0].color * sp * 1.2; }
         #endif`);
   };
-  m.customProgramCacheKey = () => 'sea-v2' + (day ? 'd' : 'n');
+  m.customProgramCacheKey = () => 'sea-v2' + (day ? 'd' : 'n') + (lite ? 'l' : 'f');
   return m;
 }
 
