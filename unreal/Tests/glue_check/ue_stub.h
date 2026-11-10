@@ -43,7 +43,11 @@ struct FVector {
   static double DotProduct(const FVector&, const FVector&) { return 0; } static FVector CrossProduct(const FVector&, const FVector&) { return FVector(); }
   static double Dist(const FVector&, const FVector&) { return 0; } static double Dist2D(const FVector&, const FVector&) { return 0; } static double DistSquared(const FVector&, const FVector&) { return 0; }
 };
-struct FVector2D { double X = 0, Y = 0; FVector2D() {} FVector2D(double x, double y) : X(x), Y(y) {} };
+struct FVector2D { double X = 0, Y = 0; static const FVector2D ZeroVector; FVector2D() {} FVector2D(double x, double y) : X(x), Y(y) {}
+  FVector2D operator+(const FVector2D& o) const { return FVector2D(X + o.X, Y + o.Y); } FVector2D operator-(const FVector2D& o) const { return FVector2D(X - o.X, Y - o.Y); } FVector2D operator*(double s) const { return FVector2D(X * s, Y * s); } FVector2D operator/(double s) const { return FVector2D(X / s, Y / s); }
+  FVector2D& operator+=(const FVector2D& o) { X += o.X; Y += o.Y; return *this; } double Size() const { return std::sqrt(X * X + Y * Y); } FVector2D GetSafeNormal() const { return *this; } static double Distance(const FVector2D& a, const FVector2D& b) { return (a - b).Size(); } };
+extern uint64 GFrameCounter;
+namespace ETouchIndex { enum Type { Touch1, Touch2, Touch3, Touch4, Touch5, Touch6, Touch7, Touch8, Touch9, Touch10 }; }
 struct FVector4 { double X = 0, Y = 0, Z = 0, W = 0; FVector4() {} FVector4(double x, double y, double z, double w) : X(x), Y(y), Z(z), W(w) {} };
 struct FRotator { double Pitch = 0, Yaw = 0, Roll = 0; static const FRotator ZeroRotator; FRotator() {} FRotator(double p, double y, double r) : Pitch(p), Yaw(y), Roll(r) {} static double NormalizeAxis(double a) { return a; } };
 inline FRotator FVector::Rotation() const { return FRotator(); }
@@ -180,7 +184,8 @@ struct ACharacter : APawn { UCapsuleComponent* GetCapsuleComponent() const { ret
 struct APlayerCameraManager { float ViewPitchMin = 0, ViewPitchMax = 0; };
 struct FInputModeGameOnly {};
 struct APlayerController : AController { APlayerCameraManager* PlayerCameraManager = nullptr; bool IsInputKeyDown(FKey) const { return false; } bool WasInputKeyJustPressed(FKey) const { return false; } void GetInputMouseDelta(float&, float&) const {}
-  void SetShowMouseCursor(bool) {} void SetInputMode(const FInputModeGameOnly&) {} void Possess(APawn*) override {} };
+  void SetShowMouseCursor(bool) {} void SetInputMode(const FInputModeGameOnly&) {} void Possess(APawn*) override {}
+  void GetInputTouchState(ETouchIndex::Type, float&, float&, bool&) const {} void GetViewportSize(int32&, int32&) const {} };
 struct APlayerStart : AActor {};
 struct AHUD : AActor { UCanvas* Canvas = nullptr; virtual void DrawHUD() {} void DrawText(const FString&, FLinearColor, float, float, UObject* = nullptr, float = 1.f, bool = false) {} void DrawRect(FLinearColor, float, float, float, float) {} APawn* GetOwningPawn() const { return nullptr; } };
 struct AGameModeBase : AActor { TSubclassOf<APawn> DefaultPawnClass; TSubclassOf<AHUD> HUDClass; virtual void StartPlay() {} virtual AActor* ChoosePlayerStart_Implementation(AController*) { return nullptr; } };

@@ -4,6 +4,7 @@
 #include "SCCharacter.h"
 #include "SCDirector.h"
 #include "SCEnvironment.h"
+#include "SCTouch.h"
 #include "SCVehicle.h"
 
 void ASCHUD::DrawHUD()
@@ -44,6 +45,32 @@ void ASCHUD::DrawHUD()
 	if (!D->Prompt.IsEmpty()) DrawText(D->Prompt, FLinearColor::White, W * 0.5f - 90.f, H * 0.72f, nullptr, 1.7f, false);
 	if (P->IsAiming()) { DrawRect(FLinearColor::White, W * 0.5f - 1.f, H * 0.5f - 9.f, 2.f, 18.f); DrawRect(FLinearColor::White, W * 0.5f - 9.f, H * 0.5f - 1.f, 18.f, 2.f); }
 	if (P->IsDown()) DrawText(P->Health <= 0.f ? TEXT("WASTED") : TEXT("knocked down"), FLinearColor(1.f, 0.3f, 0.3f), W * 0.5f - 90.f, H * 0.4f, nullptr, 3.f, false);
+	if (D->Touch.bActive) DrawTouch(D->Touch);
 	if (ASCVehicle* V = Cast<ASCVehicle>(GetOwningPawn())) DrawText(FString::Printf(TEXT("%d km/h"), (int32)V->SpeedKmh()), FLinearColor::White, W - 260.f, H - 90.f, nullptr, 2.4f, false);
 	else DrawText(TEXT("WASD move   Shift run   Space jump   LMB punch   F kick   Q pistol   E use"), FLinearColor(1.f, 1.f, 1.f, 0.55f), 28.f, 24.f, nullptr, 1.1f, false);
+}
+
+void ASCHUD::DrawTouch(const FSCTouchControls& T)
+{
+	const float R = T.ButtonRadius();
+	// The stick: where the finger landed, and where it is now (or a hint where it will go).
+	if (T.bStick)
+	{
+		const float S = T.StickRadius();
+		DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.14f), (float)T.StickBase.X - S, (float)T.StickBase.Y - S, 2.f * S, 2.f * S);
+		DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.40f), (float)T.StickKnob.X - 0.4f * S, (float)T.StickKnob.Y - 0.4f * S, 0.8f * S, 0.8f * S);
+	}
+	else
+	{
+		const float S = T.StickRadius();
+		DrawRect(FLinearColor(1.f, 1.f, 1.f, 0.10f), 0.17f * (float)T.ViewW - S, 0.72f * (float)T.ViewH - S, 2.f * S, 2.f * S);
+	}
+	const TCHAR* FootLabels[FSCTouchControls::BtnCount] = {TEXT("PUNCH"), TEXT("JUMP"), TEXT("USE"), TEXT("KICK"), TEXT("PISTOL")};
+	const TCHAR* CarLabels[FSCTouchControls::BtnCount] = {TEXT("GAS"), TEXT("HAND BRAKE"), TEXT("EXIT"), TEXT("BRAKE"), TEXT("FLIP")};
+	for (int32 B = 0; B < FSCTouchControls::BtnCount; ++B)
+	{
+		const FVector2D C = T.ButtonCentre(B);
+		DrawRect(FLinearColor(1.f, 1.f, 1.f, T.bHeld[B] ? 0.45f : 0.16f), (float)C.X - R, (float)C.Y - R, 2.f * R, 2.f * R);
+		DrawText(T.bInCar ? CarLabels[B] : FootLabels[B], FLinearColor(1.f, 1.f, 1.f, 0.9f), (float)C.X - R * 0.8f, (float)C.Y - 8.f, nullptr, 1.1f, false);
+	}
 }

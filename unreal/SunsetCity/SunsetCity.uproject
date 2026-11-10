@@ -11,11 +11,35 @@
 		}
 	],
 	"Plugins": [
-		{ "Name": "ProceduralMeshComponent", "Enabled": true },
-		{ "Name": "PythonScriptPlugin", "Enabled": true },
-		{ "Name": "EditorScriptingUtilities", "Enabled": true },
-		{ "Name": "Interchange", "Enabled": true, "Optional": true },
-		{ "Name": "InterchangeEditor", "Enabled": true, "Optional": true }
+		{
+			"Name": "ProceduralMeshComponent",
+			"Enabled": true
+		},
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		},
+		{
+			"Name": "Interchange",
+			"Enabled": true,
+			"Optional": true
+		},
+		{
+			"Name": "InterchangeEditor",
+			"Enabled": true,
+			"Optional": true
+		},
+		{
+			"Name": "PixelStreaming",
+			"Enabled": true,
+			"Optional": true
+		}
 	],
-	"TargetPlatforms": [ "Windows" ]
+	"TargetPlatforms": [
+		"Windows"
+	]
 }

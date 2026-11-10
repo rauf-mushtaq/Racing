@@ -274,9 +274,13 @@ void ASCCharacter::Tick(float DeltaSeconds)
 		if (DownT <= 0.f && Health <= 0.f) { Respawn(true); return; }
 	}
 
-	// Look.
+	// Look (the mouse, or a finger dragged across the right of a touch screen).
+	ASCDirector* Dir = ASCDirector::Get(this);
+	FSCTouchControls* Touch = Dir ? &Dir->Touch : nullptr;
+	if (Touch) { Touch->bInCar = false; Touch->Update(PC); }
 	float DX = 0.f, DY = 0.f;
 	PC->GetInputMouseDelta(DX, DY);
+	if (Touch && Touch->bActive) { DX += (float)Touch->Look.X * 0.25f; DY += (float)Touch->Look.Y * 0.25f; }
 	AddControllerYawInput(DX * LookSensitivity);
 	AddControllerPitchInput(-DY * LookSensitivity);
 
@@ -286,15 +290,17 @@ void ASCCharacter::Tick(float DeltaSeconds)
 	const float Rt = (PC->IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::A) ? 1.f : 0.f);
 	const FRotator YawRot(0.f, GetControlRotation().Yaw, 0.f);
 	FVector Wish = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X) * Fw + FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y) * Rt;
+	const bool bTouchMove = Touch && Touch->bStick;
+	if (bTouchMove) Wish += FRotationMatrix(YawRot).GetUnitAxis(EAxis::X) * (float)Touch->Move.Y + FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y) * (float)Touch->Move.X;
 	const bool bAiming = IsAiming();
-	const bool bSprint = PC->IsInputKeyDown(EKeys::LeftShift) && !bAiming && BlowT < 0.f;
+	const bool bSprint = (PC->IsInputKeyDown(EKeys::LeftShift) || (bTouchMove && Touch->Move.Size() > 0.9)) && !bAiming && BlowT < 0.f;
 	GetCharacterMovement()->MaxWalkSpeed = bSprint ? SprintSpeed : (BlowT >= 0.f || bAiming ? WalkSpeed * 0.6f : WalkSpeed);
 	if (!bDown && !Wish.IsNearlyZero())
 	{
 		Wish.Normalize();
 		AddMovementInput(Wish, 1.f);
 	}
-	if (!bDown && PC->WasInputKeyJustPressed(EKeys::SpaceBar)) Jump();
+	if (!bDown && (PC->WasInputKeyJustPressed(EKeys::SpaceBar) || (Touch && Touch->bPressed[FSCTouchControls::BtnJump]))) Jump();
 	// While aiming the body faces where the camera looks; otherwise it turns the way it walks.
 	GetCharacterMovement()->bOrientRotationToMovement = !bAiming;
 	bUseControllerRotationYaw = bAiming;
@@ -305,16 +311,17 @@ void ASCCharacter::Tick(float DeltaSeconds)
 	// Fight, shoot, use.
 	if (!bDown)
 	{
-		if (PC->WasInputKeyJustPressed(EKeys::Q)) bGunDrawn = !bGunDrawn;
-		if (PC->WasInputKeyJustPressed(EKeys::E)) Interact();
+		const bool bTouchAttack = Touch && Touch->bHeld[FSCTouchControls::BtnAttack], bTouchAttackDown = Touch && Touch->bPressed[FSCTouchControls::BtnAttack];
+		if (PC->WasInputKeyJustPressed(EKeys::Q) || (Touch && Touch->bPressed[FSCTouchControls::BtnGun])) bGunDrawn = !bGunDrawn;
+		if (PC->WasInputKeyJustPressed(EKeys::E) || (Touch && Touch->bPressed[FSCTouchControls::BtnUse])) Interact();
 		if (bGunDrawn)
 		{
-			if (PC->IsInputKeyDown(EKeys::LeftMouseButton)) Shoot();
+			if (PC->IsInputKeyDown(EKeys::LeftMouseButton) || bTouchAttack) Shoot();
 		}
 		else
 		{
-			if (PC->WasInputKeyJustPressed(EKeys::LeftMouseButton)) StartBlow(NextPunch++ % 2);
-			if (PC->WasInputKeyJustPressed(EKeys::F)) StartBlow(2);
+			if (PC->WasInputKeyJustPressed(EKeys::LeftMouseButton) || bTouchAttackDown) StartBlow(NextPunch++ % 2);
+			if (PC->WasInputKeyJustPressed(EKeys::F) || (Touch && Touch->bPressed[FSCTouchControls::BtnKick])) StartBlow(2);
 		}
 	}
 	if (BlowT >= 0.f)

@@ -8,6 +8,7 @@
 #include "Core/SCBrain.h"
 #include "Core/SCBuildings.h"
 #include "Core/SCWanted.h"
+#include "SCTouch.h"
 #include "SCDirector.generated.h"
 
 class ASCCharacter;
@@ -40,6 +41,7 @@ public:
 	TArray<TWeakObjectPtr<ASCNpc>> Npcs;
 	TArray<TWeakObjectPtr<ASCVehicle>> Vehicles;
 	FString Prompt;                                          // what pressing E would do right now ("" if nothing)
+	FSCTouchControls Touch;                                  // the fingers on a touch screen (see SCTouch.h)
 
 	void Commit(SC::Crime C, float Amount = 1.f);
 	float NightAmount() const;

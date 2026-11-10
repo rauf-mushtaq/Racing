@@ -151,11 +151,31 @@ void ASCVehicle::ReadInput(float Dt)
 		if (bS) { if (Forward > 150.f) BrakeInput = 1.f; else Throttle = -0.7f; }
 		Handbrake = PC->IsInputKeyDown(EKeys::SpaceBar) ? 1.f : 0.f;
 		SteerTarget = (bD ? 1.f : 0.f) - (bA ? 1.f : 0.f);
-		if (PC->WasInputKeyJustPressed(EKeys::E)) { Driver->LeaveCar(); return; }
-		if (PC->WasInputKeyJustPressed(EKeys::R)) { SetActorRotation(FRotator(0.f, GetActorRotation().Yaw, 0.f)); AddActorWorldOffset(FVector(0.f, 0.f, 120.f)); Body->SetPhysicsLinearVelocity(FVector::ZeroVector); Body->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector); }
+		bool bExit = PC->WasInputKeyJustPressed(EKeys::E), bFlip = PC->WasInputKeyJustPressed(EKeys::R);
+		float TouchLookX = 0.f, TouchLookY = 0.f;
+		if (ASCDirector* Dir = ASCDirector::Get(this))
+		{
+			FSCTouchControls& T = Dir->Touch;
+			T.bInCar = true;
+			T.Update(PC);
+			if (T.bActive)                                              // a touch screen: the stick steers, the buttons are the pedals
+			{
+				if (T.bStick) SteerTarget = FMath::Clamp((float)T.Move.X, -1.f, 1.f);
+				if (T.bHeld[FSCTouchControls::BtnAttack]) { if (Forward < -150.f) BrakeInput = 1.f; else Throttle = 1.f; }
+				if (T.bHeld[FSCTouchControls::BtnKick]) { if (Forward > 150.f) BrakeInput = 1.f; else Throttle = -0.7f; }
+				if (T.bHeld[FSCTouchControls::BtnJump]) Handbrake = 1.f;
+				bExit = bExit || T.bPressed[FSCTouchControls::BtnUse];
+				bFlip = bFlip || T.bPressed[FSCTouchControls::BtnGun];
+				TouchLookX = (float)T.Look.X * 0.25f;
+				TouchLookY = (float)T.Look.Y * 0.25f;
+			}
+		}
+		if (bExit) { Driver->LeaveCar(); return; }
+		if (bFlip) { SetActorRotation(FRotator(0.f, GetActorRotation().Yaw, 0.f)); AddActorWorldOffset(FVector(0.f, 0.f, 120.f)); Body->SetPhysicsLinearVelocity(FVector::ZeroVector); Body->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector); }
 		// Look round with the mouse for a moment; otherwise the camera swings in behind the car.
 		float DX = 0.f, DY = 0.f;
 		PC->GetInputMouseDelta(DX, DY);
+		DX += TouchLookX; DY += TouchLookY;
 		SinceMouse = (FMath::Abs(DX) + FMath::Abs(DY) > 0.f) ? 0.f : SinceMouse + Dt;
 		Arm->SetRelativeRotation(FRotator(FMath::Clamp(Arm->GetRelativeRotation().Pitch - DY * 0.5, -50.0, 15.0), FMath::Clamp(Arm->GetRelativeRotation().Yaw + DX * 0.6, -150.0, 150.0), 0.0));
 		if (SinceMouse > 1.5f) Arm->SetRelativeRotation(FMath::RInterpTo(Arm->GetRelativeRotation(), FRotator(-13.f, 0.f, 0.f), Dt, 2.5f));

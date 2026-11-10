@@ -5,6 +5,8 @@
 #include "GameFramework/HUD.h"
 #include "SCHUD.generated.h"
 
+struct FSCTouchControls;
+
 UCLASS()
 class SUNSETCITY_API ASCHUD : public AHUD
 {
@@ -12,4 +14,7 @@ class SUNSETCITY_API ASCHUD : public AHUD
 
 public:
 	virtual void DrawHUD() override;
+
+private:
+	void DrawTouch(const FSCTouchControls& T);
 };

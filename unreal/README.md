@@ -19,7 +19,36 @@ An Unreal Engine 5 project of the same game: the city, its people, its cars and 
    This makes the empty map `Main` (the game builds everything itself, the map needs nothing in it), **builds the materials** (`sc_build_materials.py`) and **imports the models** from `../../assets` (`sc_import_assets.py`). If a step fails it says so and carries on. You can run each script on its own too.
 5. Press **Play** (Alt+P), click in the viewport so it has the mouse and keyboard. To make a standalone `.exe`: Platforms > Windows > Package Project.
 
+### A game file (SunsetCity.exe)
+
+After steps 1 to 4 once (so the materials and the map exist), run **`Package_Windows.bat`** (double-click it; Unreal and Visual Studio must be installed; if Unreal is not in `C:\Program Files\Epic Games\UE_5.5`, set `UE_ROOT` first). It cooks and packages the game into `unreal\Packaged\Windows\SunsetCity.exe`: a file you can copy to another Windows PC with a graphics card and run.
+
 Without step 4's material script the game still runs, drawn in flat vertex colours with no lighting detail (the engine's own vertex-colour material is the fallback).
+
+## Play it in a browser or on an iPad: Pixel Streaming (the "web version" that uses Unreal)
+
+Unreal Engine cannot run inside a web page, and it cannot run on an iPad itself (its web export was removed in Unreal 5, and an iPad's graphics chip could not run this anyway). What does work is **Pixel Streaming**, Unreal's own way of putting a game in a browser: the game runs on **your PC** (the RTX card draws it, with Lumen and ray tracing), the picture is sent to the browser as video over the network, and the browser sends your touches, keys and mouse back. The iPad is only the screen and the controller.
+
+1. On the PC, once: build and set up the project (steps 1 to 4 above) and run **`Package_Windows.bat`**. If Unreal's Pixel Streaming web server is not installed (Unreal 5.4 and later do not ship it), run `Engine\Plugins\Media\PixelStreaming\Resources\WebServers\get_ps_servers.bat` from your Unreal folder once.
+2. Each time: run **`Play_Streaming.bat`**. It starts the game (windowless, 1920 x 1080) and Unreal's signalling web server, and prints an address such as `http://192.168.1.20`.
+3. On the iPad (or a phone, or another PC) on the **same Wi-Fi**, open that address in Safari or Chrome, or open **`unreal.html`** of the web version (it is the "Unreal" link in the web version's menu) and type the address into it. Tap the picture.
+4. Play. On a touch screen the game draws its own controls (below); a keyboard and mouse or trackpad on the iPad work as on the PC.
+
+Away from home: the iPad has to reach the PC, which a free private network such as Tailscale does without opening anything to the internet. The web version's page is served over https, so it can open your PC's address but cannot show it inside itself.
+
+**Not run here, so treat it as untested:** the plugin name, the command-line flags and the signalling server's script names differ between Unreal versions (`PixelStreaming` in 5.5; 5.6 and later call the newer plugin `PixelStreaming2`, enable that one instead and its flags are `-PixelStreamingConnectionURL=`); `Play_Streaming.bat` passes both spellings and looks for the usual script names, and says what to do when it cannot find them. Video quality depends on the Wi-Fi (5 GHz and a wired PC are best; expect a few tens of milliseconds of delay).
+
+### Touch controls (when a finger touches the picture)
+
+| | |
+|---|---|
+| **left side** of the screen | a stick: walk (push it far to run); in a car, left and right steer |
+| **drag anywhere else** | look round (in a car, look round the car) |
+| **PUNCH** (fire when the pistol is out) | in a car: **GAS** |
+| **JUMP** | in a car: **HAND BRAKE** |
+| **USE** | get in or out of a car, take a wallet, rob a till |
+| **KICK** | in a car: **BRAKE** and reverse |
+| **PISTOL** | draw or put away the pistol (in a car: **FLIP** the car back onto its wheels) |
 
 ## Controls
 
@@ -60,13 +89,14 @@ Hit someone and he reacts: an ordinary person runs; **about 1 in 11 people is ar
 | `SCNpc` | pedestrians, fighters, staff, officers: stroll, react, fight (using `SCBrain.h`), lie down, have a wallet |
 | `SCVehicle` | a car: a rigid body with four raycast wheels (spring, damper, tyre grip and drive forces), the body and wheels from `SCCarBody.h`, headlights, a police car's flashing lights, running people over; police cars drive themselves at you |
 | `SCDirector` | keeps about 22 people on the pavements near you (1 in 11 armed, 1 in 16 a big man), the stars, police on foot and in cars, arrests, wallets, the staff and tills of the places you can walk into, the money |
-| `SCHUD` | health, money, clock, stars, "E" prompts, crosshair, speed |
+| `SCHUD` | health, money, clock, stars, "E" prompts, crosshair, speed, and the touch controls |
+| `SCTouch` | the fingers on a touch screen (a stick, a look area, buttons) read each frame; used by the character and the car |
 
 Handling, population and streaming numbers are `UPROPERTY` fields (the car's springs and grip, `LoadRadius`, `MaxPedestrians`, the day length) so they can be changed in the editor; the car's numbers are guesses and will want tuning.
 
 ## Honest notes
 
-- **Not compiled, not run** (see the top). It was written against the Unreal 5.4 to 5.6 API from memory of the headers; settings whose names move between versions are set by name at run time (`SCU::SetNum`) so a missing one only logs a warning.
+- **Not compiled, not run** (see the top). That includes the packaging and Pixel Streaming scripts and the touch controls (`SCTouch.*`), which are the newest and the least checked: the touch code was syntax-checked against the stand-in like the rest, but how Pixel Streaming reports a finger (as touch events or as a mouse) depends on the frontend and version, so if the controls do not appear on the iPad, send back what you see. It was written against the Unreal 5.4 to 5.6 API from memory of the headers; settings whose names move between versions are set by name at run time (`SCU::SetNum`) so a missing one only logs a warning.
 - **The geometry is procedural and stylised.** The buildings are boxy with believable detail (window frames, sills, balconies, awnings, cornices, roof plant), the cars are lofted shells, the people are jointed ellipsoids and cylinders, not scanned or MetaHuman-quality. This is the foundation and a generator; **it will not look like GTA 6**, which is the work of hundreds of artists. What makes the picture read as real here is the lighting and materials Unreal gives it (Lumen, VSM, the physical sky, clear coat, subsurface, refraction).
 - **Procedural meshes are not Nanite, and software Lumen cannot see them** (no mesh distance fields): the project turns hardware ray tracing on for Lumen so it can. On a card without it, set `r.Lumen.HardwareRayTracing=False` in `Config/DefaultEngine.ini` and expect flatter light.
 - **Streaming is the game's own** (nearest blocks first, a few ms a frame), not World Partition: the world is generated, not authored, so there is nothing for World Partition to partition. About 340 to 700 MB of RAM for the loaded blocks (7 x 7 at the default; `LoadRadius` 2 is about half).

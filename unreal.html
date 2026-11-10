@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sunset City on Unreal Engine</title>
+<style>
+  :root { color-scheme: dark; --bg: #11141a; --card: #1a1f29; --line: #2b3342; --text: #e9edf4; --dim: #9aa6ba; --accent: #ff9a3c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(1200px 600px at 50% -10%, #2a2335 0%, var(--bg) 60%); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px; }
+  main { width: min(560px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+  h1 { margin: 0 0 6px; font-size: 1.5rem; letter-spacing: .02em; }
+  p { margin: .6em 0; color: var(--dim); }
+  b { color: var(--text); }
+  label { display: block; margin: 18px 0 6px; color: var(--text); font-weight: 600; }
+  input { width: 100%; padding: 14px; font-size: 1.05rem; border-radius: 10px; border: 1px solid var(--line); background: #0e1117; color: var(--text); }
+  input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  button { margin-top: 12px; width: 100%; padding: 14px; font-size: 1.05rem; font-weight: 700; border: 0; border-radius: 10px; background: var(--accent); color: #1b1206; cursor: pointer; }
+  ol { margin: .4em 0 0; padding-left: 1.2em; color: var(--dim); } li { margin: .35em 0; }
+  a { color: var(--accent); } small { color: var(--dim); display: block; margin-top: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sunset City on Unreal Engine 5</h1>
+  <p>Unreal Engine cannot run inside a web page or on an iPad itself. This page connects this device to the <b>Unreal version running on your PC</b>: the PC's graphics card draws the game and streams the picture here (Pixel Streaming), and your touches, keys and mouse go back to it.</p>
+  <label for="addr">Your PC's address</label>
+  <input id="addr" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="192.168.1.20  (the address Play_Streaming.bat printed)">
+  <button id="go" type="button">Connect to Unreal</button>
+  <p id="msg" role="status"></p>
+  <ol>
+    <li>On the PC, run <b>Package_Windows.bat</b> once, then <b>Play_Streaming.bat</b> (both are in the <code>unreal</code> folder of the project).</li>
+    <li>Type the address it shows here (this device must be on the same Wi-Fi as the PC, or joined to it with something like Tailscale).</li>
+    <li>Click or tap the picture. On a touch screen a stick, a look area and buttons appear.</li>
+  </ol>
+  <small>This page makes no network requests itself: it only opens the address you type. <a href="index.html">Back to the web version</a> (which runs on this device's own graphics, in the browser).</small>
+</main>
+<script>
+  const addr = document.getElementById('addr'), msg = document.getElementById('msg');
+  try { addr.value = localStorage.getItem('sunsetcity.unrealPc') || ''; } catch (e) { /* private mode: nothing to remember */ }
+  function go() {
+    let v = addr.value.trim();
+    if (!v) { msg.textContent = 'Type the address first.'; addr.focus(); return; }
+    try { localStorage.setItem('sunsetcity.unrealPc', v); } catch (e) { /* ignore */ }
+    if (!/^https?:\/\//i.test(v)) v = 'http://' + v;
+    msg.textContent = 'Opening ' + v + ' …';
+    location.href = v;
+  }
+  document.getElementById('go').addEventListener('click', go);
+  addr.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+</script>
+</body>
+</html>
