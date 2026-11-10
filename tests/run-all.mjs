@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FILES = ['perf', 'map', 'sites', 'bigmap', 'bench', 'audio', 'smoke', 'cars', 'graphics', 'water', 'rooms', 'melee', 'brawl', 'heist', 'input'];
+const FILES = ['perf', 'map', 'sites', 'bigmap', 'bench', 'audio', 'smoke', 'cars', 'graphics', 'water', 'rooms', 'melee', 'brawl', 'heist', 'input', 'launcher'];
 const want = process.argv.slice(2), unknown = want.filter(n => !FILES.includes(n));
 if (unknown.length) { console.error('no such test file: ' + unknown.join(', ') + '   (there are: ' + FILES.join(', ') + ')'); process.exit(2); }
 

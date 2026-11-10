@@ -33,6 +33,7 @@
     <li>Type the address it shows here (this device must be on the same Wi-Fi as the PC, or joined to it with something like Tailscale).</li>
     <li>Click or tap the picture. On a touch screen a stick, a look area and buttons appear.</li>
   </ol>
+  <p>If nothing opens: is <b>Play_Streaming.bat</b> still running on the PC, is this device on the same Wi-Fi, and did Windows ask to let it through the firewall (say yes)? Then come back to this page and try again.</p>
   <small>This page makes no network requests itself: it only opens the address you type. <a href="index.html">Back to the web version</a> (which runs on this device's own graphics, in the browser).</small>
 </main>
 <script>
@@ -41,8 +42,11 @@
   function go() {
     let v = addr.value.trim();
     if (!v) { msg.textContent = 'Type the address first.'; addr.focus(); return; }
-    try { localStorage.setItem('sunsetcity.unrealPc', v); } catch (e) { /* ignore */ }
-    if (!/^https?:\/\//i.test(v)) v = 'http://' + v;
+    const typed = v; if (!/^https?:\/\//i.test(v)) v = 'http://' + v;
+    let host = ''; try { host = new URL(v).hostname; } catch (e) { /* not an address */ }
+    const ok = /^(\[[0-9a-f:.]+\]|[a-z0-9_]([a-z0-9._-]*[a-z0-9_])?)$/i.test(host);        // (numbers and dots, or a computer's name; some browsers let spaces and brackets through new URL)
+    if (!ok) { msg.textContent = 'That does not look like an address. It should look like 192.168.1.20: just the numbers and dots the PC showed.'; addr.focus(); return; }
+    try { localStorage.setItem('sunsetcity.unrealPc', typed); } catch (e) { /* ignore */ }
     msg.textContent = 'Opening ' + v + ' …';
     location.href = v;
   }
