@@ -54,26 +54,28 @@ function leafTree(detail) {
   return { core: mergeGeomsUV([trunk, ...core]), cards: mergeGeomsUV(cards) };
 }
 
-// A low tropical bush: a few small dark blobs thick with leaf cards.
+// A low tropical bush: a few small blobs thick with leaf cards (so no core shows through), and a second set of cards that are sprigs of flowers.
 function leafBush(detail) {
-  const rnd = mulberry32(44), core = [], cards = [];
-  for (const [x, y, z, r] of [[0, 0.55, 0, 0.7], [0.6, 0.45, 0.3, 0.5], [-0.5, 0.5, -0.3, 0.55]]) {
-    const ico = new THREE.IcosahedronGeometry(r * 0.4, 1); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
+  const rnd = mulberry32(44), core = [], cards = [], bloom = [], blobs = [[0, 0.55, 0, 0.7], [0.6, 0.45, 0.3, 0.5], [-0.5, 0.5, -0.3, 0.55]];
+  const card = (x, y, z, r, size, lo, tone) => {                                      // one leaf or flower card on the outside of a blob
+    const u = rnd() * 1.4 - lo, a = rnd() * Math.PI * 2, s = Math.sqrt(Math.max(0, 1 - u * u));
+    const n = new THREE.Vector3(s * Math.cos(a), u, s * Math.sin(a)).normalize(), rr = r * (0.7 + rnd() * 0.55);
+    const c = new THREE.PlaneGeometry(size, size).rotateZ(rnd() * 6.28);
+    const face = n.clone().add(new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.8)).normalize();
+    c.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), face)).translate(x + n.x * rr, y + n.y * rr * 0.8, z + n.z * rr);
+    const np = c.attributes.position, nn = c.attributes.normal, cc = [];
+    for (let i = 0; i < np.count; i++) { const d = new THREE.Vector3(np.getX(i) - x, np.getY(i) - y + 0.2, np.getZ(i) - z).normalize(); nn.setXYZ(i, d.x, d.y, d.z); const sh = tone + rnd() * 0.3; cc.push(sh, sh, sh); }
+    c.setAttribute('color', new THREE.Float32BufferAttribute(cc, 3)); return c;
+  };
+  for (const [x, y, z, r] of blobs) {
+    const ico = new THREE.IcosahedronGeometry(r * 0.3, 1); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
     const g = mergeVertices(ico), p = g.attributes.position;
     for (let i = 0; i < p.count; i++) { v3.fromBufferAttribute(p, i); p.setXYZ(i, v3.x + x, v3.y * 0.8 + y + 0.08, v3.z + z); }
-    g.computeVertexNormals(); paint(g, 0.025, 0.04, 0.015); withUV(g); core.push(g);
-    for (let k = 0; k < [8, 12, 16][detail]; k++) {
-      const u = rnd() * 1.4 - 0.2, a = rnd() * Math.PI * 2, s = Math.sqrt(Math.max(0, 1 - u * u));
-      const n = new THREE.Vector3(s * Math.cos(a), u, s * Math.sin(a)).normalize(), rr = r * (0.6 + rnd() * 0.6), size = 0.5 + rnd() * 0.7;
-      const card = new THREE.PlaneGeometry(size, size).rotateZ(rnd() * 6.28);
-      const face = n.clone().add(new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(0.8)).normalize();
-      card.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), face)).translate(x + n.x * rr, y + n.y * rr * 0.8, z + n.z * rr);
-      const np = card.attributes.position, nn = card.attributes.normal, cc = [];
-      for (let i = 0; i < np.count; i++) { const d = new THREE.Vector3(np.getX(i) - x, np.getY(i) - y + 0.2, np.getZ(i) - z).normalize(); nn.setXYZ(i, d.x, d.y, d.z); const sh = 0.75 + rnd() * 0.35; cc.push(sh, sh, sh); }
-      card.setAttribute('color', new THREE.Float32BufferAttribute(cc, 3)); cards.push(card);
-    }
+    g.computeVertexNormals(); paint(g, 0.07, 0.12, 0.04); withUV(g); core.push(g);
+    for (let k = 0; k < [12, 20, 28][detail]; k++) cards.push(card(x, y, z, r, 0.55 + rnd() * 0.75, 0.3, 0.72));
+    for (let k = 0; k < [4, 6, 8][detail]; k++) bloom.push(card(x, y, z, r * 1.08, 0.3 + rnd() * 0.3, 0.1, 0.85));
   }
-  return { core: mergeGeomsUV(core), cards: mergeGeomsUV(cards) };
+  return { core: mergeGeomsUV(core), cards: mergeGeomsUV(cards), bloom: mergeGeomsUV(bloom) };
 }
 
 function palm(detail) {
@@ -205,7 +207,7 @@ export function makeProps() {
   const a2c = Q.msaa > 0;
   const tree = leafTree(Q.treeDetail), pl = palm(Q.treeDetail);
   const bush = leafBush(Q.treeDetail);
-  const geo = { pine: pineGeo(Q.treeDetail, false), snowPine: pineGeo(Q.treeDetail, true), cactus: cactusGeo(), rock: rockGeo(), bushCore: bush.core, bushCards: bush.cards, treeCore: tree.core, treeCards: tree.cards, palmTrunk: pl.trunk, palmFronds: pl.fronds, hedge: hedge() };
+  const geo = { pine: pineGeo(Q.treeDetail, false), snowPine: pineGeo(Q.treeDetail, true), cactus: cactusGeo(), rock: rockGeo(), bushCore: bush.core, bushCards: bush.cards, bushBloom: bush.bloom, treeCore: tree.core, treeCards: tree.cards, palmTrunk: pl.trunk, palmFronds: pl.fronds, hedge: hedge() };
   geo.lamp = mergeGeoms([new THREE.CylinderGeometry(0.08, 0.14, 8.6, 10).translate(0, 4.3, 0), new THREE.CylinderGeometry(0.06, 0.06, 2.8, 8).rotateX(Math.PI / 2).translate(0, 8.4, 1.4), new THREE.BoxGeometry(0.42, 0.16, 0.95).translate(0, 8.4, 2.9)]);
   geo.bulb = new THREE.SphereGeometry(0.3, 8, 5).scale(0.9, 0.35, 1.4).translate(0, 8.3, 2.9);
   geo.pool = new THREE.PlaneGeometry(14, 14).rotateX(-Math.PI / 2).translate(0, 0, 3);
@@ -228,6 +230,7 @@ export function makeProps() {
   const mat = {
     treeCore: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }),
     treeCards: new THREE.MeshStandardMaterial({ map: T.leafTex(), vertexColors: true, alphaTest: 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.85 }),
+    bushBloom: new THREE.MeshStandardMaterial({ map: T.flowerTex(), vertexColors: true, alphaTest: 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.7 }),
     palmTrunk: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
     palmFronds: new THREE.MeshStandardMaterial({ map: T.frondTex(), alphaTest: 0.45, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.8, color: 0xd8e8b0 }),
     pine: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }),
@@ -238,7 +241,7 @@ export function makeProps() {
     bulb: TOD.lampsOn ? new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 5.6, 2.8) }) : new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.3 }),
     pool: new THREE.MeshBasicMaterial({ map: T.glowTex(), color: new THREE.Color(0.32, 0.2, 0.1), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
     pole: new THREE.MeshStandardMaterial({ color: 0x5b4a3c, roughness: 0.9 }),
-    wire: new THREE.LineBasicMaterial({ color: 0x1c1c1e }),
+    wire: new THREE.MeshBasicMaterial({ color: 0x1c1c1e, side: THREE.DoubleSide }),          // (the power wires are thin ribbons, not 1-pixel lines: a line that runs nearly level breaks into dashes on a pixel grid, a ribbon of a few centimetres fades smoothly with multisampling)
     sigDark: new THREE.MeshStandardMaterial({ color: 0x2b2d2f, roughness: 0.5, metalness: 0.5 }),
     sigHead: new THREE.MeshStandardMaterial({ color: 0x1a1b1c, roughness: 0.6 }),
     sigLamp: { R: new THREE.MeshBasicMaterial({ color: cols.R }), A: new THREE.MeshBasicMaterial({ color: cols.A }), G: new THREE.MeshBasicMaterial({ color: cols.G }) },
@@ -248,6 +251,6 @@ export function makeProps() {
     billFrame: new THREE.MeshStandardMaterial({ color: 0x222226, roughness: 0.6, metalness: 0.4 }),
     billFace: new THREE.MeshStandardMaterial({ map: billTex, emissiveMap: billTex, emissive: 0xffffff, emissiveIntensity: TOD.lampsOn ? 0.9 : 0.35, roughness: 0.6 }),
   };
-  windify(mat.treeCore, 0.2, 8, 0); windify(mat.treeCards, 0.2, 8, 0.05, 1.1); windify(mat.palmTrunk, 0.42, 12, 0); windify(mat.palmFronds, 0.42, 12, 0.07, 1.3); windify(mat.pine, 0.13, 10, 0.02);
+  windify(mat.treeCore, 0.2, 8, 0); windify(mat.treeCards, 0.2, 8, 0.05, 1.1); windify(mat.bushBloom, 0.2, 8, 0.03, 0.6); windify(mat.palmTrunk, 0.42, 12, 0); windify(mat.palmFronds, 0.42, 12, 0.07, 1.3); windify(mat.pine, 0.13, 10, 0.02);
   return { geo, mat };
 }

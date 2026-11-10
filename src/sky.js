@@ -5,6 +5,7 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { fbm, mulberry32, lerp, clamp } from './util.js';
 import { puffTex } from './textures.js';
+import { buildCloudLayer } from './clouds.js';
 import { TOD } from './tod.js';
 import { Q } from './quality.js';
 
@@ -104,7 +105,9 @@ export function buildSky(scene, renderer, quality) {
   buildMountains(dome);
   if (TOD.night) buildNight(dome);
   const clouds = buildClouds(dome);
-  return { sky, sun, hemi, dome, clouds };
+  const C = TOD.clouds, layer = buildCloudLayer({ sun: TOD.night ? LIGHT_DIR : SUN_DIR, sunCol: C.sunCol, amb: C.amb, haze: C.haze, cover: C.cover, taps: Q.cloudTaps ?? 2 });
+  dome.add(layer);
+  return { sky, sun, hemi, dome, clouds, layer };
 }
 
 // Moves the sun's shadow box with the car, snapped to whole shadow texels so
@@ -210,36 +213,8 @@ function buildClouds(scene) {
       const c = new THREE.Color().setRGB(lerp(0.74, 1.0, t), lerp(0.48, 0.66, t), lerp(0.56, 0.70, t));
       mk(p, size * (1 + rnd() * 0.4), size, c, 0.30 + 0.25 * (1 - t) + rnd() * 0.1);
     }
-    // Low clouds strung along the horizon, lit pink from below.
-    for (let i = 0; i < 46; i++) {
-      const a = (rnd() - 0.5) * Math.PI * 1.7 + Math.PI;
-      const d = 5200 + rnd() * 2000;
-      const p = new THREE.Vector3(Math.sin(a) * d, 300 + rnd() * 900, Math.cos(a) * d);
-      const toward = Math.max(0, -Math.cos(a));
-      const c = new THREE.Color().setRGB(1.0, lerp(0.62, 0.74, toward), lerp(0.70, 0.62, toward));
-      mk(p, 1500 + rnd() * 2500, 260 + rnd() * 320, c, 0.25 + rnd() * 0.3);
-    }
-  } else {
-    // Fair-weather cumulus: clumps of puffs, white on top and grey underneath.
-    // Colours above 1 so they read as sunlit against the bright sky; warm-lit
-    // at golden hour, with a bank of cloud towards the sun.
-    const tint = TOD.cloudTint, sunAz = Math.atan2(SUN_DIR.x, SUN_DIR.z);
-    for (let k = 0; k < 34; k++) {
-      const a = TOD.split > 0 && k % 2 ? sunAz + (rnd() - 0.5) * 2.0 : rnd() * Math.PI * 2, d = 2600 + rnd() * 1900;
-      const cx = Math.sin(a) * d, cz = Math.cos(a) * d, cy = 420 + rnd() * 500;
-      const n = 5 + (rnd() * 6) | 0, w = 130 + rnd() * 200;
-      for (let i = 0; i < n; i++) {
-        const p = new THREE.Vector3(cx + (rnd() - 0.5) * w * 2.4, cy + (rnd() - 0.2) * w * 0.45, cz + (rnd() - 0.5) * w);
-        const sz = w * (0.7 + rnd() * 0.6), v = 0.85 + rnd() * 0.25;
-        mk(p, sz * 1.5, sz, new THREE.Color(tint[0] * v, tint[1] * v, tint[2] * v), 0.6 + rnd() * 0.3);
-      }
-    }
-    // Thin haze along the horizon.
-    for (let i = 0; i < 30; i++) {
-      const a = rnd() * Math.PI * 2, d = 4500 + rnd() * 500;
-      mk(new THREE.Vector3(Math.sin(a) * d, 300 + rnd() * 200, Math.cos(a) * d), 2000 + rnd() * 2000, 160 + rnd() * 140, new THREE.Color(TOD.cloudTint[0] * 0.8, TOD.cloudTint[1] * 0.85, TOD.cloudTint[2] * 0.92), 0.2 + rnd() * 0.12);
-    }
-  }
+  }                                                            // (the rest of the sky's clouds are the shader layer in clouds.js)
+  if (!quads.length) { const none = new THREE.Group(); scene.add(none); return none; }           // (only the sunset has sprite clouds: its smoke plume)
   quads.sort((a, b) => Math.hypot(b.p.x, b.p.z) - Math.hypot(a.p.x, a.p.z));
   const pos = [], uv = [], col = [], idx = [];
   const up = new THREE.Vector3(0, 1, 0), right = new THREE.Vector3();

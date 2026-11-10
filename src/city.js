@@ -184,12 +184,12 @@ function macro(mat, scale, amount) {
 // show up sharp and mirror-like there), it darkens, and its grain disappears, while the rest stays damp. The patches come from noise in
 // world space, so they're the same every time you pass. `wet` is how much of it (0..1), `damp` darkens the rest in rain by day (the
 // night streets are already tuned wet).
-export const WETNESS = { wet: { value: 0 }, damp: { value: 0 } };
-function puddles(mat, cover = 0.6) {
+export const WETNESS = { wet: { value: 0 }, damp: { value: 0 }, rip: { value: 0 }, t: { value: 0 } };          // (rip: 1 while it rains, so the puddles are pocked with rain rings; t: the clock for them)
+function puddles(mat, cover = 0.6, kind = '') {
   const prev = mat.onBeforeCompile, key = Object.prototype.hasOwnProperty.call(mat, 'customProgramCacheKey') ? mat.customProgramCacheKey() : (prev ? prev.toString() : '');
   mat.onBeforeCompile = (sh, r) => {
     if (prev) prev.call(mat, sh, r);
-    sh.uniforms.uWet = WETNESS.wet; sh.uniforms.uDamp = WETNESS.damp;
+    sh.uniforms.uWet = WETNESS.wet; sh.uniforms.uDamp = WETNESS.damp; sh.uniforms.uRip = WETNESS.rip; sh.uniforms.uRipT = WETNESS.t;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vPdW;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         #ifdef USE_INSTANCING
@@ -198,28 +198,54 @@ function puddles(mat, cover = 0.6) {
           vPdW = (modelMatrix * vec4(transformed, 1.0)).xyz;
         #endif`);
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      varying vec3 vPdW; uniform float uWet, uDamp;
+      varying vec3 vPdW; uniform float uWet, uDamp, uRip, uRipT;
       float pdH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float pdN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(pdH(i), pdH(i + vec2(1.0, 0.0)), f.x), mix(pdH(i + vec2(0.0, 1.0)), pdH(i + vec2(1.0, 1.0)), f.x), f.y); }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         float pdn = 0.55 * pdN(vPdW.xz * 0.045) + 0.3 * pdN(vPdW.xz * 0.13 + 7.3) + 0.15 * pdN(vPdW.xz * 0.41 + 2.1);
         float puddle = smoothstep(${(0.66 - cover * 0.18).toFixed(3)}, ${(0.73 - cover * 0.18).toFixed(3)}, pdn) * uWet;
         roughnessFactor = mix(roughnessFactor, 0.03, puddle);
-        diffuseColor.rgb *= (1.0 - 0.3 * puddle) * mix(1.0, 0.74, uDamp * uWet);`)
+        diffuseColor.rgb *= (1.0 - 0.3 * puddle) * mix(1.0, 0.74, uDamp * uWet);
+        ${kind ? `
+        // Wear and dirt, in world space so it is the same wherever you look: ${kind === 'road' ? 'oil and rubber stains (darker and a little smoother) and patches of different tarmac' : 'damp stains, and the odd dark spot of chewing gum'}.
+        { float ws = 0.6 * pdN(vPdW.xz * 0.7) + 0.4 * pdN(vPdW.xz * 2.3 + 4.7);
+          float stain = smoothstep(${kind === 'road' ? '0.58, 0.76' : '0.5, 0.7'}, ws) * (1.0 - puddle);
+          diffuseColor.rgb *= 1.0 - ${kind === 'road' ? '0.38' : '0.34'} * stain;
+          ${kind === 'road' ? 'roughnessFactor = mix(roughnessFactor, 0.42, stain * 0.55);' : ''}
+          ${kind === 'walk' ? `vec2 gc = vPdW.xz * 16.0; vec2 gf = fract(gc) - 0.5; float gum = step(0.9955, pdH(floor(gc))) * smoothstep(0.3, 0.12, length(gf));
+          diffuseColor.rgb *= 1.0 - 0.55 * gum;` : ''}
+          ${kind === 'road' ? 'diffuseColor.rgb *= 1.0 + 0.06 * (pdN(vPdW.xz * 0.19 + 9.1) - 0.5);' : ''} }` : ''}`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-        normal = normalize(mix(normal, nonPerturbedNormal, puddle));`);
+        normal = normalize(mix(normal, nonPerturbedNormal, puddle));
+        if (uRip > 0.5 && puddle > 0.05) {
+          // Rain rings: every cell of the road gets a drop about once a second; it spreads as a ring that fades, tilting the surface (so the reflection shivers).
+          vec2 rp = vPdW.xz * 2.6, ci = floor(rp), cf = fract(rp) - 0.5;
+          vec2 ce = (vec2(pdH(ci + 3.1), pdH(ci + 7.7)) - 0.5) * 0.45, dv = cf - ce;
+          float rph = fract(uRipT * 0.9 + pdH(ci) * 9.0), rr = length(dv), rband = smoothstep(0.075, 0.0, abs(rr - rph * 0.5)) * (1.0 - rph) * (1.0 - rph);
+          vec3 rnv = (viewMatrix * vec4(dv.x, 0.0, dv.y, 0.0)).xyz;
+          normal = normalize(normal + normalize(rnv + 1e-5) * rband * 0.6 * puddle);
+        }`);
   };
-  mat.customProgramCacheKey = () => key + '|puddles' + cover;
+  mat.customProgramCacheKey = () => key + '|puddles' + cover + kind;
   return mat;
 }
-// Dirt and shade at the foot of walls (the facade meshes are in world coordinates).
+// Dirt and shade at the foot of walls, and long grey rain streaks running down from ledges and window sills (the facade meshes are in world coordinates).
 function grime(mat) {
   mat.onBeforeCompile = sh => {
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vWY;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWY = transformed.y;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vWY;')
-      .replace('#include <map_fragment>', '#include <map_fragment>\n diffuseColor.rgb *= mix(0.58, 1.0, smoothstep(0.0, 4.5, vWY));');
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = transformed;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying vec3 vWP;
+      float gmH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float gmN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(gmH(i), gmH(i + vec2(1.0, 0.0)), f.x), mix(gmH(i + vec2(0.0, 1.0)), gmH(i + vec2(1.0, 1.0)), f.x), f.y); }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        diffuseColor.rgb *= mix(0.58, 1.0, smoothstep(0.0, 4.5, vWP.y));
+        { float along = vWP.x * 1.7 + vWP.z * 2.3;                                   // (which way a wall runs does not matter: the streaks are cut from the position along it)
+          float st = gmN(vec2(along * 3.1, vWP.y * 0.11)) * 0.65 + gmN(vec2(along * 9.0 + 3.0, vWP.y * 0.23)) * 0.35;
+          float streak = smoothstep(0.56, 0.9, st) * smoothstep(2.0, 12.0, vWP.y) * 0.2;
+          float tonal = gmN(vec2(along * 0.45, vWP.y * 0.05 + 7.0));
+          diffuseColor.rgb *= (1.0 - streak) * (0.93 + 0.14 * tonal); }`);
   };
-  mat.customProgramCacheKey = () => 'grime';
+  mat.customProgramCacheKey = () => 'grime2';
   return mat;
 }
 
@@ -254,8 +280,8 @@ export class City {
       emissive: 0xffffff, emissiveIntensity: ei, vertexColors: true, metalness: 1, roughness: 1, envMapIntensity: env,
     }));
     // Road and pavement materials come from these so that the bridges (which must not be cut by the river) can have their own copies.
-    const makeWalk = () => { const w = macro(std({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: TOD.wet ? 0.62 : 0.92, envMapIntensity: TOD.wet ? 1.5 : 1 }), 0.06, 0.3); attachSSR(w, { range: 70, rough: 0.7 }); puddles(w, 0.35); return w; };
-    const makeAsphalt = () => { const a = macro(std({ color: new THREE.Color(TOD.road).multiplyScalar(TOD.wet ? 1 : 0.78), map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: TOD.wet ? new THREE.Vector2(0.4, 0.4) : new THREE.Vector2(0.55, 0.55), roughness: TOD.wet ? 0.4 : 0.86, metalness: 0, envMapIntensity: TOD.wet ? 2.0 : 0.75 }), 0.045, 0.35); attachSSR(a, { range: 90, rough: 0.64 }); puddles(a, 0.6); return a; };
+    const makeWalk = () => { const w = macro(std({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: TOD.wet ? 0.62 : 0.92, envMapIntensity: TOD.wet ? 1.5 : 1 }), 0.06, 0.3); attachSSR(w, { range: 70, rough: 0.7 }); puddles(w, 0.35, 'walk'); return w; };
+    const makeAsphalt = () => { const a = macro(std({ color: new THREE.Color(TOD.road).multiplyScalar(TOD.wet ? 1 : 0.78), map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: TOD.wet ? new THREE.Vector2(0.4, 0.4) : new THREE.Vector2(0.55, 0.55), roughness: TOD.wet ? 0.4 : 0.79, metalness: 0, envMapIntensity: TOD.wet ? 2.0 : 0.85 }), 0.045, 0.35); attachSSR(a, { range: 90, rough: 0.64 }); puddles(a, 0.6, 'road'); return a; };
     this.makeWalk = makeWalk; this.makeAsphalt = makeAsphalt;
     const a2c = Q.msaa > 0;
     const m = this.mat = {
@@ -450,6 +476,9 @@ export class City {
     inst(P.geo.treeCards, P.mat.treeCards, L.trees, placeTree, true, region.trees, leaf);
     inst(P.geo.bushCore, P.mat.treeCore, L.bushes, placeTree, false, region.trees);
     inst(P.geo.bushCards, P.mat.treeCards, L.bushes, placeTree, false, region.trees, leaf);
+    // Flowering shrubs: about 4 bushes in 10 carry flowers (hot pink, red, orange, violet or white), the rest are plain green.
+    const FLOWERS = [[3.2, 0.45, 1.2], [3.4, 0.2, 0.3], [3.6, 1.4, 0.25], [1.9, 0.5, 2.6], [3.0, 2.6, 0.9], [3.4, 3.2, 2.4]];
+    inst(P.geo.bushBloom, P.mat.bushBloom, L.bushes.filter((b, i) => (i * 7 + 3) % 5 < 2), placeTree, false, region.trees, (c, rnd) => { const f = FLOWERS[(rnd() * FLOWERS.length) | 0]; c.setRGB(f[0], f[1], f[2]); });
     inst(P.geo.palmTrunk, P.mat.palmTrunk, L.palms, placeTree, true, region.trees);
     inst(P.geo.palmFronds, P.mat.palmFronds, L.palms, placeTree, true, region.trees, leaf);
     if (over()) yield;
@@ -478,12 +507,15 @@ export class City {
         for (let k = 0; k < S; k++) {
           const t0 = k / S, t1 = (k + 1) / S;
           const Pt = t => [a[0] + (b[0] - a[0]) * t + ox * off, y0 + ha + (hb - ha) * t - 0.7 * 4 * t * (1 - t), a[1] + (b[1] - a[1]) * t + oz * off];
-          pts.push(...Pt(t0), ...Pt(t1));
+          // each piece of wire is two crossed ribbons 2.4 cm wide (one up and down, one side to side), so it can be seen from any side
+          const A = Pt(t0), B = Pt(t1), dx = B[0] - A[0], dz = B[2] - A[2], dl = Math.hypot(dx, dz) || 1, nx = -dz / dl * 0.012, nz = dx / dl * 0.012;
+          pts.push(A[0], A[1] - 0.012, A[2], A[0], A[1] + 0.012, A[2], B[0], B[1] + 0.012, B[2], A[0], A[1] - 0.012, A[2], B[0], B[1] + 0.012, B[2], B[0], B[1] - 0.012, B[2],
+            A[0] - nx, A[1], A[2] - nz, A[0] + nx, A[1], A[2] + nz, B[0] + nx, B[1], B[2] + nz, A[0] - nx, A[1], A[2] - nz, B[0] + nx, B[1], B[2] + nz, B[0] - nx, B[1], B[2] - nz);
         }
       }
     }
     if (over()) yield;
-    if (pts.length) { const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); region.detail.add(new THREE.LineSegments(wg, P.mat.wire)); }
+    if (pts.length) { const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); region.detail.add(new THREE.Mesh(wg, P.mat.wire)); }
     // Traffic signals: a pole and arm, two heads, and a red, amber and green lamp on each.
     const all = [...L.sigZ, ...L.sigX];
     inst(P.geo.sigPole, P.mat.sigDark, all, it => at(it[0], CURB, it[1], it[2], 1), true, region.detail);

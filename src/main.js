@@ -12,6 +12,9 @@ import { setAnisotropy, setTexScale, glowTex } from './textures.js';
 import { Q, GPU } from './quality.js';
 import { WIND } from './props.js';
 import { buildSky, placeSun, SUN_DIR, LIGHT_DIR, applyHDRI } from './sky.js';
+import { Motes } from './motes.js';
+import { Birds } from './birds.js';
+import { DOFPass } from './dof.js';
 import { City, SP, N, EDGE, laneOffset, queryColliders, signalState, breakProp, WETNESS } from './city.js';
 import { groundAt, ROADS, BUNKERS, AIRFIELD, WORLD_LIM, isWater } from './world.js';
 import { inWater } from './rivercourse.js';
@@ -99,11 +102,11 @@ const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 12000);
 // Post-processing: bloom, a speed blur, vignette and a colour grade, then ACES.
 const GradeShader = {
   uniforms: { tDiffuse: { value: null }, uBlur: { value: 0 }, uCenter: { value: new THREE.Vector2(0.5, 0.45) }, uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) }, uSharpen: { value: Q.sharpen }, tAO: { value: null }, uAO: { value: 0 }, tGI: { value: null }, uGI: { value: 0 }, uClarity: { value: Q.clarity }, uCA: { value: 0.0012 },
-    uSat: { value: TOD.grade.sat }, uContrast: { value: TOD.grade.contrast }, uWarm: { value: TOD.grade.warm }, uSunset: { value: TOD.split },
+    uSat: { value: TOD.grade.sat }, uContrast: { value: TOD.grade.contrast }, uWarm: { value: TOD.grade.warm }, uSunset: { value: TOD.split }, uTone: { value: TOD.grade.tone }, uVib: { value: TOD.grade.vib }, uStreak: { value: TOD.grade.streak },
     uSun: { value: new THREE.Vector2(0.5, 0.6) }, uRays: { value: TOD.rays }, uSunVis: { value: 0 }, uGrain: { value: TOD.grain }, uTime: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse, tAO, tGI; uniform float uAO, uGI, uClarity, uCA; uniform float uBlur, uSharpen; uniform vec2 uCenter, uTexel; uniform float uSat, uContrast, uWarm, uSunset, uRays, uSunVis, uGrain, uTime; uniform vec2 uSun; varying vec2 vUv;
+    uniform sampler2D tDiffuse, tAO, tGI; uniform float uAO, uGI, uClarity, uCA; uniform float uBlur, uSharpen; uniform vec2 uCenter, uTexel; uniform float uSat, uContrast, uWarm, uSunset, uRays, uSunVis, uGrain, uTime, uTone, uVib, uStreak; uniform vec2 uSun; varying vec2 vUv;
     void main(){
       vec2 dir = vUv - uCenter; float d = length(dir);
       vec3 col = texture2D(tDiffuse, vUv).rgb;
@@ -147,6 +150,16 @@ const GradeShader = {
         }
         col += acc / 24.0 * uRays * uSunVis * vec3(1.0, 0.82, 0.58);
       }
+      // Anamorphic streaks: very bright lights (neon, lamps, headlights, the low sun) pull a long horizontal blue-white streak across the picture, like a film lens.
+      if (uStreak > 0.01) {
+        vec3 sk = vec3(0.0);
+        for (int i = 1; i < 7; i++) {
+          float o = float(i) * uTexel.x * 11.0, w = exp(-float(i) * 0.45);
+          vec3 a = texture2D(tDiffuse, vUv + vec2(o, 0.0)).rgb, b = texture2D(tDiffuse, vUv - vec2(o, 0.0)).rgb;
+          sk += (max(a - 3.0, 0.0) + max(b - 3.0, 0.0)) * w;
+        }
+        col += sk * uStreak * 0.06 * vec3(0.55, 0.8, 1.3);
+      }
       float vig = smoothstep(1.1, 0.3, d);
       col *= mix(mix(0.78, 0.62, uSunset), 1.0, vig);
       float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
@@ -155,21 +168,27 @@ const GradeShader = {
       col = max(vec3(0.0), mix(vec3(l), col, uSat));
       col = 0.18 * pow(col / 0.18, vec3(uContrast));
       col *= vec3(1.0 + uWarm, 1.0, 1.0 - uWarm);
+      // Cinematic colour: the shadows lean teal-blue, the highlights amber, and the colours that are dull come up more than those already vivid.
+      float lt = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      col *= mix(vec3(1.0 - 0.14 * uTone, 1.0 + 0.02 * uTone, 1.0 + 0.16 * uTone), vec3(1.0 + 0.1 * uTone, 1.0 + 0.01 * uTone, 1.0 - 0.1 * uTone), smoothstep(0.015, 0.5, lt));
+      float cmx = max(max(col.r, col.g), col.b), cmn = min(min(col.r, col.g), col.b);
+      col = max(vec3(0.0), mix(vec3(lt), col, 1.0 + uVib * (1.0 - clamp((cmx - cmn) / max(cmx, 1e-3), 0.0, 1.0))));
       // A little film grain.
       col *= 1.0 + (fract(sin(dot(vUv * 1000.0 + uTime, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * uGrain;
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
-let composer = null, bloom = null, grade = null, aoPass = null, giPass = null, histPass = null;
+let composer = null, bloom = null, grade = null, aoPass = null, giPass = null, histPass = null, dofPass = null, dofGuard = true, bloomBase = 0;
 if (quality !== 'low') {
-  const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: Q.msaa, depthTexture: (Q.ao || Q.ssr || Q.gi) ? new THREE.DepthTexture(4, 4, THREE.UnsignedIntType) : null });
+  const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: Q.msaa, depthTexture: (Q.ao || Q.ssr || Q.gi || Q.dof) ? new THREE.DepthTexture(4, 4, THREE.UnsignedIntType) : null });
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
   if (Q.ssr) { histPass = new HistoryPass(camera); composer.addPass(histPass); }          // keeps the picture for next frame's reflection rays
   if (Q.ao) { aoPass = new AOPass(camera, { radius: 2.0, gain: 3.2 }); composer.addPass(aoPass); }
   if (Q.gi) { giPass = new GIPass(camera, { rays: Q.gi.rays, steps: Q.gi.steps }); composer.addPass(giPass); }
+  if (Q.dof) { dofPass = new DOFPass(camera, Q.dof); composer.addPass(dofPass); }          // (after the passes that read the depth, before the bloom)
   bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), (TOD.night ? 0.62 : TOD.lampsOn ? 0.42 : 0.22) * Q.bloom, 0.55, TOD.night ? 0.8 : TOD.lampsOn ? 0.92 : 1.6);
-  composer.addPass(bloom);
+  composer.addPass(bloom); bloomBase = bloom.strength;
   grade = new ShaderPass(GradeShader); composer.addPass(grade);
   if (aoPass) { grade.uniforms.tAO.value = aoPass.texture; grade.uniforms.uAO.value = 0.9; }
   if (giPass) { grade.uniforms.tGI.value = giPass.texture; grade.uniforms.uGI.value = 0.75; }
@@ -183,6 +202,7 @@ if (quality !== 'low') {
 const prof = new Profiler();
 const DIST0 = { detailR: Q.detailR, treeR: Q.treeR, scatR: Q.scatR };
 const GPU_LADDER = [
+  { name: 'DEPTH OF FIELD', on(v) { dofGuard = v; }, has: () => !!dofPass },
   { name: 'RAY-TRACED LIGHT BOUNCE', on(v) { if (giPass) { giPass.enabled = v; grade.uniforms.uGI.value = v ? 0.75 : 0; } }, has: () => !!giPass },
   { name: 'RAY-TRACED REFLECTIONS', on(v) { const e = v && !!Q.ssr; SSR.enabled = e; if (!e) SSR.amt.value = 0; if (histPass) histPass.enabled = e; }, has: () => !!Q.ssr },
   { name: 'AMBIENT OCCLUSION', on(v) { if (aoPass) { aoPass.enabled = v; grade.uniforms.uAO.value = v ? 0.9 : 0; } }, has: () => !!aoPass },
@@ -231,7 +251,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let heist = null, interior = null, melee = null, bigmap = null, heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, towns, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
+let motes = null, birds = null, heist = null, interior = null, melee = null, bigmap = null, heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, towns, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -279,6 +299,8 @@ async function build() {
   fx = new FX(scene);
   if (TOD.lampsOn) { beams = new Headlights(scene); traffic.beams = beams; police.beams = beams; }
   rain = new Rain(scene);
+  if (!TOD.night && Q.name !== 'low') birds = new Birds(scene, TOD.clouds.haze, Q.name === 'ultra' ? 40 : Q.name === 'high' ? 32 : 22);
+  if (!TOD.night && Q.name !== 'low') motes = new Motes(scene, SUN_DIR, TOD_NAME === 'day' ? [1.6, 1.5, 1.3] : [2.6, 1.9, 1.2], Q.name === 'ultra' ? 520 : Q.name === 'high' ? 420 : 260, TOD_NAME === 'day' ? 0.3 : 0.42);
   worldFx = new Particles(scene); debris = new Debris(scene, city.props, worldFx); debris.onClang = (k, v) => audio.clang(v);
   gates = new Gates(scene);
   peds = new Peds(scene, Q.peds, Q.shadows); peds.setCount(crowdCount()); peds.onHit = (p, sp) => { audio.thump(0.35); crime(0.6, 'ped'); };
@@ -397,8 +419,8 @@ function applyWeather() {
   if (city && city.mat) {
     const a = city.mat.asphalt, w = city.mat.walk, wet = on || !!TOD.wet;
     // With ray-traced reflections the wet road mirrors the street itself, so it needs less of the sky's help (and is a touch glossier).
-    a.roughness = wet ? (Q.ssr ? 0.34 : 0.4) : 0.86; a.envMapIntensity = wet ? (Q.ssr ? 1.3 : 2.0) : 0.75; a.normalScale.setScalar(wet ? 0.4 : 0.55);
-    WETNESS.wet.value = wet ? 1 : 0; WETNESS.damp.value = on && !TOD.wet ? 1 : 0;
+    a.roughness = wet ? (Q.ssr ? 0.34 : 0.4) : 0.79; a.envMapIntensity = wet ? (Q.ssr ? 1.3 : 2.0) : 0.85; a.normalScale.setScalar(wet ? 0.4 : 0.55);
+    WETNESS.wet.value = wet ? 1 : 0; WETNESS.damp.value = on && !TOD.wet ? 1 : 0; WETNESS.rip.value = on ? 1 : 0;
     w.roughness = wet ? 0.6 : 0.92; w.envMapIntensity = wet ? 1.5 : 1;
   }
   if (scene.fog) scene.fog.density = TOD.fogDensity * (on ? 1.7 : 1);
@@ -1269,7 +1291,9 @@ function tickBody(dt) {
   if (arsenal) { if (!foot) arsenal.update(dt, NO_ARMS, walker, camera, false); weaponHud(); }
   if (heist) { game.insideT = (game.insideT || 0) + dt; heistHud(); }
   if (beams) beams.end();
-  if (rain && rain.visible) rain.update(performance.now() / 1000, camera, !!TOD.night);
+  if (rain && rain.visible) { rain.update(performance.now() / 1000, camera, !!TOD.night); WETNESS.t.value = performance.now() / 1000; }
+  if (birds) { birds.visible = !walker.interior; if (birds.visible) birds.update(performance.now() / 1000, camera); }
+  if (motes) { motes.visible = !settings.rain && !walker.interior; if (motes.visible) motes.update(performance.now() / 1000, camera, renderer.domElement.height); }
   if (st !== 'paused' && st !== 'map') debris.update(dt);
   worldFx.update(st === 'paused' || st === 'map' ? 0 : dt, camera, renderer);
   sky.dome.position.set(camera.position.x, 0, camera.position.z);
@@ -1282,6 +1306,7 @@ function tickBody(dt) {
     tmpV.copy(SUN_DIR).multiplyScalar(5000).add(camera.position).project(camera);
     grade.uniforms.uSun.value.set(tmpV.x * 0.5 + 0.5, tmpV.y * 0.5 + 0.5);
     grade.uniforms.uSunVis.value = clamp((tmpFwd.dot(SUN_DIR) - 0.15) / 0.5, 0, 1);
+    if (!TOD.night) bloom.strength = bloomBase * (1 + 0.35 * grade.uniforms.uSunVis.value ** 2);          // (looking into the sun, everything glows: the eye and the lens bloom)
     grade.uniforms.uTime.value = (performance.now() / 1000) % 100;
   }
   prof.mark('effects');
@@ -1310,6 +1335,7 @@ function tickBody(dt) {
   if (composer) {
     const blur = clamp((car.speed - 35) / 55, 0, 1) * 0.8 + (car.nitroOn ? 0.5 : 0);
     grade.uniforms.uBlur.value = game.camMode <= 1 && st !== 'menu' ? blur : 0;
+    if (dofPass) { const px = foot ? walker.x : pose.x, py = foot ? walker.y + 1.0 : carY + 0.6, pz = foot ? walker.z : pose.z; dofPass.setFocus(Math.hypot(camera.position.x - px, camera.position.y - py, camera.position.z - pz), dt); dofPass.enabled = dofGuard && !walker.interior; }
     ssrBegin(camera);
     composer.render(dt);
     ssrEnd(camera);
@@ -1351,4 +1377,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-if (DEBUG) window.__game = { get heist() { return heist; }, hurtPlayer, bankCarried, venueNear, VENUE_TYPES, get interior() { return interior; }, enterVenue, leaveVenue, get melee() { return melee; }, assault, bench, startBench, get bigmap() { return bigmap; }, toggleMap, teleportTo, snapToRoad, spotClear, teleportWhy, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get towns() { return towns; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+if (DEBUG) window.__game = { get dof() { return dofPass; }, get motes() { return motes; }, get birds() { return birds; }, get composer() { return composer; }, get heist() { return heist; }, hurtPlayer, bankCarried, venueNear, VENUE_TYPES, get interior() { return interior; }, enterVenue, leaveVenue, get melee() { return melee; }, assault, bench, startBench, get bigmap() { return bigmap; }, toggleMap, teleportTo, snapToRoad, spotClear, teleportWhy, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get towns() { return towns; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

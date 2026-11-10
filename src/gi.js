@@ -51,7 +51,7 @@ const traceFrag = (rays, steps) => COMMON + `
         if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) break;
         float diff = -S.z - linZ(uv);
         if (diff > 0.04 && diff < 0.25 + 0.04 * zc + 0.5 * t) {
-          vec3 col = min(texture2D(tColor, uv).rgb, vec3(8.0));
+          vec3 col = min(texture2D(tColor, uv).rgb, vec3(3.0));
           acc += col * (1.0 - t / range);
           break;
         }

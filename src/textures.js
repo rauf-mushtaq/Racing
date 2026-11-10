@@ -526,18 +526,38 @@ export function leafTex() {
   return tex(c, true, false);
 }
 
+// A sprig of small flowers (cream, to be tinted pink, red, orange, violet or white per bush) among a few leaves, for the flowering shrubs (bougainvillea and hibiscus).
+export function flowerTex() {
+  const S = 256, [c, g] = mk(S); const rnd = mulberry32(88);
+  g.clearRect(0, 0, S, S);
+  const flower = (x, y, r) => {
+    g.save(); g.translate(x, y); g.rotate(rnd() * 6.28);
+    for (let k = 0; k < 5; k++) {
+      g.rotate(Math.PI * 2 / 5); const l = 0.8 + rnd() * 0.25;
+      const gr = g.createRadialGradient(0, -r * 0.5, 1, 0, -r * 0.5, r * 0.75); gr.addColorStop(0, 'rgb(255,250,244)'); gr.addColorStop(1, 'rgb(' + (205 * l | 0) + ',' + (190 * l | 0) + ',' + (196 * l | 0) + ')');
+      g.fillStyle = gr; g.beginPath(); g.ellipse(0, -r * 0.55, r * 0.42, r * 0.62, 0, 0, 7); g.fill();
+    }
+    g.fillStyle = 'rgb(255,226,150)'; g.beginPath(); g.arc(0, 0, r * 0.2, 0, 7); g.fill();
+    g.restore();
+  };
+  for (let i = 0; i < 70; i++) { const r = Math.sqrt(rnd()) * S * 0.43, a = rnd() * 6.28, x = S / 2 + Math.cos(a) * r, y = S / 2 + Math.sin(a) * r; g.fillStyle = 'rgba(44,92,34,0.95)'; g.beginPath(); g.ellipse(x, y, 15, 7, rnd() * 6.28, 0, 7); g.fill(); }
+  for (let i = 0; i < 46; i++) { const r = Math.sqrt(rnd()) * S * 0.4, a = rnd() * 6.28; flower(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, 13 + rnd() * 9); }
+  return tex(c, true, false);
+}
+
 export function frondTex() {
+  // A palm frond: a pale midrib and, along it, many broad pointed leaflets that touch their neighbours (so the leaf stays solid when the texture is shrunk
+  // for a frond far away, instead of thinning into dots), the leaflets in two alternating greens with a darker fold down the middle of each.
   const [c, g] = mk(128, 512);
   g.clearRect(0, 0, 128, 512);
-  g.strokeStyle = '#9a9a52'; g.lineWidth = 5; g.beginPath(); g.moveTo(64, 0); g.lineTo(64, 512); g.stroke();
-  for (let y = 10; y < 500; y += 11) {
-    const len = 58 * Math.sin(Math.PI * (y / 512)) + 8;
+  g.strokeStyle = '#a2a35a'; g.lineWidth = 6; g.beginPath(); g.moveTo(64, 0); g.lineTo(64, 512); g.stroke();
+  for (let y = 4; y < 506; y += 8) {
+    const len = 60 * Math.sin(Math.PI * (y / 512)) + 10;
     for (const s of [-1, 1]) {
-      const t = (y / 11) % 2;
-      g.strokeStyle = t ? '#5d8a32' : '#75a040'; g.lineWidth = 5;
-      g.beginPath(); g.moveTo(64, y); g.quadraticCurveTo(64 + s * len * 0.6, y + 10, 64 + s * len, y + 30); g.stroke();
-      g.strokeStyle = 'rgba(30,60,16,0.45)'; g.lineWidth = 1;
-      g.beginPath(); g.moveTo(64, y); g.quadraticCurveTo(64 + s * len * 0.6, y + 10, 64 + s * len, y + 30); g.stroke();
+      const t = (y / 8) % 2, tipx = 64 + s * len, tipy = y + 28, w = 5.2;
+      g.fillStyle = t ? '#4f8030' : '#6a9a3a';
+      g.beginPath(); g.moveTo(64, y - w * 0.5); g.quadraticCurveTo(64 + s * len * 0.55, y - w * 0.9, tipx, tipy); g.quadraticCurveTo(64 + s * len * 0.5, y + w * 1.3, 64, y + w * 0.7); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(28,56,16,0.5)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(64, y); g.quadraticCurveTo(64 + s * len * 0.55, y + 4, tipx, tipy); g.stroke();
     }
   }
   return tex(c, true, false);
