@@ -7,6 +7,7 @@ if "%UE_ROOT%"=="" set "UE_ROOT=C:\Program Files\Epic Games\UE_5.5"
 if not exist "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" (
   echo Could not find Unreal Engine at "%UE_ROOT%".
   echo Set UE_ROOT to the folder that contains "Engine", for example:   set UE_ROOT=D:\UE_5.5
+  pause
   exit /b 1
 )
 set "PROJECT=%~dp0SunsetCity\SunsetCity.uproject"
@@ -14,7 +15,9 @@ call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="%PROJ
 if errorlevel 1 (
   echo.
   echo The packaging failed: scroll up for the first error and send it back.
+  pause
   exit /b 1
 )
 echo.
 echo Done. The game is "%~dp0Packaged\Windows\SunsetCity.exe"
+pause

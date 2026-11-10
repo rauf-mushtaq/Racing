@@ -1,0 +1,3 @@
+# Windows scripts get Windows line endings wherever the files are checked out or downloaded as a ZIP
+# (cmd.exe is known to mishandle some scripts that have Unix line endings).
+*.bat text eol=crlf
