@@ -1,0 +1,21 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.5",
+	"Category": "",
+	"Description": "Sunset City: a sunny open-world city to walk, fight and drive round. The whole city, its people and its cars are built by code at run time; see README.md.",
+	"Modules": [
+		{
+			"Name": "SunsetCity",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{ "Name": "ProceduralMeshComponent", "Enabled": true },
+		{ "Name": "PythonScriptPlugin", "Enabled": true },
+		{ "Name": "EditorScriptingUtilities", "Enabled": true },
+		{ "Name": "Interchange", "Enabled": true, "Optional": true },
+		{ "Name": "InterchangeEditor", "Enabled": true, "Optional": true }
+	],
+	"TargetPlatforms": [ "Windows" ]
+}
