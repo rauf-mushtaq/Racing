@@ -31,7 +31,7 @@ Unreal Engine cannot run inside a web page, and it cannot run on an iPad itself 
 
 1. On the PC, once: build and set up the project (steps 1 to 4 above) and run **`Package_Windows.bat`**. If Unreal's Pixel Streaming web server is not installed (Unreal 5.4 and later do not ship it), run `Engine\Plugins\Media\PixelStreaming\Resources\WebServers\get_ps_servers.bat` from your Unreal folder once.
 2. Each time: run **`Play_Streaming.bat`**. It starts the game (windowless, 1920 x 1080) and Unreal's signalling web server, and prints an address such as `http://192.168.1.20`.
-3. On the iPad (or a phone, or another PC) on the **same Wi-Fi**, open that address in Safari or Chrome, or open **`unreal.html`** of the web version (it is the "Unreal" link in the web version's menu) and type the address into it. Tap the picture.
+3. On the iPad (or a phone, or another PC) on the **same Wi-Fi**, open that address in Safari or Chrome, or open **`unreal.html`** of the web version (it is the "UNREAL ENGINE" item at the bottom of the web version's menu) and type the address into it. Tap the picture.
 4. Play. On a touch screen the game draws its own controls (below); a keyboard and mouse or trackpad on the iPad work as on the PC.
 
 Away from home: the iPad has to reach the PC, which a free private network such as Tailscale does without opening anything to the internet. The web version's page is served over https, so it can open your PC's address but cannot show it inside itself.
