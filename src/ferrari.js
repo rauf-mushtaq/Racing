@@ -10,6 +10,7 @@ import { mergeGeometries, toCreasedNormals } from 'three/addons/utils/BufferGeom
 import { PAINTS, HERO_DIMS } from './carModel.js';
 import { glowTex } from './textures.js';
 import { attachSSR } from './ssr.js';
+import { paintFlakes } from './paintfx.js';
 import { addGadgets } from './gadgets.js';
 
 const URL = 'assets/cars/ferrari.glb', URL_LITE = 'assets/cars/ferrari_lite.glb';   // the lite one has about 40% of the triangles, for tablets and lower settings
@@ -42,6 +43,7 @@ export async function loadFerrari(paintKey = 'pearl', lite = false) {
     blue: new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.35, metalness: 0.9, envMapIntensity: 1.0 }),
     yellow: new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.35, metalness: 0.9, envMapIntensity: 1.0 }),   // (the model's yellow shield badges, wheel and steering-wheel centres: dark metal, so the car carries no real maker's crest)
   };
+  paintFlakes(mats.paint, pt.metal > 0.3 ? 0.7 : 0.3);
   // Ray-traced reflections (see ssr.js) on the glossy parts: the road, the street and the other cars show in the paint and glass.
   for (const k of ['paint', 'glass', 'lens', 'chrome', 'rim', 'carbon', 'metal']) attachSSR(mats[k], { range: 70, rough: k === 'paint' || k === 'carbon' ? 0.5 : 0.4, view: 120 });
   const byName = n => {

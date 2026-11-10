@@ -4,8 +4,9 @@
 // the floor, and the bullets all work from the room's own list of boxes, never the city's. The streets round the door go on being simulated, so the police
 // really do arrive outside it.
 import * as THREE from 'three';
-import { GB } from './geom.js';
-import { clamp } from './util.js';
+import { GB, circlePoly } from './geom.js';
+import { clamp, mulberry32 } from './util.js';
+import { attachSSR } from './ssr.js';
 
 export const STAGE_Y = 1800;
 
@@ -32,6 +33,8 @@ function makeTextures() {
   TEX.wood = dataTex(128, (u, v) => { const plank = Math.floor(u * 6), local = (u * 6) % 1, tone = 0.82 + 0.18 * hash(plank, 3), grain = 0.9 + 0.1 * noise(u * 0.3 + plank, v, 40), gap = local < 0.02 ? 0.4 : 1, g = tone * grain * gap; return [150 * g, 106 * g, 68 * g]; });
   TEX.carpet = dataTex(64, (u, v, x, y) => { const g = 0.82 + 0.18 * hash(x, y) + 0.08 * noise(u, v, 8); return [86 * g, 40 * g, 48 * g]; });
   TEX.plaster = dataTex(64, (u, v) => { const g = 0.92 + 0.08 * noise(u, v, 12) + 0.04 * noise(u, v, 40); return [g * 244, g * 238, g * 228]; });
+  // A suspended ceiling: tiles of 0.57 m with a dark grid between them and a little speckle (one texture covers 4 m).
+  TEX.ceil = dataTex(128, (u, v) => { const tu = (u * 7) % 1, tv = (v * 7) % 1, grid = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.024, g = grid ? 0.5 : 0.93 + 0.05 * noise(u, v, 50) + 0.03 * noise(u, v, 9); return [g * 238, g * 236, g * 230]; });
   TEX.concrete = dataTex(64, (u, v) => { const g = 0.72 + 0.2 * noise(u, v, 10) + 0.08 * noise(u, v, 50); return [g * 200, g * 200, g * 196]; });
   // Pictures for the walls of a gallery: a few soft shapes in a few colours.
   for (let k = 0; k < 4; k++) TEX['art' + k] = dataTex(64, (u, v) => {
@@ -48,7 +51,7 @@ export const C = h => new THREE.Color(h);
 export class Room {
   constructor(kind, ox, oz) {
     this.kind = kind; this.ox = ox; this.oz = oz; this.oy = STAGE_Y;
-    this.gb = { floor: new GB(true), wall: new GB(true), prop: new GB(true), metal: new GB(true), emit: new GB(true), art: [] };
+    this.gb = { floor: new GB(true), wall: new GB(true), ceil: new GB(true), prop: new GB(true), metal: new GB(true), emit: new GB(true), art: [] };
     this.boxes = []; this.circs = []; this.items = []; this.spots = []; this.cams = []; this.lasers = []; this.loose = []; this.lights = [];
     this.W = 10; this.D = 8; this.H = 3;
   }
@@ -60,7 +63,7 @@ export class Room {
   // A box with a different colour on top (a counter with a worktop).
   slab(kind, x0, z0, x1, z1, y0, y1, col, top, solid = true) { this.box(kind, x0, z0, x1, z1, y0, y1 - 0.05, col, solid); this.box(kind, x0 - 0.04, z0 - 0.04, x1 + 0.04, z1 + 0.04, y1 - 0.05, y1, top); }
   floor(x0, z0, x1, z1, col, s = 4) { this.gb.floor.flat(this.ox + x0, this.oz + z0, this.ox + x1, this.oz + z1, this.oy, s, col); }
-  ceil(x0, z0, x1, z1, y, col) { this.gb.wall.ceil(this.ox + x0, this.oz + z0, this.ox + x1, this.oz + z1, this.oy + y, 4, col); }
+  ceil(x0, z0, x1, z1, y, col) { this.gb.ceil.ceil(this.ox + x0, this.oz + z0, this.ox + x1, this.oz + z1, this.oy + y, 4, col); }
   // A round column or drum.
   drum(kind, x, z, r, y0, y1, col, solid = true, n = 14) {
     const pts = []; for (let i = 0; i < n; i++) { const a = -i / n * Math.PI * 2; pts.push([this.ox + x + Math.cos(a) * r, this.oz + z + Math.sin(a) * r]); }
@@ -91,6 +94,65 @@ export class Room {
   spot(role, x, z, face = Math.PI, o = {}) { this.spots.push({ role, x: this.ox + x, z: this.oz + z, face, ...o }); }
 }
 
+// ---- Dressing every room: the finishing touches (a doormat, an exit sign, a clock, smoke detectors, plants, posters, a fire extinguisher) --------------------
+function decorate(R, venue) {
+  const rnd = mulberry32((venue.seed | 0) * 131 + 7), W = R.W, D = R.D, H = R.H, dark = C(0x1c1d20), white = C(0xf2f0e8);
+  R.box('prop', -0.95, 0.12, 0.95, 0.9, 0, 0.014, C(0x26272b));                                                                            // the doormat
+  R.box('prop', -0.34, 0.0, 0.34, 0.07, H - 0.4, H - 0.2, dark); R.box('emit', -0.3, 0.07, 0.3, 0.09, H - 0.37, H - 0.23, C(0x5dff8a).multiplyScalar(2.2));   // the exit sign over the door
+  const cx = W * 0.22, cy = Math.min(H - 0.55, 2.3);
+  R.box('prop', cx - 0.23, D - 0.06, cx + 0.23, D, cy - 0.23, cy + 0.23, dark); R.box('prop', cx - 0.2, D - 0.075, cx + 0.2, D - 0.06, cy - 0.2, cy + 0.2, white);   // a wall clock,
+  R.box('metal', cx - 0.012, D - 0.085, cx + 0.012, D - 0.075, cy, cy + 0.15, dark); R.box('metal', cx, D - 0.085, cx + 0.1, D - 0.075, cy - 0.012, cy + 0.012, dark);   // with its hands
+  for (const [x, z] of [[-W / 4, D * 0.3], [W / 4, D * 0.3], [-W / 4, D * 0.72], [W / 4, D * 0.72]]) R.box('prop', x - 0.08, z - 0.08, x + 0.08, z + 0.08, H - 0.05, H, white);    // smoke detectors
+  for (const x of [-W / 2 + 1.0, W / 2 - 1.0]) R.box('prop', x - 0.3, D * 0.5 - 0.3, x + 0.3, D * 0.5 + 0.3, H - 0.03, H, C(0xcfd2d4));                                         // air vents
+  // Plants in the front corners (a pot and a bush of leaves).
+  for (const sx of [-1, 1]) {
+    const px = sx * (W / 2 - 0.45), pz = 0.55, gb = R.gb.prop, leaf = [C(0x2c6a34), C(0x3b7d3c), C(0x255c2e)];
+    R.drum('prop', px, pz, 0.21, 0, 0.42, C(0x70503c));
+    for (let k = 0; k < 3; k++) { const ox = R.ox + px + (k - 1) * 0.1, oz = R.oz + pz + ((k * 5) % 3 - 1) * 0.08; gb.loft(circlePoly(ox, oz, 0.34 - k * 0.04, 10), R.oy + 0.4 + k * 0.1, circlePoly(ox, oz, 0.03, 10), R.oy + 1.25 + k * 0.15, 3, leaf[k]); }
+  }
+  // A fire extinguisher by the door (a red drum on a white plate), and, in the shops, posters on the walls.
+  R.box('prop', W / 2 - 0.03, 0.8, W / 2, 1.1, 0.6, 1.2, white); R.drum('prop', W / 2 - 0.12, 0.95, 0.07, 0.62, 1.12, C(0xc4302a), false, 10);
+  if (venue.kind === 'petrol' || venue.kind === 'shop') for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) {
+    const z0 = 1.8 + k * (D - 3) / 3 + rnd() * 0.3, h = 0.9 + rnd() * 0.3, y0 = 1.25 + rnd() * 0.3, col = [0xd23a3a, 0x3a78d2, 0xe8c030, 0x3aa860, 0xe27a30][(rnd() * 5) | 0];
+    R.box('prop', sx * W / 2 - (sx > 0 ? 0.035 : -0.0), z0, sx * W / 2 + (sx > 0 ? 0 : 0.035), z0 + 0.7, y0, y0 + h, C(0xf2f0e8));
+    R.box('prop', sx * W / 2 - (sx > 0 ? 0.045 : -0.0), z0 + 0.05, sx * W / 2 + (sx > 0 ? 0 : 0.045), z0 + 0.65, y0 + 0.05, y0 + h - 0.05, C(col));
+  }
+}
+
+// ---- Soft things drawn flat: shadows, the corners of the room, daylight at the door and pools of light ------------------------------------------------------
+// A rectangle with a soft edge: alpha `a` inside (x0..x1, z0..z1) falling to nothing `m` metres outside it; `inward` makes only the ring, falling to nothing `m` metres INSIDE it (a wall's foot).
+function softRect(out, x0, z0, x1, z1, y, m, a, rgb, inward = false) {
+  const base = out.pos.length / 3, c = [[x0, z0], [x0, z1], [x1, z1], [x1, z0]], o = c.map(([x, z], i) => [x + (i === 0 || i === 1 ? -m : m) * (inward ? -1 : 1), z + (i === 0 || i === 3 ? -m : m) * (inward ? -1 : 1)]);
+  for (const [x, z] of c) { out.pos.push(x, y, z); out.col.push(rgb[0], rgb[1], rgb[2], a); }
+  for (const [x, z] of o) { out.pos.push(x, y, z); out.col.push(rgb[0], rgb[1], rgb[2], 0); }
+  if (!inward) out.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  for (let k = 0; k < 4; k++) { const k2 = (k + 1) % 4; out.idx.push(base + k, base + k2, base + 4 + k2, base + k, base + 4 + k2, base + 4 + k); }
+}
+function softMeshes(R, mats) {
+  const sh = { pos: [], col: [], idx: [] }, gl = { pos: [], col: [], idx: [] }, y = R.oy + 0.012, b = R.bounds, m = [];
+  for (const q of R.boxes) { const h = q.y1 - q.y0; if (q.y0 > R.oy + 0.2 || h < 0.3 || q.dead) continue; softRect(sh, q.x0 - 0.03, q.z0 - 0.03, q.x1 + 0.03, q.z1 + 0.03, y, Math.min(0.5, 0.18 + 0.2 * h), 0.3 + 0.2 * Math.min(h, 1.5) / 1.5, [0.02, 0.015, 0.01]); }
+  for (const c of R.circs) softRect(sh, c.x - c.r, c.z - c.r, c.x + c.r, c.z + c.r, y, 0.3, 0.4, [0.02, 0.015, 0.01]);
+  softRect(sh, b.x0, b.z0, b.x1, b.z1, y, 0.9, 0.38, [0.02, 0.015, 0.01], true);                                                              // the foot of every wall is a little darker
+  softRect(sh, b.x0, b.z0, b.x1, b.z1, b.y1 - 0.012, 0.8, 0.3, [0.02, 0.015, 0.01], true);                                                    // and so are the corners of the ceiling
+  // Daylight through the door, lying on the floor and spreading as it goes in.
+  { const i0 = gl.pos.length / 3, x = R.ox, z = R.oz, yy = R.oy + 0.016, L = 3.4; for (const [px, pz, a] of [[x - 1.1, z + 0.08, 0.32], [x + 1.1, z + 0.08, 0.32], [x + 2.4, z + L, 0], [x - 2.4, z + L, 0]]) { gl.pos.push(px, yy, pz); gl.col.push(0.78, 0.9, 1.0, a); } gl.idx.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3); }
+  for (const l of R.lights) softRect(gl, l.x - 0.4, l.z - 0.4, l.x + 0.4, l.z + 0.4, R.oy + 0.02, 1.7, 0.12 * l.k, [1.0, 0.86, 0.6]);                // a pool of warm light under each lamp
+  for (const [d, mat] of [[sh, mats.shade], [gl, mats.glow]]) {
+    if (!d.idx.length) continue; const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(d.pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(d.col, 4)); g.setIndex(d.idx);
+    const mesh = new THREE.Mesh(g, mat); mesh.frustumCulled = false; mesh.renderOrder = 2; m.push(mesh);
+  }
+  return m;
+}
+// Specks of dust in the air of the room, drifting in the light.
+function makeDust(R) {
+  const n = 70, b = R.bounds, rnd = mulberry32(R.ox * 7 + R.oz * 13 + 1), pos = new Float32Array(n * 3), seed = new Float32Array(n);
+  for (let i = 0; i < n; i++) { pos.set([b.x0 + 0.3 + rnd() * (b.x1 - b.x0 - 0.6), R.oy + 0.4 + rnd() * (R.H - 0.8), b.z0 + 0.3 + rnd() * (b.z1 - b.z0 - 0.6)], i * 3); seed[i] = rnd() * 6.28; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const points = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.028, color: 0xfff1d8, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }));
+  points.frustumCulled = false; let t = 0;
+  return { points, step(dt) { t += dt; const a = g.attributes.position.array; for (let i = 0; i < n; i++) { a[i * 3] += Math.sin(t * 0.21 + seed[i]) * 0.0011; a[i * 3 + 1] += Math.sin(t * 0.17 + seed[i] * 2) * 0.0008 - 0.0002; a[i * 3 + 2] += Math.cos(t * 0.19 + seed[i] * 3) * 0.0011; if (a[i * 3 + 1] < R.oy + 0.3) a[i * 3 + 1] = R.oy + R.H - 0.4; } g.attributes.position.needsUpdate = true; } };
+}
+
 // ---- The inside of a building ------------------------------------------------------------------------------------------------------------------------
 export class Interior {
   // env: { scene, camera, renderer, walker, audio, hud }
@@ -101,12 +163,18 @@ export class Interior {
     this.mats = {
       floor: m(THREE.MeshPhysicalMaterial, { map: TEX.marble, vertexColors: true, roughness: 0.3, clearcoat: 0.5, clearcoatRoughness: 0.18, envMapIntensity: 0.9 }),
       wall: m(THREE.MeshStandardMaterial, { map: TEX.plaster, vertexColors: true, roughness: 0.92, envMapIntensity: 0.6 }),
+      ceil: m(THREE.MeshStandardMaterial, { map: TEX.ceil, vertexColors: true, roughness: 0.95, envMapIntensity: 0.4 }),
       prop: m(THREE.MeshStandardMaterial, { vertexColors: true, roughness: 0.55, metalness: 0.05, envMapIntensity: 0.9 }),
       metal: m(THREE.MeshStandardMaterial, { vertexColors: true, roughness: 0.28, metalness: 0.92, envMapIntensity: 1.2 }),
       emit: m(THREE.MeshBasicMaterial, { vertexColors: true }),
       glass: m(THREE.MeshPhysicalMaterial, { color: 0xd6ecf4, transparent: true, opacity: 0.2, roughness: 0.04, metalness: 0, envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false }),
       gem: m(THREE.MeshStandardMaterial, { color: 0xffffff, roughness: 0.02, metalness: 0.2, emissive: 0x6688aa, emissiveIntensity: 0.5, envMapIntensity: 2.4 }),
     };
+    attachSSR(this.mats.floor, { range: 22, rough: 0.35, view: 30 });                              // (a polished floor shows the lights, the counters and the people)
+    // Soft shadows under furniture and along the walls, the daylight spilling in at the door and the pools of light under the lamps (drawn with a transparency of their own at every corner).
+    this.mats.shade = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    this.mats.glow = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    this.dust = null;
     // Four lights for every room (the same number always, so no shader is ever rebuilt when a different room is entered).
     this.lights = []; for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xfff1d8, 1, 16, 1.6); l.layers.set(1); l.visible = false; env.scene.add(l); this.lights.push(l); }
     this.env0 = null; this.saved = null; this.fade = 0;
@@ -124,10 +192,12 @@ export class Interior {
   // Builds the room for a venue ({ kind, x, z, seed }) at the stage above its door.
   build(venue, plan) {
     this.dispose();
-    const R = new Room(venue.kind, Math.round(venue.x), Math.round(venue.z)); R.mats = this.mats; R.art = [TEX.art0, TEX.art1, TEX.art2, TEX.art3]; plan(R, venue); this.room = R;
+    const R = new Room(venue.kind, Math.round(venue.x), Math.round(venue.z)); R.mats = this.mats; R.art = [TEX.art0, TEX.art1, TEX.art2, TEX.art3]; plan(R, venue); decorate(R, venue); this.room = R;
     const g = new THREE.Group(); g.visible = false;
-    for (const k of ['floor', 'wall', 'prop', 'metal', 'emit']) { const gb = R.gb[k]; if (!gb.count) continue; const mesh = new THREE.Mesh(gb.geometry(), this.mats[k]); mesh.frustumCulled = false; g.add(mesh); }
+    for (const k of ['floor', 'wall', 'ceil', 'prop', 'metal', 'emit']) { const gb = R.gb[k]; if (!gb.count) continue; const mesh = new THREE.Mesh(gb.geometry(), this.mats[k]); mesh.frustumCulled = false; g.add(mesh); }
     for (const o of R.loose) g.add(o);
+    for (const m of softMeshes(R, this.mats)) g.add(m);
+    this.dust = makeDust(R); g.add(this.dust.points);
     g.traverse(o => o.layers.set(1)); this.env.scene.add(g); this.group = g; this.venue = venue;
     this.mats.floor.map = venue.kind === 'petrol' || venue.kind === 'shop' ? TEX.lino : venue.kind === 'jeweller' ? TEX.blackstone : venue.kind === 'bank' ? TEX.marble : TEX.marble; this.mats.floor.needsUpdate = true;
     R.lights.forEach((l, i) => { const L = this.lights[i]; if (!L) return; L.position.set(l.x, l.y, l.z); L.color.set(l.col); L.intensity = 14 * l.k; L.distance = Math.max(R.W, R.D) * 1.3; });
@@ -135,7 +205,7 @@ export class Interior {
   }
   dispose() {
     if (this.group) { this.env.scene.remove(this.group); this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); this.group = null; }
-    this.room = null;
+    this.room = null; this.dust = null;
   }
   // ---- Going in and out ---------------------------------------------------------------------------------------------------------------------------
   enter() {
@@ -151,7 +221,7 @@ export class Interior {
     scene.environment = this.saved.env; camera.layers.mask = this.saved.layers; this.group.visible = false; for (const L of this.lights) L.visible = false;
     walker.interior = null; this.active = false;
   }
-  update(dt) { this.t += dt; }
+  update(dt) { this.t += dt; if (this.dust) this.dust.step(dt); }
   // ---- What the walker and the camera ask of it ------------------------------------------------------------------------------------------------
   ground() { return _ground; }
   ceil() { return this.room.bounds.y1; }

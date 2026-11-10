@@ -9,6 +9,7 @@
 // rubber with a normal map for the tread, and the lamps are emissive (they bloom).
 import * as THREE from 'three';
 import { attachSSR } from './ssr.js';
+import { paintFlakes } from './paintfx.js';
 import { mergeGeomsUV } from './geom.js';
 
 export const NEAR_R = 55;                                   // metres: closer than this a car is drawn in full
@@ -114,6 +115,7 @@ export function policeDecals(o, P) {
 // ---- Materials ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 export function carMaterials() {
   const paint = attachSSR(new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.45, roughness: 0.3, clearcoat: 1.0, clearcoatRoughness: 0.04, sheen: 0.25, sheenRoughness: 0.5, sheenColor: new THREE.Color(0.8, 0.85, 1), envMapIntensity: 1.35 }), { range: 55, rough: 0.45, view: 120 });
+  paintFlakes(paint, 0.6);
   const glass = attachSSR(new THREE.MeshPhysicalMaterial({ color: 0x0b1218, metalness: 0.9, roughness: 0.03, transparent: true, opacity: 0.58, envMapIntensity: 2.4, clearcoat: 1, clearcoatRoughness: 0.02, depthWrite: false }), { range: 55, rough: 0.2, view: 120 });
   const wheel = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.55, normalMap: treadNormal(), normalScale: new THREE.Vector2(0.9, 0.9), envMapIntensity: 0.9 });
   const details = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.4, envMapIntensity: 0.7 });

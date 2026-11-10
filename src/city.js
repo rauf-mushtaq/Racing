@@ -1210,6 +1210,21 @@ export class City {
         const ax = b.x0 + 2 + rnd() * Math.max(1, w - 6), az = b.z0 + 2 + rnd() * Math.max(1, d - 6);
         if (kind === 'round' && Math.hypot(ax - cx, az - cz) > Math.min(w, d) / 2 - 3) continue;
         G.props.box(ax, az, ax + 1.6 + rnd() * 1.5, az + 1.2 + rnd(), top, top + 1.1 + rnd(), 4, new THREE.Color(0.62, 0.62, 0.6));
+        if (rnd() < 0.7) G.props.cap(circlePoly(ax + 0.8, az + 0.6, 0.38, 10), top + 1.12, 3, new THREE.Color(0.2, 0.2, 0.22));                // (the fan of an air-conditioning unit)
+      }
+      // A water tank on legs and a television aerial on the roof of the ordinary buildings: the things you see from above.
+      if (!tower && h > 9 && w > 9 && d > 9 && kind !== 'round') {
+        if (rnd() < 0.5) {
+          const tx = b.x0 + w * (0.25 + rnd() * 0.5), tz = b.z0 + d * (0.25 + rnd() * 0.5), tr = 1.2 + rnd() * 0.5, th = 2.0 + rnd() * 0.8, tc = new THREE.Color(0.55, 0.47, 0.4), lg = tr * 0.68;
+          for (const [lx, lz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) G.props.box(tx + lx * lg - 0.07, tz + lz * lg - 0.07, tx + lx * lg + 0.07, tz + lz * lg + 0.07, top, top + 1.4, 3, METAL);
+          G.props.extrude(circlePoly(tx, tz, tr, 12), top + 1.4, top + 1.4 + th, 4, 4, tc, 0, true); G.props.cap(circlePoly(tx, tz, tr, 12), top + 1.4 + th, 4, tc);
+          G.props.loft(circlePoly(tx, tz, tr * 1.05, 12), top + 1.4 + th, circlePoly(tx, tz, 0.1, 12), top + 1.4 + th + 0.9, 4, new THREE.Color(0.34, 0.32, 0.31));
+        }
+        if (rnd() < 0.6) {
+          const ax = b.x0 + 1.5 + rnd() * (w - 3), az = b.z0 + 1.5 + rnd() * (d - 3), hgt = 3 + rnd() * 2.5;
+          G.props.box(ax - 0.03, az - 0.03, ax + 0.03, az + 0.03, top, top + hgt, 3, METAL);
+          for (const [y, wd] of [[0.55, 0.8], [0.35, 0.65], [0.15, 0.5]]) G.props.box(ax - wd / 2, az - 0.015, ax + wd / 2, az + 0.015, top + hgt - y * 2, top + hgt - y * 2 + 0.03, 3, METAL);
+        }
       }
     }
     if (ctx.old && kind === 'rect' && h < 30 && style !== 'shop') {                                 // a hip roof of tiles over the flat one

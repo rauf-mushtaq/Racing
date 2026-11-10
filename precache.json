@@ -90,6 +90,7 @@
   "src/mocap.js",
   "src/motes.js",
   "src/officers.js",
+  "src/paintfx.js",
   "src/particles.js",
   "src/peds.js",
   "src/people.js",

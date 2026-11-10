@@ -1,0 +1,19 @@
+# Unreal Engine: what the engine and Visual Studio generate (not part of the project)
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+Build/
+.vs/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+.idea/
+# What the tests build
+../Tests/core_tests
