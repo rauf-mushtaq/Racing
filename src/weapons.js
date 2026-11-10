@@ -212,7 +212,7 @@ class Pickups {
 
 // ---- The arsenal ------------------------------------------------------------------------------------------------------------------
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _aim = new THREE.Vector3(), _mz = new THREE.Vector3(), _dir = new THREE.Vector3(), _q = new THREE.Quaternion();
-const HIT = { none: 0, wall: 1, ground: 2, cop: 3, car: 4, parked: 5, officer: 6, heli: 7, actor: 8 };
+const HIT = { none: 0, wall: 1, ground: 2, cop: 3, car: 4, parked: 5, officer: 6, heli: 7, actor: 8, ped: 9, brawler: 10 };
 const hitOut = { t: 0, type: 0, ref: null }, officerOut = { t: 0, type: 0, ref: null };
 const BOOT_COOLDOWN = 90;
 
@@ -315,6 +315,14 @@ export class Arsenal {
       if (o.dead) continue; const w = o.walker, ex = w.x - ox, ez = w.z - oz; if (ex * ex + ez * ez > (maxD + 8) ** 2) continue;
       const t = circ(w.x, w.z, w.y, 0.42, o.crouched ? 1.3 : 1.85); if (t >= 0 && t < best) { best = t; type = HIT.officer; ref = o; }
     }
+    if (this.env.brawl) for (const b of this.env.brawl.list) {                       // the people who fight back
+      if (!b.alive) continue; const ex = b.x - ox, ez = b.z - oz; if (ex * ex + ez * ez > (maxD + 8) ** 2) continue;
+      const t = circ(b.x, b.z, b.y, 0.45, b.crouched ? 1.3 : 1.88); if (t >= 0 && t < best) { best = t; type = HIT.brawler; ref = b; }
+    }
+    if (this.env.peds && !skipOfficers) for (const p of this.env.peds.list) {                  // and the people on the pavements
+      if (p.state === 'away' || p.state === 'down' || p.state === 'watch') continue; const ex = p.x - ox, ez = p.z - oz; if (ex * ex + ez * ez > (maxD + 8) ** 2) continue;
+      const t = circ(p.x, p.z, p.y, 0.4, 1.8); if (t >= 0 && t < best) { best = t; type = HIT.ped; ref = p; }
+    }
     const hel = this.env.heli; if (hel && hel.alive && !hel.crash) { const t = circ(hel.x, hel.z, hel.y - 1.6, 3.2, 4.2); if (t >= 0 && t < best) { best = t; type = HIT.heli; ref = hel; } }
     for (const p of city.parkedList()) {
       const ex = p.x - ox, ez = p.z - oz; if (ex * ex + ez * ez > (maxD + 8) ** 2 || (p.adopted)) continue;
@@ -409,7 +417,7 @@ export class Arsenal {
     fx.flash(_mz.x + _aim.x * 0.12, _mz.y + _aim.y * 0.12, _mz.z + _aim.z * 0.12, key === 'shotgun' ? 0.45 : key === 'pistol' ? 0.14 : 0.24, key === 'shotgun' ? 0.07 : 0.045, key === 'pistol' ? 2.5 : 5);
     for (let i = 0; i < (key === 'shotgun' ? 4 : 1); i++) fx.spark(_mz.x + _aim.x * 0.3, _mz.y + _aim.y * 0.3, _mz.z + _aim.z * 0.3, _aim.x * (8 + Math.random() * 16) + (Math.random() - 0.5) * 4, _aim.y * 10 + Math.random() * 2, _aim.z * (8 + Math.random() * 16) + (Math.random() - 0.5) * 4, 0.2);
     if (key === 'shotgun') fx.puff(_mz.x + _aim.x * 0.4, _mz.y, _mz.z + _aim.z * 0.4, _aim.x * 2, 0.8, _aim.z * 2, 0.25, 0.9, 0.55, 0.35, 2.5);
-    audio.shot(key); this.env.peds.scare(walker.x, walker.z, key === 'pistol' ? 28 : 55, 6);
+    audio.shot(key); this.env.peds.scare(walker.x, walker.z, key === 'pistol' ? 28 : 55, 6, true);
     if (this.env.shake) this.env.shake(key === 'shotgun' ? 0.18 : key === 'smg' ? 0.05 : 0.07);
   }
   assist(o, d, cone) {                                           // bend d toward the nearest car whose centre is within the cone (radians)
@@ -433,6 +441,18 @@ export class Arsenal {
       const o = r.ref, head = r.y - o.walker.y > (o.crouched ? 1.05 : 1.5), killed = this.env.officers.damage(o, w.dmg * fall * (head ? 2.3 : 1), head);
       spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = head ? 0.3 : 0.15; this.env.heat(0.02);
       if (killed) { hud.toast(head ? 'HEADSHOT: OFFICER DOWN' : 'OFFICER DOWN', 1.3); this.env.heat(0.3); }
+    }
+    else if (r.type === HIT.brawler) {
+      const b = r.ref, head = r.y - b.y > (b.crouched ? 1.05 : 1.55);
+      b.hit(w.dmg * fall * (head ? 1.4 : 1), { gun: true, head, knock: 0, dir: { x: d.x, z: d.z } }); spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = head ? 0.3 : 0.15;
+      if (!b.alive) hud.toast(head ? 'HEADSHOT' : 'HE IS DOWN', 1.1);
+    }
+    else if (r.type === HIT.ped) {
+      const p = r.ref, pe = this.env.peds, head = r.y - p.y > 1.5;
+      const b = p.kind !== 'civ' ? pe.provoke(p, { gun: true, dir: { x: d.x, z: d.z } }) : null;
+      if (b) b.hit(w.dmg * fall * (head ? 1.4 : 1), { gun: true, head, knock: 0, dir: { x: d.x, z: d.z } });
+      else { p.state = 'down'; p.downT = 2.2; p.vx = d.x * 2.2; p.vz = d.z * 2.2; p.vy = 2.0; p.lie = 0; }
+      spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = 0.15; pe.scare(p.x, p.z, 24, 6);
     }
     else if (r.type === HIT.heli) { r.ref.damage(w.dmg * fall); spark(3); this.hitT = 0.15; this.env.heat(0.01); }
     else if (r.type === HIT.actor) { const a = r.ref; a.hit(w.dmg * fall * 1.6, { dir: { x: d.x, z: d.z }, head: !!a.walker && r.y - a.y > 1.5, gun: true }); spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = 0.2; }

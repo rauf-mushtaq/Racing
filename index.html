@@ -198,6 +198,9 @@
   #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.22s ease; z-index: 60; }
   #cash { position: absolute; left: 50%; top: max(14px, env(safe-area-inset-top)); transform: translateX(-50%); padding: 5px 16px; border-radius: 10px; background: rgba(12,10,20,0.6); border: 1px solid rgba(255,255,255,0.22); font: 800 17px 'Barlow Condensed', Barlow, sans-serif; letter-spacing: 1px; color: #8cf0a8; }
   #cash.hidden, #heist.hidden, #hz-bar.hidden, #hz-sus.hidden { display: none; }
+  /* Your health, in a fight in the street. */
+  #hp { position: absolute; top: calc(max(14px, env(safe-area-inset-top)) + 46px); left: 50%; transform: translateX(-50%); width: min(260px, 52vw); }
+  #hp.hidden { display: none; }
   #heist { position: absolute; left: 50%; top: calc(max(14px, env(safe-area-inset-top)) + 40px); transform: translateX(-50%); width: min(340px, 56vw); padding: 8px 12px; border-radius: 12px; background: rgba(12,10,20,0.66); border: 1px solid rgba(255,255,255,0.22); text-align: center; font: 600 12px Barlow, sans-serif; }
   #hz-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; } #hz-name { font: 800 15px 'Barlow Condensed', Barlow, sans-serif; letter-spacing: 1.5px; } #hz-stars { color: #ffcf4a; letter-spacing: 2px; }
   #hz-bag { margin-top: 3px; font: 800 20px 'Barlow Condensed', Barlow, sans-serif; color: #8cf0a8; letter-spacing: 1px; }
@@ -290,6 +293,7 @@
   <div id="toast"></div>
   <div id="fade"></div>
   <div id="cash" class="hidden">$ 0</div>
+  <div id="hp" class="cbar hidden"><span>HEALTH</span><b><i></i></b></div>
   <div id="heist" class="hidden"><div id="hz-top"><b id="hz-name"></b><span id="hz-stars"></span></div><div id="hz-bag"></div><div id="hz-bar" class="hidden"><i></i></div><div id="hz-sus" class="hidden"><i></i><em>SPOTTED</em></div><div id="hz-msg"></div></div>
   <div id="prompt" class="hidden"><kbd>F</kbd><span id="prompt-txt">GET IN</span></div>
   <div id="countdown"></div>

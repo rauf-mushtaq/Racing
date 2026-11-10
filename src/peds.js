@@ -16,6 +16,10 @@ const SHIRTS = [0xd9d4cc, 0x2c3e55, 0x8a2b2b, 0x2f5d44, 0xe0b23c, 0x3a3a3f, 0xf0
 const PANTS = [0x2a3550, 0x1c1c20, 0x4a4036, 0x6b6b70, 0x3a2f28, 0x2d4660, 0x8a7d62, 0x22303a, 0x59606b];
 const SHOES = [0xf2f2f2, 0x1c1c1c, 0x6b4a32, 0xc9c0b0, 0x7a2a2a];
 const OFFSETS = [1.8, 2.4, 3.0];
+// A few of the people are armed (a pistol under the jacket) and a few are big muscular men; leave them alone and they are just pedestrians, hit one and he fights back (brawl.js).
+export const ARCH = { bruiser: 0.06, armed: 0.09 };
+const BRUISER_SHIRTS = [0x1e1e22, 0xf0f0f0, 0x8a2b2b, 0x3a3a3f, 0x2a7aa8, 0x2f5d44];
+const BRUISER = { w: 1.2, h: 1.07 };            // (the crowd figures of a big man are drawn wider and taller; the real people have muscle bones instead: people.js setBulk)
 const SHOW_R = 125;
 // The people close to the camera are real people (Rocketbox models with recorded walking, see people.js and mocap.js): a small pool of them is
 // handed to whoever is nearest, and given back as they walk away (the rest of the crowd is the instanced figures below).
@@ -44,7 +48,7 @@ function clapArms(B, t) {
 
 export class Peds {
   constructor(scene, count, shadows) {
-    this.scene = scene; this.count = count; this.rnd = mulberry32(2025); this.list = []; this.onHit = null;
+    this.scene = scene; this.count = count; this.rnd = mulberry32(2025); this.list = []; this.onHit = null; this.onProvoke = null;
     // Geometry for every part, with white clothes (dyed per instance) and white skin (tinted per instance).
     const parts = bodyParts({ skin: 0xffffff, hairStyle: 'short' }, true), mats = figureMaterials();
     this.B = buildRig(null, null);                              // just the joints
@@ -90,7 +94,12 @@ export class Peds {
     const cand = this.vis.filter(p => !p.real && p.state !== 'away' && (p.x - cx) ** 2 + (p.z - cz) ** 2 < REAL_IN * REAL_IN);
     if (!cand.length) return;
     cand.sort((a, b) => ((a.x - cx) ** 2 + (a.z - cz) ** 2) - ((b.x - cx) ** 2 + (b.z - cz) ** 2));
-    for (const p of cand) { const free = R.slots.find(sl => !sl.ped && sl.idx < n); if (!free) break; free.ped = p; p.real = free; free.rig.root.visible = true; p.hs = p.hs || 0.95 + this.rnd() * 0.1; free.person.root.scale.setScalar(0.01 * p.hs); }
+    for (const p of cand) {
+      const big = p.kind !== 'civ', free = R.slots.find(sl => !sl.ped && sl.idx < n && (!big || /^ped_m/.test(sl.key)));              // (the armed and the big are men, so they are given a man's model)
+      if (!free) { if (big) continue; break; }
+      free.ped = p; p.real = free; free.rig.root.visible = true; p.hs = p.hs || 0.95 + this.rnd() * 0.1;
+      const bk = p.kind === 'bruiser' ? 1 : 0; free.person.setBulk(bk); free.person.root.scale.set(0.01 * p.hs, 0.01 * p.hs * (1 + (BRUISER.h - 1) * bk), 0.01 * p.hs);
+    }
   }
   poseReal(camera, dt) {
     const cx = camera.position.x, cz = camera.position.z;
@@ -116,17 +125,29 @@ export class Peds {
       if (!initial && camera) { const dx = x - camera.position.x, dz = z - camera.position.z; const f = camera.getWorldDirection(this.tmpV || (this.tmpV = new THREE.Vector3())); if ((dx * f.x + dz * f.z) / (Math.hypot(dx, dz) || 1) > 0.6 && dist < 110) continue; }
       Object.assign(p, { i, j, d, s, dir: rnd() < 0.5 ? 1 : -1, x, z, h: Math.atan2(tx, tz), state: 'walk', idleT: 0, panic: 0, downT: 0, vx: 0, vz: 0, vy: 0, y: groundAt(x, z).y, phase: rnd() * 6.28, speedBase: 1.0 + rnd() * 0.55, speed: 0, t: rnd() * 20, look: 0, hit: false, lie: 0, ring });
       p.colors = [SHIRTS[(rnd() * SHIRTS.length) | 0], PANTS[(rnd() * PANTS.length) | 0], SHOES[(rnd() * SHOES.length) | 0], SKINS[(rnd() * SKINS.length) | 0], HAIRS[(rnd() * HAIRS.length) | 0]];
+      const ra = rnd(); p.kind = ra < ARCH.bruiser ? 'bruiser' : ra < ARCH.bruiser + ARCH.armed ? 'armed' : 'civ'; p.grudge = false;
+      if (p.kind === 'bruiser') p.colors[0] = BRUISER_SHIRTS[(rnd() * BRUISER_SHIRTS.length) | 0];
       return p;
     }
     // Nowhere good: park it far away (it is tried again next frame).
-    p.x = 1e5; p.z = 1e5; p.state = 'away'; p.ring = null; p.colors = p.colors || [SHIRTS[0], PANTS[0], SHOES[0], SKINS[0], HAIRS[0]]; return p;
+    p.x = 1e5; p.z = 1e5; p.state = 'away'; p.ring = null; p.colors = p.colors || [SHIRTS[0], PANTS[0], SHOES[0], SKINS[0], HAIRS[0]]; p.kind = p.kind || 'civ'; return p;
   }
   setCount(n) { for (const p of this.list.slice(n)) if (p.real) { p.real.ped = null; p.real.rig.root.visible = false; p.real = null; } n = Math.min(n, this.count); while (this.list.length > n) this.list.pop(); while (this.list.length < n) this.list.push({}); }
 
-  // Everyone within r metres of a point is frightened and runs.
-  scare(x, z, r, secs = 4) {
+  // Someone attacked him: an armed man or a big one fights back (brawl.js takes him over and hands back the fighter, or null); a citizen just runs.
+  provoke(p, info = {}) {
+    if (!p || p.kind === 'civ' || p.state === 'away' || !this.onProvoke) return null;
+    const b = this.onProvoke(p, info); if (!b) return null;
+    if (p.real) { p.real.ped = null; p.real.rig.root.visible = false; p.real = null; }
+    p.state = 'away'; p.x = p.z = 1e5; p.grudge = false;                      // (he is a fighter now; this person is used again for a new citizen somewhere else)
+    return b;
+  }
+
+  // Everyone within r metres of a point is frightened and runs (and with `fight`, as for a gunshot, the armed ones near it go for their guns).
+  scare(x, z, r, secs = 4, fight = false) {
     for (const p of this.list) {
       if (p.state === 'down' || p.state === 'away') continue; const dx = p.x - x, dz = p.z - z; if (dx * dx + dz * dz > r * r) continue;
+      if (fight && p.kind === 'armed' && p.state !== 'watch' && dx * dx + dz * dz < 18 * 18 && Math.random() < 0.5 && this.provoke(p, {})) continue;
       if (p.state === 'watch') { this.relink(p); p.spot = null; p.clap = 0; p.state = 'panic'; p.panic = secs * (0.7 + this.rnd() * 0.6); p.dir = 1; continue; }     // (the audience scatters)
       if (!p.ring) continue;
       p.state = 'panic'; p.panic = secs * (0.7 + this.rnd() * 0.6); const [, , tx, tz] = ringAt(p.ring, p.s); p.dir = (tx * dx + tz * dz) >= 0 ? 1 : -1;
@@ -147,7 +168,7 @@ export class Peds {
         const cx = car.x + f[0] * off, cz = car.z + f[1] * off; if (Math.hypot(p.x - cx, p.z - cz) > 1.0 + 0.3) continue;
         if (sp < 1.5) break;
         const v = car.worldVel(), nx = p.x - cx, nz = p.z - cz, l = Math.hypot(nx, nz) || 1;
-        p.state = 'down'; p.downT = 2.8; p.vx = v[0] * 0.85 + nx / l * 2.5; p.vz = v[1] * 0.85 + nz / l * 2.5; p.vy = 3.2 + Math.min(4, sp * 0.15); p.lie = 0; n++; if (this.onHit) this.onHit(p, sp); break;
+        p.state = 'down'; p.downT = 2.8; p.vx = v[0] * 0.85 + nx / l * 2.5; p.vz = v[1] * 0.85 + nz / l * 2.5; p.vy = 3.2 + Math.min(4, sp * 0.15); p.lie = 0; n++; if (p.kind !== 'civ') p.grudge = true; if (this.onHit) this.onHit(p, sp); break;
       }
     }
     return n;
@@ -169,7 +190,7 @@ export class Peds {
         if (p.y <= g) { p.y = g; p.vy = 0; const k = Math.exp(-5 * dt); p.vx *= k; p.vz *= k; }
         if (inWater(p.x, p.z)) { p.state = 'away'; continue; }                                         // (knocked into the river: gone; someone else turns up)
         p.lie = damp(p.lie, 1, 14, dt); p.speed = 0;
-        if (p.downT <= 0) { p.state = 'panic'; p.panic = 4; p.lie = 0; this.relink(p); }
+        if (p.downT <= 0) { p.state = 'panic'; p.panic = 4; p.lie = 0; this.relink(p); if (p.grudge) { p.grudge = false; if (this.provoke(p, { car: true })) continue; } }
       } else {
         let spd = 0;
         if (p.state === 'walk') { spd = p.speedBase; p.idleT -= dt; if (rnd() < dt * 0.025) { p.state = 'idle'; p.idleT = 2 + rnd() * 6; } }
@@ -213,6 +234,7 @@ export class Peds {
       const p = inst[s];
       animate(B, { phase: p.phase += p.speed * dt / (p.state === 'panic' ? 2.2 : 1.4) * 6.283, speed: p.speed, run: p.state === 'panic' ? 0.55 : 0.0, t: p.t, down: p.lie, look: p.look });
       if (p.clap) clapArms(B, p.t);
+      const bk = p.kind === 'bruiser'; B.root.scale.set(bk ? BRUISER.w : 1, bk ? BRUISER.h : 1, bk ? BRUISER.w : 1);
       B.root.position.set(p.x, p.y + p.lie * 0.13, p.z); B.root.rotation.y = p.h; B.root.updateMatrixWorld(true);
       for (const K of this.kinds) {
         const nb = K.bones.length;

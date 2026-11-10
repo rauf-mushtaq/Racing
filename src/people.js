@@ -226,5 +226,27 @@ export class Person {
   // World position of a bone (for putting a weapon in the hand).
   worldPos(name, out) { this.bones[name].getWorldPosition(out); return out; }
   setShadows(on) { for (const m of this.meshes) m.castShadow = on; }
+  // A big, muscular build (k from 0 to 1): a broad chest and shoulders, thick arms and legs, a thick neck, with the head, hands and feet staying their own size. Each bone is
+  // scaled across its length only (its long axis, found from where its child sits, keeps its length), and a bone also carries its parent's scale, so what a bone is
+  // given is its wanted overall scale divided by what it inherits.
+  setBulk(k) {
+    if ((this.bulk || 0) === k) return; this.bulk = k;
+    if (!this.bulkAxis) {
+      this.bulkAxis = {};
+      for (const [a, b] of [['Spine1', 'Spine2'], ['Spine2', 'Neck'], ['Neck', 'Head'], ['L_UpperArm', 'L_Forearm'], ['L_Forearm', 'L_Hand'], ['L_Hand', 'L_Finger2'], ['R_UpperArm', 'R_Forearm'], ['R_Forearm', 'R_Hand'], ['R_Hand', 'R_Finger2'], ['L_Thigh', 'L_Calf'], ['L_Calf', 'L_Foot'], ['L_Foot', 'L_Toe0'], ['R_Thigh', 'R_Calf'], ['R_Calf', 'R_Foot'], ['R_Foot', 'R_Toe0']]) {
+        const A = this.bones['Bip01_' + a], C = this.bones['Bip01_' + b]; if (!A || !C) continue;
+        const q = C.position, m = [Math.abs(q.x), Math.abs(q.y), Math.abs(q.z)]; this.bulkAxis[a] = m[0] >= m[1] && m[0] >= m[2] ? 0 : m[1] >= m[2] ? 1 : 2;
+      }
+      this.bulkAxis.Head = this.bulkAxis.Neck;                                 // (the head's own long axis is the neck's)
+    }
+    const NET = { Spine1: [1.1, null], Spine2: [1.36, 'Spine1'], Neck: [1.18, 'Spine2'], Head: [1.0, 'Neck'], UpperArm: [1.72, 'Spine2'], Forearm: [1.45, 'UpperArm'], Hand: [1.0, 'Forearm'], Thigh: [1.34, null], Calf: [1.2, 'Thigh'], Foot: [1.0, 'Calf'] };
+    const net = n => { const [t] = NET[n]; return 1 + (t - 1) * k; };
+    const give = (bone, key, side) => {
+      const b = this.bones['Bip01_' + bone]; if (!b) return;
+      const [, parent] = NET[key], own = net(key) / (parent ? net(parent) : 1), ax = this.bulkAxis[bone], v = [own, own, own]; if (ax !== undefined) v[ax] = 1; b.scale.set(v[0], v[1], v[2]);
+    };
+    for (const n of ['Spine1', 'Spine2', 'Neck', 'Head']) give(n, n);
+    for (const s of ['L', 'R']) for (const [n, key] of [['UpperArm', 'UpperArm'], ['Forearm', 'Forearm'], ['Hand', 'Hand'], ['Thigh', 'Thigh'], ['Calf', 'Calf'], ['Foot', 'Foot']]) give(s + '_' + n, key);
+  }
   dispose() { for (const m of this.meshes) { m.geometry.dispose(); } for (const k in this.mats) { const m = this.mats[k]; for (const t of [m.map, m.normalMap, m.roughnessMap]) t && t.dispose(); m.dispose(); } }
 }

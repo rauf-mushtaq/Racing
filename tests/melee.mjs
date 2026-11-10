@@ -41,7 +41,7 @@ try {
   // A stranger straight ahead of the character, standing still. (The crowd walks on fixed loops round the blocks, so it is the character who is put
   // beside the stranger, dist metres away, with the camera looking at them.)
   const put = (dist, ang = 0, i = 0, police = false, reset = true) => P.evaluate(([dist, ang, i, police, reset]) => {
-    const g = window.__game, w = g.walker, p = g.peds.list[i];
+    const g = window.__game, w = g.walker, p = g.peds.list[i]; for (const q of g.peds.list) q.kind = 'civ';             // (a plain citizen: the armed and the big fight back, see brawl.mjs)
     p.state = 'idle'; p.idleT = 99; p.downT = 0; p.panic = 0; p.vx = p.vz = p.vy = 0; p.lie = 0; p.speed = 0; w.noClip = true;
     g.tick(1 / 60);                                                                            // (a stranger who has been knocked about slips back onto the loop they walk on)
     const yaw = g.footCam.yaw, a = yaw + ang;

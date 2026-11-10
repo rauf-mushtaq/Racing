@@ -50,6 +50,7 @@
   "src/bench.js",
   "src/bigmap.js",
   "src/birds.js",
+  "src/brawl.js",
   "src/breakables.js",
   "src/bridges.js",
   "src/buskers.js",

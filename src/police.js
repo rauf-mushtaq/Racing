@@ -372,6 +372,7 @@ export class PoliceChase {
     if (d < radius * 0.8) { const fall = 1 - d / (radius * 0.8); this.health -= dmg * fall * 0.15 * (this.shieldT > 0 ? 0.3 : 1); this.damageFlash = Math.min(1, this.damageFlash + fall * 0.4); }
     this.shake = Math.min(1, Math.max(this.shake, power * 0.9 / (1 + d * 0.04)));
     if (this.officers) this.officers.blast(x, z, y, radius, dmg);
+    if (this.brawl) this.brawl.blast(x, z, y, radius, dmg);
     if (this.heli) this.heli.blast(x, y, z, radius, dmg);
   }
   muzzle(p, side) {

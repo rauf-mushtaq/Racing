@@ -59,8 +59,9 @@ export class Melee {
   }
   // Every target the blow could land on: calls fn(target, x, z).
   each(fn) {
-    const { peds, officers } = this.env;
+    const { peds, officers, brawl } = this.env;
     if (peds) for (const p of peds.list) { if (p.state === 'down' || p.state === 'away') continue; fn(p, p.x, p.z, 'ped'); }
+    if (brawl) for (const b of brawl.list) { if (!b.alive) continue; fn(b, b.x, b.z, 'brawler'); }
     if (officers) for (const o of officers.list) { if (o.dead) continue; fn(o, o.walker.x, o.walker.z, 'officer'); }
     const extra = this.env.targets && this.env.targets();
     if (extra) for (const a of extra) { if (a.alive === false) continue; fn(a, a.x, a.z, 'actor'); }
@@ -100,7 +101,12 @@ export class Melee {
   strike(s, info) {
     const { peds, officers, crime } = this.env, t = s.t;
     if (s.type === 'ped') {
-      const p = t; p.state = 'down'; p.downT = 1.6 + info.knock * 1.2; p.vx = info.dir.x * (1.5 + info.knock * 3); p.vz = info.dir.z * (1.5 + info.knock * 3); p.vy = 1.6 + info.knock * 1.5; p.lie = 0;
+      const p = t;
+      if (p.kind && p.kind !== 'civ') {                                                              // an armed man, or a big one: he is not going down, he is going to fight
+        const b = peds.provoke(p, info);
+        if (b) { b.hit(info.dmg, info); peds.scare(b.x, b.z, 22, 5); if (crime) crime('assault', info.blade ? 2 : 1); return; }
+      }
+      p.state = 'down'; p.downT = 1.6 + info.knock * 1.2; p.vx = info.dir.x * (1.5 + info.knock * 3); p.vz = info.dir.z * (1.5 + info.knock * 3); p.vy = 1.6 + info.knock * 1.5; p.lie = 0;
       peds.scare(p.x, p.z, 22, 5); if (crime) crime('assault', info.blade ? 2 : 1);
     } else if (s.type === 'officer') {
       const killed = officers.damage(t, info.dmg, false); if (info.knock > 0.8) t.walker.knockDown(info.dir.x * 4, info.dir.z * 4);
