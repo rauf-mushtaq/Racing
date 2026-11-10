@@ -1,7 +1,8 @@
 // Hand to hand: punches (a jab with the left, a cross with the right, one after the other as long as you keep pressing), a kick, and a knife (a slash, then
 // a stab, then a slash). A blow starts, swings (person.js turns the swing into poses: `walker.melee` is the pose), and lands at one moment in the middle of it:
 // whatever is in front of you, within reach and in the arc, takes the hit. What can be hit: the people on the pavement (they go down and the
-// crowd scatters), the police officers on foot, and the actors in a shop or bank (shopkeepers, guards: see heist.js).
+// crowd scatters), the police officers on foot, and the actors in a shop or bank (shopkeepers, guards: see heist.js). Inside a room only the
+// room's own people and glass cases can be hit (the room is a stage high above the map, and the street carries on underneath it).
 //
 // A target (from `env.targets()`) is { x, z, y, hit(damage, info), kind }. The pedestrians and the officers are looked up here.
 import { clamp, lerp, wrapAngle } from './util.js';
@@ -60,9 +61,11 @@ export class Melee {
   // Every target the blow could land on: calls fn(target, x, z).
   each(fn) {
     const { peds, officers, brawl } = this.env;
-    if (peds) for (const p of peds.list) { if (p.state === 'down' || p.state === 'away') continue; fn(p, p.x, p.z, 'ped'); }
-    if (brawl) for (const b of brawl.list) { if (!b.alive) continue; fn(b, b.x, b.z, 'brawler'); }
-    if (officers) for (const o of officers.list) { if (o.dead) continue; fn(o, o.walker.x, o.walker.z, 'officer'); }
+    if (!this.env.walker.interior) {                                    // (a room is a stage of its own, high above the map: the people of the street below it are not in reach)
+      if (peds) for (const p of peds.list) { if (p.state === 'down' || p.state === 'away') continue; fn(p, p.x, p.z, 'ped'); }
+      if (brawl) for (const b of brawl.list) { if (!b.alive) continue; fn(b, b.x, b.z, 'brawler'); }
+      if (officers) for (const o of officers.list) { if (o.dead) continue; fn(o, o.walker.x, o.walker.z, 'officer'); }
+    }
     const extra = this.env.targets && this.env.targets();
     if (extra) for (const a of extra) { if (a.alive === false) continue; fn(a, a.x, a.z, 'actor'); }
   }

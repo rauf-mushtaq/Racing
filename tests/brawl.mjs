@@ -1,6 +1,6 @@
 // People who fight back: some pedestrians are armed and some are big muscular men; attack one and he becomes a fighter (src/brawl.js): the big man charges and hits, the armed one
 // draws a pistol and shoots, both can be beaten (knocked out) or shot (down for good), beating one pays, and being beaten yourself knocks you out. The crowd is not all fighters.
-import { check, open, step, finish } from './lib.mjs';
+import { check, open, step, finish, onlyTheTarget } from './lib.mjs';
 
 try {
   const { page: P, logs } = await open();
@@ -32,18 +32,19 @@ try {
       w.noClip = false; w.place(wx, wz, yaw); g.footCam.yaw = yaw; g.tick(1 / 60);
       if (Math.hypot(w.x - wx, w.z - wz) < 0.2 && Math.hypot(w.x - p.x, w.z - p.z) < dist + 0.25 && p.state === 'idle') {
         g.melee.cool = 0; g.melee.queued = null; g.game.noWanted = 1e9; g.game.clock = 1000 + Math.random(); g.game.assaultN = 0; g.game.assaultT = -99;
-        g.game.hp = 100; g.game.hpT = 0; g.game.ko = false; g.settings.cash = 500; window.__pi = i; return { i, x: p.x, z: p.z };
+        g.game.hp = 100; g.game.hpT = 0; g.game.ko = false; g.settings.cash = 500; window.__pi = window.__target = i; return { i, x: p.x, z: p.z };
       }
       p.kind = 'civ';
     }
     return null;
   }, [kind, dist]);
   await P.evaluate(() => { const g = window.__game; g.arsenal.clear && g.arsenal.clear(); g.arsenal.holster(); });
+  await onlyTheTarget(P);                                              // (the punch is for the one the test chose, not for a bystander who happens to stand nearer: see lib.mjs)
 
   console.log('a citizen');
-  await put('civ'); await P.evaluate(() => window.__game.melee.attack('fist')); await step(P, 50);
-  let r = await P.evaluate(() => ({ fighters: window.__game.brawl.list.length }));
-  check('a plain citizen who is punched goes down: nobody fights back', r.fighters === 0, JSON.stringify(r));
+  await put('civ'); await P.evaluate(() => { window.__struck.length = 0; window.__game.melee.attack('fist'); }); await step(P, 50);
+  let r = await P.evaluate(() => { const g = window.__game, p = g.peds.list[window.__pi]; return { fighters: g.brawl.list.length, struck: window.__struck.slice(), state: p.state, down: p.state === 'down' || p.downT > 0 }; });
+  check('a plain citizen who is punched goes down: nobody fights back', r.fighters === 0 && r.struck.length === 1 && r.down, JSON.stringify(r));
 
   console.log('a big man');
   await put('bruiser'); await P.evaluate(() => window.__game.melee.attack('fist')); await step(P, 30);

@@ -37,6 +37,21 @@ export async function open({ debug = true, w = 844, h = 390, touch = false, hasT
 export const step = (page, n, dt = 1 / 60) => page.evaluate(([n, dt]) => { const g = window.__game, nr = window.__noRender; window.__noRender = true; for (let i = 0; i < n; i++) g.tick(dt); window.__noRender = nr; }, [n, dt]);
 
 
+// A blow lands on whoever is nearest within reach (src/melee.js), and anyone who is hit frightens everyone within 22 m. The street where the character starts
+// has buskers with an audience standing round them, so on one machine a bystander is within reach of the swing and on another not: the same check passed
+// here and failed on the build server for that reason (for nine pushes running). After this call only the pedestrian whose number is in window.__target (and
+// anyone who is already fighting back) can be struck, the buskers stop collecting an audience (so the target is not pulled into one halfway through), and
+// every blow that lands is noted in window.__struck, to check and to show when a check fails. The reach and the arc of the blow are still the game's own.
+export const onlyTheTarget = page => page.evaluate(() => {
+  const g = window.__game, m = g.melee, strike = m.strike.bind(m); window.__struck = [];
+  m.each = fn => {
+    const p = g.peds.list[window.__target]; if (p && p.state !== 'down' && p.state !== 'away') fn(p, p.x, p.z, 'ped');
+    for (const b of g.brawl.list) if (b.alive) fn(b, b.x, b.z, 'brawler');
+  };
+  m.strike = (s, info) => { window.__struck.push(s.type + '@' + s.d.toFixed(2)); return strike(s, info); };
+  g.buskers.gather = () => {};
+});
+
 export async function finish() {
   await browser.close(); server.close();
   console.log(failed ? `\n${failed} FAILED` : '\nall passed');

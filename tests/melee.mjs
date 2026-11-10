@@ -1,7 +1,7 @@
 // Hand to hand: a punch, a kick and a knife. Checks the animation really reaches (the fist at the end of the arm in front of the chest, the foot
 // up in front at a kick), that the blows land on people (and only people in front), that the keys and the buttons throw them, and that the
 // police come for assault (but not for a single scuffle).
-import { check, open, step, finish } from './lib.mjs';
+import { check, open, step, finish, onlyTheTarget } from './lib.mjs';
 
 try {
   const { page: P, logs } = await open();
@@ -40,29 +40,31 @@ try {
   console.log('blows');
   // A stranger straight ahead of the character, standing still. (The crowd walks on fixed loops round the blocks, so it is the character who is put
   // beside the stranger, dist metres away, with the camera looking at them.)
+  await onlyTheTarget(P);                                              // (only the stranger the test sets up can be struck, not a bystander who happens to be in reach: see lib.mjs)
   const put = (dist, ang = 0, i = 0, police = false, reset = true) => P.evaluate(([dist, ang, i, police, reset]) => {
     const g = window.__game, w = g.walker, p = g.peds.list[i]; for (const q of g.peds.list) q.kind = 'civ';             // (a plain citizen: the armed and the big fight back, see brawl.mjs)
+    window.__target = i;
     p.state = 'idle'; p.idleT = 99; p.downT = 0; p.panic = 0; p.vx = p.vz = p.vy = 0; p.lie = 0; p.speed = 0; w.noClip = true;
     g.tick(1 / 60);                                                                            // (a stranger who has been knocked about slips back onto the loop they walk on)
     const yaw = g.footCam.yaw, a = yaw + ang;
     w.place(p.x - Math.sin(a) * dist, p.z - Math.cos(a) * dist, yaw); g.footCam.yaw = yaw;
     g.melee.cool = 0; g.melee.queued = null; g.game.noWanted = police ? 0 : 1e9;
     if (reset) { g.game.clock = 1000 + Math.random(); g.game.assaultN = 0; g.game.assaultT = -99; }
-    return p.state;
+    return Math.hypot(p.x - w.x, p.z - w.z);                                                   // (how far the character really is from the stranger)
   }, [dist, ang, i, police, reset]);
   await P.evaluate(() => { const g = window.__game; g.arsenal.clear && g.arsenal.clear(); g.arsenal.holster(); }); await step(P, 30);
-  const hit = async (how, ...a) => {                                   // (what happened to the stranger, not to anyone else who happened to be near)
-    await put(...a); await P.evaluate(how); await step(P, 60);
-    return P.evaluate(() => { const p = window.__game.peds.list[0]; return { down: p.state === 'down' || p.lie > 0.1 || p.downT > 0 || (p.state === 'panic'), state: p.state }; });
+  const hit = async (how, ...a) => {                                   // (what happened to the stranger)
+    const d = await put(...a); await P.evaluate(() => { window.__struck.length = 0; }); await P.evaluate(how); await step(P, 60);
+    return P.evaluate(d => { const p = window.__game.peds.list[0]; return { down: p.state === 'down' || p.lie > 0.1 || p.downT > 0 || (p.state === 'panic'), state: p.state, apart: +d.toFixed(2), struck: window.__struck.slice() }; }, d);
   };
   let r = await hit(() => window.__game.melee.attack('fist'), 1.0);
-  check('a punch lands on someone one metre ahead and knocks them down', r.down, JSON.stringify(r));
+  check('a punch lands on someone one metre ahead and knocks them down', r.down && r.struck.length === 1, JSON.stringify(r));
   r = await hit(() => window.__game.melee.attack('fist'), 4.0);
-  check('a punch at someone four metres away hits nothing', !r.down, JSON.stringify(r));
+  check('a punch at someone four metres away hits nothing', !r.down && r.struck.length === 0, JSON.stringify(r));
   r = await hit(() => window.__game.melee.attack('fist'), 1.0, Math.PI);
-  check('and someone standing behind is not hit', !r.down, JSON.stringify(r));
+  check('and someone standing behind is not hit', !r.down && r.struck.length === 0, JSON.stringify(r));
   r = await hit(() => window.__game.melee.kick(), 1.5);
-  check('a kick reaches further than a punch (1.5 m)', r.down, JSON.stringify(r));
+  check('a kick reaches further than a punch (1.5 m)', r.down && r.struck.length === 1, JSON.stringify(r));
   const combo = await P.evaluate(async () => {
     const g = window.__game, m = g.melee, seq = []; m.cool = 0; m.queued = null; m.next.fist = 'jab';
     for (let i = 0; i < 3; i++) { m.attack('fist'); seq.push(m.kind); for (let k = 0; k < 40 && m.busy; k++) g.tick(1 / 60); for (let k = 0; k < 8; k++) g.tick(1 / 60); }

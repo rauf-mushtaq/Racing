@@ -83,10 +83,19 @@ try {
   await enter('jeweller'); await step(P, 40);
   const J0 = await ev(() => { const g = window.__game, H = g.heist, c = H.room.items.find(i => i.type === 'case'); return { x: c.x, z: c.z, value: c.value, n: H.room.items.filter(i => i.type === 'case').length }; });
   await stand(J0.x, J0.z - 1.3, 0); await step(P, 3);
-  // A punch on the glass breaks it (and sets off the alarm), then the jewels can be taken.
+  // A punch on the glass breaks it (and sets off the alarm), then the jewels can be taken. Someone of the street is put at the same place on the map, nearer
+  // than the case: the room is a stage of its own, high above the street, so the punch is for the glass and not for them (it used to land on them: a passer-by
+  // you could not see took the blow, and it was counted as an assault).
+  await ev(() => {
+    const g = window.__game, w = g.walker, p = g.peds.list[0];
+    Object.assign(p, { kind: 'civ', state: 'idle', idleT: 99, ring: null, spot: null, downT: 0, lie: 0, speed: 0, vx: 0, vz: 0, vy: 0, x: w.x, z: w.z + 0.8 });
+    window.__n0 = g.game.assaultN || 0; window.__apart = +(w.y - p.y).toFixed(0);
+  });
   await ev(() => { const g = window.__game; g.footCam.yaw = 0; g.melee.attack('fist'); }); await step(P, 40);
-  const sm = await ev(() => { const H = window.__game.heist, c = H.room.items.find(i => i.type === 'case'); return { state: c.state, alarm: H.alarm, glass: c.glass.visible }; });
+  const sm = await ev(() => { const g = window.__game, H = g.heist, c = H.room.items.find(i => i.type === 'case'), p = g.peds.list[0]; return { state: c.state, alarm: H.alarm, glass: c.glass.visible, passerBy: p.state, downT: p.downT || 0, assaults: (g.game.assaultN || 0) - window.__n0, metresAbove: window.__apart }; });
   check('a punch breaks the glass of a case, and sets off the alarm', sm.state === 'open' && !sm.glass && sm.alarm, JSON.stringify(sm));
+  check('and it does not land on someone walking in the street far below the room', sm.metresAbove > 1000 && sm.passerBy !== 'down' && !sm.downT && sm.assaults === 0, JSON.stringify(sm));
+  await ev(() => { window.__game.peds.list[0].state = 'away'; });                    // (the passer-by goes back to being an ordinary citizen somewhere else)
   await ev(() => { const H = window.__game.heist; H.task = null; }); await ev(() => window.__game.heist.use()); await step(P, 60 * 2);
   const gr = await ev(() => ({ loot: window.__game.heist.loot, state: window.__game.heist.room.items.find(i => i.type === 'case').state }));
   check('then the jewels are taken', gr.loot === J0.value && gr.state === 'taken', JSON.stringify([gr, J0.value]));
