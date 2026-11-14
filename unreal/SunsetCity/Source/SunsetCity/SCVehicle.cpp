@@ -4,6 +4,7 @@
 #include "Components/PointLightComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/OverlapResult.h"                                     // (FOverlapResult: Unreal 5.6 only declares it in World.h)
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"

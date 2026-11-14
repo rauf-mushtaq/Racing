@@ -129,7 +129,7 @@ enum class EReflectionMethod : uint8 { None, Lumen };
 enum class EDynamicGlobalIlluminationMethod : uint8 { None, Lumen };
 struct FKey {}; struct EKeys { static const FKey W, A, S, D, Up, Down, Left, Right, SpaceBar, LeftShift, LeftMouseButton, Q, E, F, R; };
 struct FHitResult { bool bBlockingHit = false; float Distance = 0; FVector ImpactPoint; AActor* GetActor() const { return nullptr; } };
-struct FOverlapResult { AActor* GetActor() const { return nullptr; } };
+struct FOverlapResult;   // (only declared, as Unreal's World.h and PrimitiveComponent.h do: the definition is in Engine/OverlapResult.h; see HEADER_ONLY in check.py)
 struct FCollisionQueryParams { void AddIgnoredActor(const AActor*) {} };
 struct FCollisionShape { static FCollisionShape MakeSphere(float) { return FCollisionShape(); } };
 struct FActorSpawnParameters { ESpawnActorCollisionHandlingMethod SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn; };

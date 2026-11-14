@@ -5,7 +5,8 @@ It copies the module's sources to a temporary folder, gives every UCLASS the `Su
 ue_stub.h (a small stand-in for the parts of Unreal's API that the code uses) and runs `g++ -fsyntax-only` on each .cpp, as C++20 (what Unreal 5.5 builds game code as) and
 with a variable that hides another counted as an error (as Unreal's default build settings do). That catches typos, undeclared names, wrong argument counts and type mismatches
 in OUR code. Then shadow_scan.py looks for names that hide a member of the real engine classes (which the stub does not have) and for file-local helpers that would collide when
-Unreal compiles several files as one. None of this can tell whether Unreal's real headers declare things as the stub does, so a pass here is not a pass in Unreal.
+Unreal compiles several files as one. A few engine types are only declared by the usual headers and defined in their own (HEADER_ONLY below):
+the stand-in does the same, so a file that uses one without including its header fails here as it does in Unreal. None of this can tell whether Unreal's real headers declare things as the stub does, so a pass here is not a pass in Unreal.
 Usage: python3 check.py        (needs python3 and g++)"""
 import os, re, shutil, subprocess, sys, tempfile
 
@@ -16,6 +17,12 @@ inc = os.path.join(out, 'inc')
 shutil.copytree(src, os.path.join(out, 'src'))
 os.makedirs(inc)
 shutil.copy(os.path.join(here, 'ue_stub.h'), os.path.join(inc, 'ue_stub.h'))
+# Types Unreal's usual headers only declare, so code that uses them must include the header that defines them (with Unreal 5's strict include
+# order nothing pulls it in for you). The stand-in declares them the same way and defines them only in these headers. Each one is here because a
+# real Unreal build asked for it: FOverlapResult (Unreal 5.6.1, SCVehicle.cpp, "use of undefined type").
+HEADER_ONLY = {
+    'Engine/OverlapResult.h': 'struct FOverlapResult { AActor* GetActor() const { return nullptr; } };',
+}
 includes = set()
 for root, _, files in os.walk(os.path.join(out, 'src')):
     for f in files:
@@ -43,7 +50,7 @@ for i in includes:
         continue
     path = os.path.join(inc, i)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    open(path, 'w').write('#include "ue_stub.h"\n')
+    open(path, 'w').write('#pragma once\n#include "ue_stub.h"\n' + HEADER_ONLY.get(i, '') + '\n')
 open(os.path.join(inc, 'CoreMinimal.h'), 'w').write('#include "ue_stub.h"\n')
 fail = 0
 for f in sorted(os.listdir(os.path.join(out, 'src'))):
