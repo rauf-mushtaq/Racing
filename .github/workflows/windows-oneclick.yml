@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       install_vs:
-        description: 'Also install Visual Studio Build Tools 2022 for real with the script (a few minutes on GitHub's machines)'
+        description: 'Also install Visual Studio Build Tools 2022 for real with the script (a few minutes on the GitHub machines)'
         type: boolean
         default: false
 jobs:
