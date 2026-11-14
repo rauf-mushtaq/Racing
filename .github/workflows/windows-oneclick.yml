@@ -1,0 +1,30 @@
+name: windows-oneclick
+# The one-click Windows script (unreal/SunsetCity.bat + unreal/tools/SunsetCity.ps1) on a real Windows machine, with a stand-in Unreal Engine
+# (see unreal/Tests/oneclick/test_oneclick.ps1). Started by hand, it can also install Visual Studio Build Tools for real with the script.
+on:
+  push:
+    paths: ['unreal/**', '.github/workflows/windows-oneclick.yml']
+  workflow_dispatch:
+    inputs:
+      install_vs:
+        description: 'Also install Visual Studio Build Tools 2022 for real with the script (about half an hour)'
+        type: boolean
+        default: false
+jobs:
+  oneclick:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: One-click script, with a stand-in Unreal Engine
+        shell: powershell
+        run: .\unreal\Tests\oneclick\test_oneclick.ps1
+  install-vs:
+    if: github.event_name == 'workflow_dispatch' && inputs.install_vs
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Visual Studio Build Tools 2022 the way the script does
+        shell: powershell
+        run: .\unreal\Tests\oneclick\test_install_vs.ps1
