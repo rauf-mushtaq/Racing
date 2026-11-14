@@ -239,7 +239,7 @@ function Update-GameFiles {
         $version = 'local ' + (Get-Fingerprint $newRoot @('unreal', 'assets'))
     } else {
         try {
-            $list = @(Get-Json ('https://api.github.com/repos/' + $Repo + '/contents?ref=' + $Ref))
+            $list = @(Get-Json ('https://api.github.com/repos/' + $Repo + '/contents?ref=' + $Ref) | ForEach-Object { $_ })     # (5.1 hands a JSON list over as one object: this unpacks it)
             $u = $list | Where-Object { $_.name -eq 'unreal' } | Select-Object -First 1
             $a = $list | Where-Object { $_.name -eq 'assets' } | Select-Object -First 1
             if ($u -and $a) { $version = 'unreal ' + $u.sha + ', assets ' + $a.sha }

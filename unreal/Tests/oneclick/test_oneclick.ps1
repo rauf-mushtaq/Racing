@@ -268,7 +268,8 @@ Check 'iPad: finishes' ($rc -eq 0) "exit $rc"
 Check 'iPad: packages first, as it had not worked' ((Count $c 'RunUAT.bat*') -eq 1)
 Check 'iPad: starts the signalling web server' (Wait-Call $m 'signalling server start.bat')
 Check 'iPad: starts the game for Pixel Streaming (no window, the server''s address)' (Wait-Call $m 'SunsetCity.exe -AudioMixer -RenderOffScreen*-PixelStreamingURL=ws://127.0.0.1:8888*')
-Check 'iPad: shows an address to type on the iPad' ($script:lastOutput -match 'http://\d+\.\d+\.\d+\.\d+')
+$gw = @(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | ForEach-Object { $_.IPv4Address } | ForEach-Object { $_.IPAddress })
+Check 'iPad: shows first the address on the network the PC uses (the one with a router), to type on the iPad' ($gw.Count -gt 0 -and $script:lastOutput -match ('open this address:\s+http://' + [regex]::Escape($gw[0]) + '\s')) ('gateway address ' + ($gw -join ', '))
 
 # 11. -Rebuild does every step again
 $m = Mark

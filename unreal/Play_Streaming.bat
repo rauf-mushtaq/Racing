@@ -34,9 +34,19 @@ if not defined SIGSCRIPT (
 )
 rem Every spelling of the flags is given (the engine versions differ): the ones a version does not know are ignored.
 start "Sunset City" "%GAME%" -AudioMixer -RenderOffScreen -ForceRes -ResX=1920 -ResY=1080 -Windowed -PixelStreamingURL=ws://127.0.0.1:8888 -PixelStreamingConnectionURL=ws://127.0.0.1:8888 -PixelStreamingIP=127.0.0.1 -PixelStreamingPort=8888
+rem The address to type is the one on the network this PC really uses (the one with a router); virtual networks (WSL, Hyper-V, VirtualBox) have addresses too.
+if not defined SC_BEST_ADDRESS for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$c = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1; if ($c) { $c.IPv4Address[0].IPAddress }" 2^>nul`) do set "SC_BEST_ADDRESS=%%a"
 echo.
 echo Sunset City is starting. It has no window on this PC: its picture goes to the browser.
-echo In the browser, on this PC or on the iPad on the same Wi-Fi, open this address:
+if defined SC_BEST_ADDRESS (
+  echo On the iPad ^(on the same Wi-Fi^), or in a browser on this PC, open this address:
+  echo.
+  echo         http://%SC_BEST_ADDRESS%
+  echo.
+  echo If that does not open, try this PC's other addresses:
+) else (
+  echo In the browser, on this PC or on the iPad on the same Wi-Fi, open this address:
+)
 setlocal enabledelayedexpansion
 set "COUNT=0"
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
@@ -46,7 +56,7 @@ for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
   set /a COUNT+=1
 )
 if "!COUNT!"=="0" echo     No network address was found: is this PC on the Wi-Fi or a network cable?
-if not "!COUNT!"=="0" if not "!COUNT!"=="1" echo If there are several, it is usually the one that starts with 192.168. Try the next one if the first does not open.
+if not "!COUNT!"=="0" if not "!COUNT!"=="1" echo If there are several, try one that does not end in .1 first: those are usually virtual networks inside the PC.
 endlocal
 echo You can also use the UNREAL ENGINE item in the web version's menu, which asks for this address.
 echo The first time, Windows may ask whether to allow this through its firewall: say yes for private networks.

@@ -1,5 +1,5 @@
-// The way from the web version to the Unreal one: the UNREAL ENGINE item in the menu, and the page it opens (unreal.html), which sends this device to the
-// address of the PC that is streaming the game. Checks that the menu item looks like the others and opens the page, that Connect goes to the address that
+// The way from the web version to the Unreal one: the UNREAL ENGINE item in the menu, and the page it opens (unreal.html), which offers the one-click
+// file for a Windows PC and sends this device to the address of the PC that is streaming the game. Checks that the menu item looks like the others and opens the page, that Connect goes to the address that
 // was typed (adding http://, keeping a port, keeping https://), that the address is remembered, that nonsense is refused with a message, and that the page
 // itself asks nothing of any other site.
 // What answers at that address (Unreal's own streaming page, on your PC) is not part of this project and is not tested here: the answers below are made up.
@@ -23,6 +23,12 @@ try {
   console.log('the page');
   check('the page asks nothing of any other site', external.length === 0, external.slice(0, 3).join(', '));
   check('it has a box for the address and a Connect button, and does not scroll sideways', await P.locator('#addr').count() === 1 && await P.locator('#go').count() === 1 && await P.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1));
+  const dl = await P.evaluate(async () => {
+    const a = document.getElementById('getwin'); if (!a) return null;
+    const r = await fetch(a.href), t = await r.text();
+    return { href: a.getAttribute('href'), download: a.getAttribute('download'), status: r.status, start: t.slice(0, 9), fetchesTheScript: t.includes('raw.githubusercontent.com/rauf-mushtaq/Racing/') };
+  });
+  check('a Download for Windows button for the one-click file, which is there (unreal/SunsetCity.bat) and is that file', !!dl && dl.href === 'unreal/SunsetCity.bat' && dl.download === 'SunsetCity.bat' && dl.status === 200 && dl.start === '@echo off' && dl.fetchesTheScript, JSON.stringify(dl));
   const here = BASE + 'unreal.html', said = () => P.evaluate(() => document.getElementById('msg').textContent);
   await P.click('#go'); await P.waitForTimeout(250);
   check('Connect with nothing typed says so and goes nowhere', /Type the address/.test(await said()) && P.url() === here, (await said()) + ' ' + P.url());
