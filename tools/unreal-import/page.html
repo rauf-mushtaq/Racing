@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<base href="../../">   <!-- (the web code asks for assets/... relative to the page, as the game page at the top of the repository does) -->
+<title>Sunset City: web assets for Unreal</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/build/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+<p>Run by tools/unreal-import/run.mjs. This page loads the web version's own code for its people and cars and exports them as glTF for Unreal.</p>
+<script type="module" src="tools/unreal-import/page.js"></script>
+</body>
+</html>

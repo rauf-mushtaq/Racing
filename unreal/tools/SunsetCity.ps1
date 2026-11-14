@@ -724,7 +724,7 @@ function Invoke-Main {
     catch { Report-Failure 'getting the game''s files' $_.Exception.Message @(); return 1 }
 
     $fpCode = Get-Fingerprint $Source @('unreal\SunsetCity\Source', 'unreal\SunsetCity\SunsetCity.uproject', 'unreal\SunsetCity\Config')
-    $fpSetup = Get-Fingerprint $Source @('unreal\SunsetCity\Content\Python', 'assets')
+    $fpSetup = Get-Fingerprint $Source @('unreal\SunsetCity\Content\Python', 'unreal\Import', 'assets')
     $fpPackage = Get-StringHash ($fpCode + ' ' + $fpSetup)
 
     if ($State['package'] -eq $fpPackage -and (Test-Path -LiteralPath $Exe)) {

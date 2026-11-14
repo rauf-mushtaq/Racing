@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><base href="../../"><title>unreal/Import, drawn</title>
+<!-- tools/unreal-import/look.mjs draws the exported people and cars with this page. -->
+<script type="importmap">{"imports":{"three":"./vendor/three/build/three.module.js","three/addons/":"./vendor/three/addons/"}}</script></head>
+<body style="margin:0;background:#888"><script type="module">
+import * as THREE from 'three'; import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const R = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); R.setSize(1600, 900); document.body.appendChild(R.domElement);
+R.outputColorSpace = THREE.SRGBColorSpace;
+const S = new THREE.Scene(); S.background = new THREE.Color(0x9fb4c8);
+S.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6)); const d = new THREE.DirectionalLight(0xffffff, 2.2); d.position.set(3, 6, 5); S.add(d);
+const cam = new THREE.PerspectiveCamera(30, 16 / 9, 0.1, 100); cam.position.set(0, 1.6, 13); cam.lookAt(0, 1.0, 0);
+const grid = new THREE.Mesh(new THREE.PlaneGeometry(30, 10), new THREE.MeshStandardMaterial({ color: 0x777777 })); grid.rotation.x = -Math.PI / 2; S.add(grid);
+window.show = async (items) => {
+  for (const o of S.children.filter(o => o.userData.tmp)) S.remove(o);
+  let x = -((items.length - 1) / 2) * 1.6;
+  for (const [file, clip, k, ry] of items) {
+    const g = await new GLTFLoader().loadAsync(file); const o = g.scene; o.userData.tmp = true; o.position.x = x; o.rotation.y = ry ?? 0; x += 1.6; S.add(o);
+    if (clip) { const mx = new THREE.AnimationMixer(o), a = g.animations.find(a => a.name === clip); const act = mx.clipAction(a); act.play(); mx.setTime(a.duration * k); }
+  }
+  R.render(S, cam); return true;
+};
+window.add = (o) => { o.userData.tmp = true; S.add(o); R.render(S, cam); };
+window.cam = (x, y, z, tx, ty, tz) => { cam.position.set(x, y, z); cam.lookAt(tx, ty, tz); };
+window.ready = true;
+</script></body></html>

@@ -1,0 +1,335 @@
+{
+ "made": "tools/unreal-import/run.mjs",
+ "people": {
+  "agent": {
+   "height": 1.806,
+   "width": 1.348,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 7435,
+   "bytes": 3129216
+  },
+  "street": {
+   "height": 1.831,
+   "width": 1.348,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 7456,
+   "bytes": 3474988
+  },
+  "denim": {
+   "height": 1.807,
+   "width": 1.348,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 6722,
+   "bytes": 2686780
+  },
+  "hoodie": {
+   "height": 1.805,
+   "width": 1.348,
+   "minY": 0,
+   "bones": 82,
+   "tris": 7120,
+   "bytes": 2686764
+  },
+  "leather": {
+   "height": 1.766,
+   "width": 1.217,
+   "minY": -0.004,
+   "bones": 82,
+   "tris": 9284,
+   "bytes": 3650224
+  },
+  "tee": {
+   "height": 1.735,
+   "width": 1.217,
+   "minY": 0,
+   "bones": 82,
+   "tris": 8276,
+   "bytes": 3529536
+  },
+  "cop_blue": {
+   "height": 1.811,
+   "width": 1.348,
+   "minY": -0.003,
+   "bones": 82,
+   "tris": 8687,
+   "bytes": 3161924
+  },
+  "cop_black": {
+   "height": 1.856,
+   "width": 1.348,
+   "minY": -0.002,
+   "bones": 82,
+   "tris": 12445,
+   "bytes": 3646632
+  },
+  "cop_vest": {
+   "height": 1.811,
+   "width": 1.348,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 7492,
+   "bytes": 2035196
+  },
+  "cop_swat": {
+   "height": 1.843,
+   "width": 1.352,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 10881,
+   "bytes": 5066508
+  },
+  "ped_m1": {
+   "height": 1.824,
+   "width": 1.348,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 7440,
+   "bytes": 2406372
+  },
+  "ped_m2": {
+   "height": 1.807,
+   "width": 1.348,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 7200,
+   "bytes": 2407132
+  },
+  "ped_m3": {
+   "height": 1.826,
+   "width": 1.348,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 7364,
+   "bytes": 2367544
+  },
+  "ped_m4": {
+   "height": 1.819,
+   "width": 1.348,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 7292,
+   "bytes": 2139584
+  },
+  "ped_f1": {
+   "height": 1.743,
+   "width": 1.217,
+   "minY": -0.005,
+   "bones": 82,
+   "tris": 8732,
+   "bytes": 2737844
+  },
+  "ped_f2": {
+   "height": 1.735,
+   "width": 1.217,
+   "minY": -0.005,
+   "bones": 82,
+   "tris": 8940,
+   "bytes": 2562412
+  },
+  "ped_f3": {
+   "height": 1.723,
+   "width": 1.217,
+   "minY": -0.001,
+   "bones": 82,
+   "tris": 8308,
+   "bytes": 2699476
+  },
+  "ped_f4": {
+   "height": 1.735,
+   "width": 1.217,
+   "minY": 0,
+   "bones": 82,
+   "tris": 9032,
+   "bytes": 2786396
+  }
+ },
+ "clips": [
+  {
+   "name": "idle",
+   "dur": 2.7333,
+   "speed": 0,
+   "hit": 0,
+   "loop": true,
+   "frames": 83
+  },
+  {
+   "name": "stroll",
+   "dur": 1.5667,
+   "speed": 0.693,
+   "hit": 0,
+   "loop": true,
+   "frames": 48
+  },
+  {
+   "name": "walk",
+   "dur": 1.0667,
+   "speed": 1.402,
+   "hit": 0,
+   "loop": true,
+   "frames": 33
+  },
+  {
+   "name": "jog",
+   "dur": 0.7667,
+   "speed": 2.411,
+   "hit": 0,
+   "loop": true,
+   "frames": 24
+  },
+  {
+   "name": "run",
+   "dur": 0.7667,
+   "speed": 3.075,
+   "hit": 0,
+   "loop": true,
+   "frames": 24
+  },
+  {
+   "name": "sprint",
+   "dur": 0.6,
+   "speed": 5.839,
+   "hit": 0,
+   "loop": true,
+   "frames": 19
+  },
+  {
+   "name": "jab",
+   "dur": 1,
+   "speed": 0,
+   "hit": 0.42,
+   "loop": false,
+   "frames": 31
+  },
+  {
+   "name": "cross",
+   "dur": 1,
+   "speed": 0,
+   "hit": 0.45,
+   "loop": false,
+   "frames": 31
+  },
+  {
+   "name": "hook",
+   "dur": 1,
+   "speed": 0,
+   "hit": 0.58,
+   "loop": false,
+   "frames": 31
+  },
+  {
+   "name": "kick",
+   "dur": 1,
+   "speed": 0,
+   "hit": 0.45,
+   "loop": false,
+   "frames": 31
+  },
+  {
+   "name": "aim",
+   "dur": 2.7333,
+   "speed": 0,
+   "hit": 0,
+   "loop": true,
+   "frames": 83
+  },
+  {
+   "name": "handsup",
+   "dur": 2.7333,
+   "speed": 0,
+   "hit": 0,
+   "loop": true,
+   "frames": 83
+  },
+  {
+   "name": "down",
+   "dur": 1,
+   "speed": 0,
+   "hit": 0,
+   "loop": false,
+   "frames": 31
+  },
+  {
+   "name": "stagger",
+   "dur": 0.8,
+   "speed": 0,
+   "hit": 0,
+   "loop": false,
+   "frames": 25
+  }
+ ],
+ "cars": {
+  "ferrari": {
+   "len": 4.834,
+   "width": 2.257,
+   "height": 1.236,
+   "zf": 1.285,
+   "zr": -1.38,
+   "track": 1.66,
+   "wheelR": 0.352,
+   "wheels": [
+    {
+     "x": -0.83,
+     "y": 0.352,
+     "z": -1.3663,
+     "front": false
+    },
+    {
+     "x": 0.83,
+     "y": 0.352,
+     "z": -1.365,
+     "front": false
+    },
+    {
+     "x": 0.83,
+     "y": 0.352,
+     "z": 1.2853,
+     "front": true
+    },
+    {
+     "x": -0.83,
+     "y": 0.352,
+     "z": 1.2845,
+     "front": true
+    }
+   ]
+  },
+  "police": {
+   "len": 4.97,
+   "width": 2.04,
+   "height": 1.538,
+   "zf": 1.425,
+   "zr": -1.325,
+   "track": 1.52,
+   "wheelR": 0.33,
+   "wheels": [
+    {
+     "x": -0.76,
+     "y": 0.33,
+     "z": 1.425,
+     "front": true
+    },
+    {
+     "x": 0.76,
+     "y": 0.33,
+     "z": 1.425,
+     "front": true
+    },
+    {
+     "x": -0.76,
+     "y": 0.33,
+     "z": -1.325,
+     "front": false
+    },
+    {
+     "x": 0.76,
+     "y": 0.33,
+     "z": -1.325,
+     "front": false
+    }
+   ]
+  }
+ }
+}

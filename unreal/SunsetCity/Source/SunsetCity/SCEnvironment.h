@@ -25,13 +25,13 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	/** The hour of the day, 0 to 24 (17.2 is the golden hour). */
+	/** The hour of the day, 0 to 24: the game starts at 3 in the afternoon (17.2 is the golden hour). */
 	UPROPERTY(EditAnywhere, Category = "Sunset")
-	float TimeOfDay = 17.2f;
+	float TimeOfDay = 15.0f;
 
 	/** Real minutes for a whole day and night. 0 freezes the time. */
 	UPROPERTY(EditAnywhere, Category = "Sunset")
-	float DayLengthMinutes = 24.f;
+	float DayLengthMinutes = 48.f;
 
 	/** 0 in daylight .. 1 at night. */
 	float Night() const { return NightFactor; }

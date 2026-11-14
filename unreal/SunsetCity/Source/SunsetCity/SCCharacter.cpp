@@ -63,7 +63,7 @@ void ASCCharacter::BeginPlay()
 	Style.pants = SC::Hex(0x1A1C22);
 	Style.hair = SC::Hex(0x15100C);
 	Style.shortSleeves = true;
-	Puppet->Build(Style);
+	if (!Puppet->BuildReal(TEXT("agent"))) Puppet->Build(Style);          // (the web version's own character: the man in the dark suit)
 	Health = MaxHealth;
 	if (ASCDirector* D = ASCDirector::Get(this)) D->Player = this;
 }
@@ -219,10 +219,13 @@ void ASCCharacter::Interact()
 void ASCCharacter::BuildPose(float Dt, bool bMoving, float Speed)
 {
 	SC::Pose P;
+	FSCMotion M;                        // (the same, for a real person)
+	M.Dt = Dt;
 	if (DownT > 0.f)
 	{
 		DownAnim = FMath::Min(1.f, DownAnim + Dt * 2.2f);
 		P = SC::PoseDown(DownAnim, (double)Puppet->Height());
+		M.bDown = true; M.DownK = DownAnim;
 	}
 	else
 	{
@@ -231,16 +234,19 @@ void ASCCharacter::BuildPose(float Dt, bool bMoving, float Speed)
 		{
 			const SC::BlowDef& Def = PlayerBlow(BlowKind);
 			P = SC::PoseBlow(Def.pose, BlowT / (float)Def.dur, Def.hit, (double)Puppet->Height());
+			M.Blow = Def.pose; M.BlowK = BlowT / (float)Def.dur;
 		}
 		else if (IsAiming())
 		{
 			const float Pitch = FRotator::NormalizeAxis(GetControlRotation().Pitch);
 			P = SC::PoseAim(FMath::DegreesToRadians(Pitch), (double)Puppet->Height());
+			M.bAim = true;
 		}
 		else if (bMoving)
 		{
 			Phase += Speed * Dt * 0.045f;
 			P = SC::PoseWalk(Phase, FMath::Min(Speed / 430.f, 1.7f), (double)Puppet->Height());
+			M.Speed = Speed;
 		}
 		else
 		{
@@ -248,6 +254,7 @@ void ASCCharacter::BuildPose(float Dt, bool bMoving, float Speed)
 		}
 	}
 	Puppet->Apply(P);
+	Puppet->Move(M);
 	Puppet->ShowGun(bGunDrawn && DownT <= 0.f);
 }
 

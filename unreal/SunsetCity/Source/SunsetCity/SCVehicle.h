@@ -1,7 +1,8 @@
 // Sunset City (Unreal Engine 5): a car. One rigid body with four rays for the wheels: each ray is a spring and a damper that holds the car up, and a tyre that grips sideways and
 // pushes or brakes along the wheel (the classic raycast vehicle: everything is force on the body, applied where the wheel touches the road). The body is built from Core/SCCarBody.h
 // (a lofted shell with glass, paint, lamps; a police car gets a light bar and a push bar), the wheels turn and steer. Drive with W A S D, Space is the handbrake, E gets out,
-// R puts you back on your wheels. A police car (bAI) drives itself at a target. If you import the Ferrari scan (Content/Python/sc_import_assets.py) it can replace the built-in body.
+// R puts you back on your wheels. A police car (bAI) drives itself at a target. When the web version's cars have been imported (unreal/Import/cars, by
+// Content/Python/sc_import_assets.py), the sports car is its Ferrari and the police car its cruiser, with their own measurements and wheels.
 #pragma once
 
 #include "CoreMinimal.h"
@@ -74,7 +75,7 @@ private:
 	bool bGrounded[4] = {false, false, false, false};
 
 	UPROPERTY() TObjectPtr<UProceduralMeshComponent> Shell;
-	UPROPERTY() TArray<TObjectPtr<UProceduralMeshComponent>> WheelMesh;
+	UPROPERTY() TArray<TObjectPtr<USceneComponent>> WheelMesh;          // (each turns about its hub: a procedural wheel, or a holder for an imported one)
 	UPROPERTY() TObjectPtr<UStaticMeshComponent> ImportedBody;
 	UPROPERTY() TArray<TObjectPtr<USpotLightComponent>> Headlight;
 	UPROPERTY() TArray<TObjectPtr<UPointLightComponent>> PoliceLight;
@@ -83,6 +84,7 @@ private:
 	float Throttle = 0.f, BrakeInput = 0.f, Steer = 0.f, SteerTarget = 0.f, Handbrake = 0.f;
 	float Forward = 0.f;                 // forward speed, cm/s
 	float RideHeight = 55.f, SuspensionTravel = 38.f;
+	float RoofHeight = 0.f;              // above the ground, cm (an imported car's own; 0 for the built-in body)
 	float FlippedT = 0.f, StuckT = 0.f, ReverseT = 0.f, FlashClock = 0.f, HitCooldown = 0.f, SinceMouse = 99.f;
 	bool bBuilt = false, bHero = false;
 };

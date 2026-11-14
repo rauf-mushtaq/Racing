@@ -1,4 +1,5 @@
 #include "SCVehicle.h"
+#include "SCImportData.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/PointLightComponent.h"
@@ -16,6 +17,57 @@
 #include "SCMaterials.h"
 #include "SCNpc.h"
 #include "SCUtil.h"
+
+namespace
+{
+	// How Unreal's importer turned glTF's axes: unreal/Import/SC_Axes.glb is a box 1 m along glTF's x, 2 m along y and 3 m along z from the origin, so its
+	// bounds, once imported, say where each axis went and in which direction. Gives the rotation that turns a model standing on glTF's +y and facing its +z
+	// (as the web version's cars are) to stand on +Z facing +X, and the scale that makes it centimetres.
+	bool GltfToCarFrame(FQuat& OutRot, float& OutScale)
+	{
+		UStaticMesh* Axes = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/SunsetCity/Imported/SM_SC_Axes.SM_SC_Axes"), nullptr, LOAD_Quiet | LOAD_NoWarn);
+		if (!Axes) return false;
+		const FBox B = Axes->GetBoundingBox();
+		const FVector Size = B.GetSize();
+		const float Unit = (float)(Size.X + Size.Y + Size.Z) / 6.f;                  // (one metre, in whatever the importer made it)
+		if (Unit <= 0.f) return false;
+		const auto AxisFor = [&](float Metres)
+		{
+			FVector V = FVector::ZeroVector;
+			for (int32 A = 0; A < 3; ++A) if (FMath::Abs((float)Size[A] / Unit - Metres) < 0.25f) V[A] = (B.Max[A] > -B.Min[A]) ? 1.f : -1.f;
+			return V;
+		};
+		const FVector Up = AxisFor(2.f), Fwd = AxisFor(3.f);
+		if (Up.IsNearlyZero() || Fwd.IsNearlyZero()) return false;
+		OutRot = FRotationMatrix::MakeFromXZ(Fwd, Up).ToQuat().Inverse();
+		OutScale = 100.f / Unit;
+		return true;
+	}
+
+	struct FImportedCar
+	{
+		const SCImport::FCarModel* Model = nullptr;
+		UStaticMesh* Body = nullptr;
+		UStaticMesh* WheelLeft = nullptr;
+		UStaticMesh* WheelRight = nullptr;
+		FQuat Rot = FQuat::Identity;
+		float Scale = 1.f;
+	};
+
+	bool LoadImportedCar(const TCHAR* Name, FImportedCar& Out)
+	{
+		for (const SCImport::FCarModel& M : SCImport::Cars) if (FCString::Strcmp(M.Name, Name) == 0) Out.Model = &M;
+		if (!Out.Model || !GltfToCarFrame(Out.Rot, Out.Scale)) return false;
+		const auto Load = [Name](const TCHAR* Part)
+		{
+			return LoadObject<UStaticMesh>(nullptr, *FString::Printf(TEXT("/Game/SunsetCity/Cars/%s/SM_%s_%s.SM_%s_%s"), Name, Name, Part, Name, Part), nullptr, LOAD_Quiet | LOAD_NoWarn);
+		};
+		Out.Body = Load(TEXT("body"));
+		Out.WheelLeft = Load(TEXT("wheel_left"));
+		Out.WheelRight = Load(TEXT("wheel_right"));
+		return Out.Body && Out.WheelLeft && Out.WheelRight;
+	}
+}
 
 ASCVehicle::ASCVehicle()
 {
@@ -55,6 +107,16 @@ void ASCVehicle::Setup(SC::CarKind InKind, const FLinearColor& Paint, bool bInHe
 	Kind = InKind;
 	bHero = bInHero;
 	Spec = SC::MakeCarSpec(Kind, SC::Col{Paint.R, Paint.G, Paint.B, 1.f});
+	// The web version's own car, if it has been imported: its measurements replace the built-in ones.
+	FImportedCar Imp;
+	const TCHAR* ModelName = Kind == SC::CarKind::Cruiser ? TEXT("police") : (Kind == SC::CarKind::Sports ? TEXT("ferrari") : nullptr);
+	const bool bImported = ModelName && LoadImportedCar(ModelName, Imp);
+	if (bImported)
+	{
+		Spec.L = Imp.Model->Length; Spec.W = Imp.Model->Width; Spec.track = Imp.Model->Track; Spec.wheelR = Imp.Model->WheelRadius;
+		Spec.wheelbase = Imp.Model->FrontAxle - Imp.Model->RearAxle;
+		RoofHeight = Imp.Model->Height;
+	}
 	Body->SetBoxExtent(FVector(Spec.L * 0.5f, Spec.W * 0.5f, 40.f));
 	RideHeight = Spec.wheelR + 21.f;
 	for (int32 i = 0; i < 4; ++i)
@@ -67,9 +129,24 @@ void ASCVehicle::Setup(SC::CarKind InKind, const FLinearColor& Paint, bool bInHe
 	USCMaterials* Mats = GetWorld() ? GetWorld()->GetSubsystem<USCMaterials>() : nullptr;
 
 	// The body (the car is built with its wheels on z = 0; the body's origin is RideHeight above the ground).
-	Shell = SCU::MakeMesh(this, Body, FVector(0.f, 0.f, -RideHeight), false);
-	SCU::FillMesh(Shell, SC::BuildCarBody(Spec), Mats, false);
-	if (bHero && HeroCarMeshPath.IsValid())
+	if (bImported)
+	{
+		// (the web model's origin is on the ground between its axles' midpoint and the middle of the car: slide it so the axles sit either side of the body's centre)
+		ImportedBody = NewObject<UStaticMeshComponent>(this);
+		ImportedBody->SetupAttachment(Body);
+		ImportedBody->SetStaticMesh(Imp.Body);
+		ImportedBody->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		ImportedBody->RegisterComponent();
+		ImportedBody->SetRelativeRotation(Imp.Rot);
+		ImportedBody->SetRelativeScale3D(FVector(Imp.Scale));
+		ImportedBody->SetRelativeLocation(FVector(-(Imp.Model->FrontAxle + Imp.Model->RearAxle) * 0.5f, 0.f, -RideHeight));
+	}
+	else
+	{
+		Shell = SCU::MakeMesh(this, Body, FVector(0.f, 0.f, -RideHeight), false);
+		SCU::FillMesh(Shell, SC::BuildCarBody(Spec), Mats, false);
+	}
+	if (!bImported && bHero && HeroCarMeshPath.IsValid())
 	{
 		if (UStaticMesh* SM = Cast<UStaticMesh>(HeroCarMeshPath.TryLoad()))
 		{
@@ -87,10 +164,28 @@ void ASCVehicle::Setup(SC::CarKind InKind, const FLinearColor& Paint, bool bInHe
 	PoliceLight.SetNum(2);
 	for (int32 i = 0; i < 4; ++i)
 	{
+		const FVector At = WheelLocal[i] + FVector(0.f, 0.f, -(RideHeight - (float)Spec.wheelR));
+		if (bImported)
+		{
+			USceneComponent* Hub = NewObject<USceneComponent>(this);
+			Hub->SetupAttachment(Body);
+			Hub->RegisterComponent();
+			Hub->SetRelativeLocation(At);
+			UStaticMeshComponent* W = NewObject<UStaticMeshComponent>(this);
+			W->SetupAttachment(Hub);
+			W->SetStaticMesh(WheelSide[i] > 0.f ? Imp.WheelRight : Imp.WheelLeft);          // (+Y is the car's right)
+			W->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			W->RegisterComponent();
+			W->SetRelativeRotation(Imp.Rot);
+			W->SetRelativeScale3D(FVector(Imp.Scale));
+			WheelMesh[i] = Hub;
+			continue;
+		}
 		SC::Mesh W = SC::BuildWheel(Spec);
 		if (WheelSide[i] < 0.f) W.MirrorY();
-		WheelMesh[i] = SCU::MakeMesh(this, Body, WheelLocal[i] + FVector(0.f, 0.f, -(RideHeight - (float)Spec.wheelR)), false);
-		SCU::FillMesh(WheelMesh[i], W, Mats, false);
+		UProceduralMeshComponent* M = SCU::MakeMesh(this, Body, At, false);
+		SCU::FillMesh(M, W, Mats, false);
+		WheelMesh[i] = M;
 	}
 	// Lights: two headlights (on at night) and, on a police car, a red and a blue flasher.
 	for (int32 i = 0; i < 2; ++i)
@@ -115,7 +210,7 @@ void ASCVehicle::Setup(SC::CarKind InKind, const FLinearColor& Paint, bool bInHe
 			UPointLightComponent* L = NewObject<UPointLightComponent>(this);
 			L->SetupAttachment(Body);
 			L->RegisterComponent();
-			L->SetRelativeLocation(FVector(-20.f, i == 0 ? -30.f : 30.f, -RideHeight + (float)Spec.Top(0.53) + 22.f));
+			L->SetRelativeLocation(FVector(-20.f, i == 0 ? -30.f : 30.f, -RideHeight + (RoofHeight > 0.f ? RoofHeight + 6.f : (float)Spec.Top(0.53) + 22.f)));
 			L->SetIntensityUnits(ELightUnits::Lumens);
 			L->SetIntensity(7000.f);
 			L->SetAttenuationRadius(1800.f);

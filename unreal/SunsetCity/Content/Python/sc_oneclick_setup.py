@@ -2,7 +2,8 @@
 
 The script starts the editor with no window (UnrealEditor-Cmd.exe <project> -ExecutePythonScript=<this file>, or failing that
 -run=pythonscript -script=<this file>), which closes again by itself when this has run (this asks it to as well). This runs sc_setup.py (the map, the
-materials, the models), checks that the map the game starts on is there, saves anything left unsaved, and writes how it went to the
+materials, the models), checks that the map the game starts on is there and that every material, person, clip and car the game loads by name was
+made, saves anything left unsaved, and writes how it went to the
 file named by the SC_SETUP_RESULT environment variable: a first line "OK" and a summary, or "FAILED" and why. The script reads it."""
 import os
 import traceback
@@ -11,6 +12,7 @@ import unreal
 
 here = os.path.dirname(os.path.abspath(__file__))
 MAP = '/Game/SunsetCity/Maps/Main'
+MASTERS = ['M_SC_Surface', 'M_SC_CarPaint', 'M_SC_Glass', 'M_SC_Glow', 'M_SC_Foliage', 'M_SC_Water', 'M_SC_Window', 'M_SC_Skin']     # (the ones SCMaterials.cpp loads)
 
 
 def result_path():
@@ -46,6 +48,12 @@ def main():
         eal = unreal.EditorAssetLibrary
         if not eal.does_asset_exist(MAP):
             raise RuntimeError('the map %s was not made (look for the [SunsetCity] lines above for why)' % MAP)
+        # Everything else the game loads by name: the materials (sc_build_materials.py), and the web version's people and cars (sc_import_assets.py).
+        missing = ['/Game/SunsetCity/Materials/' + m for m in MASTERS if not eal.does_asset_exist('/Game/SunsetCity/Materials/' + m)]
+        import sc_import_assets
+        missing += sc_import_assets.check()
+        if missing:
+            raise RuntimeError('%d things the game needs were not made (the [SunsetCity] lines above say why): %s' % (len(missing), ', '.join(missing[:40])))
         try:
             unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)
         except Exception as e:  # noqa: BLE001

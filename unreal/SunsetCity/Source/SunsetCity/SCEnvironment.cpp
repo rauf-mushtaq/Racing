@@ -61,9 +61,11 @@ void ASCEnvironment::BeginPlay()
 	// How the picture looks: filmic exposure that adapts between sun and shade, a little bloom and fringing, gentle colour, motion blur, Lumen for the light that bounces and for reflections.
 	FPostProcessSettings& S = Post->Settings;
 	Post->bUnbound = true;
-	S.bOverride_AutoExposureBias = true;            S.AutoExposureBias = 0.4f;
-	S.bOverride_AutoExposureMinBrightness = true;   S.AutoExposureMinBrightness = 0.05f;
-	S.bOverride_AutoExposureMaxBrightness = true;   S.AutoExposureMaxBrightness = 8.0f;
+	// Exposure as a camera's, in EV100 (Config/DefaultEngine.ini turns on the extended range): from a street at night (about -1) to the beach at noon (about 15).
+	// The sun, the sky, the lamps and the headlights are all in real units, so they come out in the right proportion to each other.
+	S.bOverride_AutoExposureBias = true;            S.AutoExposureBias = 0.6f;
+	S.bOverride_AutoExposureMinBrightness = true;   S.AutoExposureMinBrightness = -1.5f;
+	S.bOverride_AutoExposureMaxBrightness = true;   S.AutoExposureMaxBrightness = 15.5f;
 	S.bOverride_BloomIntensity = true;              S.BloomIntensity = 0.55f;
 	S.bOverride_SceneFringeIntensity = true;        S.SceneFringeIntensity = 0.15f;
 	S.bOverride_VignetteIntensity = true;           S.VignetteIntensity = 0.35f;
@@ -86,7 +88,8 @@ void ASCEnvironment::SetTime(float Hour)
 void ASCEnvironment::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (DayLengthMinutes > 0.f) TimeOfDay = FMath::Fmod(TimeOfDay + DeltaSeconds * 24.f / (DayLengthMinutes * 60.f), 24.f);
+	// A day of DayLengthMinutes, but the night (the sun more than 6 degrees down) goes by three times as fast.
+	if (DayLengthMinutes > 0.f) TimeOfDay = FMath::Fmod(TimeOfDay + DeltaSeconds * 24.f / (DayLengthMinutes * 60.f) * (ElevationDeg < -6.f ? 3.f : 1.f), 24.f);
 	Apply();
 }
 
@@ -100,10 +103,10 @@ void ASCEnvironment::Apply()
 	Sun->SetWorldRotation((-ToSun).Rotation());
 	Moon->SetWorldRotation(ToSun.Rotation());
 	const float Day = FMath::SmoothStep(-4.f, 6.f, ElevationDeg);
-	Sun->SetIntensity(10.f * Day);
-	Moon->SetIntensity(0.35f * (1.f - Day));
+	Sun->SetIntensity(90000.f * Day);                // lux: real sunlight (the atmosphere dims and reddens it near the horizon by itself)
+	Moon->SetIntensity(0.4f * (1.f - Day));
 	NightFactor = 1.f - FMath::SmoothStep(-8.f, 3.f, ElevationDeg);
-	SkyLight->SetIntensity(FMath::Lerp(0.35f, 1.f, Day));
+	SkyLight->SetIntensity(1.f);                     // (it captures the sky as it is, so it follows the sun by itself)
 
 	if (UWorld* W = GetWorld())
 	{

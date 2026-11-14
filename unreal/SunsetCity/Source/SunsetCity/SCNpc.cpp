@@ -4,6 +4,7 @@
 #include "Engine/World.h"
 #include "SCCharacter.h"
 #include "SCDirector.h"
+#include "SCImportData.h"
 #include "SCPuppet.h"
 #include "SCUtil.h"
 
@@ -30,6 +31,24 @@ namespace
 			S.female = R.Chance(0.45); S.shortSleeves = R.Chance(0.5); if (S.female) S.height -= 8; break;
 		}
 		return S;
+	}
+
+	// Which of the web version's real people (unreal/Import/people) plays this one, and how big a man he is made (bruisers and enforcers).
+	FString PersonFor(SC::Archetype Kind, uint32 Seed, bool bFemale, float& OutBulk)
+	{
+		SC::Rng R(Seed * 2246822519u + 5u);
+		OutBulk = 0.f;
+		switch (Kind)
+		{
+		case SC::Archetype::Cop: return SCImport::Cops[R.I((int)UE_ARRAY_COUNT(SCImport::Cops))];
+		case SC::Archetype::Bruiser: { OutBulk = 1.f; static const TCHAR* const Big[] = {TEXT("tee"), TEXT("leather"), TEXT("denim"), TEXT("hoodie")}; return Big[R.I(4)]; }
+		case SC::Archetype::Enforcer: OutBulk = 1.f; return TEXT("agent");
+		case SC::Archetype::Armed: { static const TCHAR* const Armed[] = {TEXT("street"), TEXT("hoodie"), TEXT("denim"), TEXT("leather"), TEXT("ped_m1"), TEXT("ped_m3")}; return Armed[R.I(6)]; }
+		default: break;
+		}
+		static const TCHAR* const Women[] = {TEXT("ped_f1"), TEXT("ped_f2"), TEXT("ped_f3"), TEXT("ped_f4")};
+		static const TCHAR* const Men[] = {TEXT("ped_m1"), TEXT("ped_m2"), TEXT("ped_m3"), TEXT("ped_m4"), TEXT("tee"), TEXT("hoodie")};
+		return bFemale ? Women[R.I(4)] : Men[R.I(6)];
 	}
 }
 
@@ -58,10 +77,11 @@ void ASCNpc::Setup(SC::Archetype InKind, uint32 Seed)
 {
 	Kind = InKind;
 	const SC::BodyStyle Style = StyleFor(Kind, Seed);
-	HalfHeight = (float)Style.height * 0.5f;
+	float Bulk = 0.f;
+	if (Puppet->BuildReal(PersonFor(Kind, Seed, Style.female, Bulk), Bulk)) HalfHeight = Puppet->Height() * 0.5f;
+	else { HalfHeight = (float)Style.height * 0.5f; Puppet->Build(Style); }
 	Capsule->SetCapsuleSize(34.f * (Kind == SC::Archetype::Bruiser || Kind == SC::Archetype::Enforcer ? 1.15f : 1.f), HalfHeight);
 	Puppet->SetRelativeLocation(FVector(0.f, 0.f, -HalfHeight));
-	Puppet->Build(Style);
 	Brain = MakeUnique<SC::Brain>(Kind, Seed * 7919u + 3u);
 	Flash->SetIntensityUnits(ELightUnits::Lumens);
 	Flash->SetIntensity(6000.f);
@@ -154,25 +174,29 @@ void ASCNpc::Animate(float DeltaSeconds, bool bMoving, float Speed, const SC::Br
 {
 	const double Ht = (double)Puppet->Height();
 	SC::Pose P;
+	FSCMotion M;                        // (the same, for a real person)
+	M.Dt = DeltaSeconds;
 	const bool bDown = Brain && (Brain->IsKo() || Brain->IsDead());
 	bool bShowGun = false;
 	if (bDown)
 	{
 		DownAnim = FMath::Min(1.f, DownAnim + DeltaSeconds * 2.f);
 		P = SC::PoseDown(DownAnim, Ht);
+		M.bDown = true; M.DownK = DownAnim;
 	}
 	else
 	{
 		DownAnim = 0.f;
-		if (HandsUpT > 0.f) P = SC::PoseHandsUp(Clock, Ht);
-		else if (Out && Brain && Brain->stun > 0.0) P = SC::PoseStagger(Clock, Ht);
-		else if (Out && Out->blow != SC::Blow::None) P = SC::PoseBlow(Out->blow, Out->blowK, Brain->blow.hit, Ht);
-		else if (Out && (Out->aiming || (Out->drawing && Out->drawK > 0.5))) { P = SC::PoseAim(Out->aimPitch, Ht); bShowGun = true; }
-		else if (bMoving) { Phase += Speed * DeltaSeconds * 0.045f; P = SC::PoseWalk(Phase, FMath::Min(Speed / 430.f, 1.7f), Ht); }
+		if (HandsUpT > 0.f) { P = SC::PoseHandsUp(Clock, Ht); M.bHandsUp = true; }
+		else if (Out && Brain && Brain->stun > 0.0) { P = SC::PoseStagger(Clock, Ht); M.bStagger = true; }
+		else if (Out && Out->blow != SC::Blow::None) { P = SC::PoseBlow(Out->blow, Out->blowK, Brain->blow.hit, Ht); M.Blow = Out->blow; M.BlowK = (float)Out->blowK; }
+		else if (Out && (Out->aiming || (Out->drawing && Out->drawK > 0.5))) { P = SC::PoseAim(Out->aimPitch, Ht); bShowGun = true; M.bAim = true; }
+		else if (bMoving) { Phase += Speed * DeltaSeconds * 0.045f; P = SC::PoseWalk(Phase, FMath::Min(Speed / 430.f, 1.7f), Ht); M.Speed = Speed; }
 		else P = SC::PoseStand(Clock, Ht);
 		bShowGun = bShowGun || (bGunOut && Out != nullptr && Out->reloading);
 	}
 	Puppet->Apply(P);
+	Puppet->Move(M);
 	Puppet->ShowGun(bShowGun);
 }
 

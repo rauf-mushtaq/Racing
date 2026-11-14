@@ -22,6 +22,8 @@ typedef int32_t int32; typedef uint32_t uint32; typedef uint8_t uint8; typedef u
 #define PI 3.14159265358979f
 #define MAX_int32 INT32_MAX
 #define UE_LOG(...) ((void)0)
+#define INDEX_NONE (-1)
+#define UE_ARRAY_COUNT(a) (sizeof(a) / sizeof((a)[0]))
 #define DECLARE_LOG_CATEGORY_EXTERN(a, b, c) extern int a;
 #define DEFINE_LOG_CATEGORY(a) int a;
 #define IMPLEMENT_PRIMARY_GAME_MODULE(a, b, c)
@@ -33,7 +35,8 @@ struct FRotator;
 namespace EAxis { enum Type { X, Y, Z }; }
 struct FVector {
   double X = 0, Y = 0, Z = 0; static const FVector ZeroVector;
-  FVector() {} FVector(double x, double y, double z) : X(x), Y(y), Z(z) {}
+  FVector() {} explicit FVector(double v) : X(v), Y(v), Z(v) {} FVector(double x, double y, double z) : X(x), Y(y), Z(z) {}
+  double& operator[](int32 i) { return i == 0 ? X : i == 1 ? Y : Z; } double operator[](int32 i) const { return i == 0 ? X : i == 1 ? Y : Z; }
   FVector operator+(const FVector& o) const { return FVector(X + o.X, Y + o.Y, Z + o.Z); } FVector operator-(const FVector& o) const { return FVector(X - o.X, Y - o.Y, Z - o.Z); }
   FVector operator*(double s) const { return FVector(X * s, Y * s, Z * s); } FVector operator*(const FVector& o) const { return FVector(X * o.X, Y * o.Y, Z * o.Z); } FVector operator-() const { return FVector(-X, -Y, -Z); }
   FVector& operator+=(const FVector& o) { X += o.X; Y += o.Y; Z += o.Z; return *this; } FVector& operator*=(double s) { X *= s; Y *= s; Z *= s; return *this; }
@@ -49,11 +52,17 @@ struct FVector2D { double X = 0, Y = 0; static const FVector2D ZeroVector; FVect
 extern uint64 GFrameCounter;
 namespace ETouchIndex { enum Type { Touch1, Touch2, Touch3, Touch4, Touch5, Touch6, Touch7, Touch8, Touch9, Touch10 }; }
 struct FVector4 { double X = 0, Y = 0, Z = 0, W = 0; FVector4() {} FVector4(double x, double y, double z, double w) : X(x), Y(y), Z(z), W(w) {} };
-struct FRotator { double Pitch = 0, Yaw = 0, Roll = 0; static const FRotator ZeroRotator; FRotator() {} FRotator(double p, double y, double r) : Pitch(p), Yaw(y), Roll(r) {} static double NormalizeAxis(double a) { return a; } };
+struct FRotator { double Pitch = 0, Yaw = 0, Roll = 0; static const FRotator ZeroRotator; FRotator() {} FRotator(double p, double y, double r) : Pitch(p), Yaw(y), Roll(r) {} static double NormalizeAxis(double a) { return a; } FVector Vector() const; };
 inline FRotator FVector::Rotation() const { return FRotator(); }
-struct FQuat { static const FQuat Identity; };
-struct FTransform { FVector TransformPosition(const FVector& v) const { return v; } FVector GetUnitAxis(EAxis::Type) const { return FVector(); } };
-struct FRotationMatrix { FRotationMatrix(const FRotator&) {} FVector GetUnitAxis(EAxis::Type) const { return FVector(); } };
+inline FVector FRotator::Vector() const { return FVector(); }
+struct FQuat { static const FQuat Identity; FQuat Inverse() const { return *this; } FVector RotateVector(const FVector& v) const { return v; } };
+struct FMatrix { FQuat ToQuat() const { return FQuat(); } };
+struct FBox { FVector Min, Max; FVector GetSize() const { return Max - Min; } };
+struct FBoxSphereBounds { FBox GetBox() const { return FBox(); } };
+template <class T> struct TNumericLimits { static T Max() { return T(1e30); } static T Lowest() { return T(-1e30); } };
+struct FCString { static int32 Strcmp(const TCHAR* a, const TCHAR* b) { return std::wcscmp(a, b); } };
+struct FTransform { static const FTransform Identity; FVector TransformPosition(const FVector& v) const { return v; } FVector GetUnitAxis(EAxis::Type) const { return FVector(); } FVector GetLocation() const { return FVector(); } FTransform operator*(const FTransform& o) const { return o; } };
+struct FRotationMatrix { FRotationMatrix(const FRotator&) {} FVector GetUnitAxis(EAxis::Type) const { return FVector(); } static FMatrix MakeFromXZ(const FVector&, const FVector&) { return FMatrix(); } };
 struct FLinearColor { float R = 0, G = 0, B = 0, A = 1; static const FLinearColor White, Black; FLinearColor() {} FLinearColor(float r, float g, float b, float a = 1.f) : R(r), G(g), B(b), A(a) {} };
 struct FIntPoint { int32 X = 0, Y = 0; FIntPoint() {} FIntPoint(int32 x, int32 y) : X(x), Y(y) {} bool operator==(const FIntPoint& o) const { return X == o.X && Y == o.Y; } bool operator!=(const FIntPoint& o) const { return !(*this == o); } };
 struct FRandomStream { void Initialize(int32) {} float FRand() { return 0; } float FRandRange(float, float) { return 0; } int32 RandRange(int32 a, int32) { return a; } };
@@ -116,7 +125,14 @@ struct FSubsystemCollectionBase {};
 struct UWorldSubsystem : UObject { typedef UObject Super_; virtual bool ShouldCreateSubsystem(UObject*) const { return true; } virtual void Initialize(FSubsystemCollectionBase&) {} };
 struct UMaterialInterface : UObject {};
 struct UMaterialInstanceDynamic : UMaterialInterface { static UMaterialInstanceDynamic* Create(UMaterialInterface*, UObject*) { return nullptr; } void SetVectorParameterValue(FName, FLinearColor) {} void SetScalarParameterValue(FName, float) {} };
-struct UStaticMesh : UObject {};
+struct UStaticMesh : UObject { FBox GetBoundingBox() const { return FBox(); } };
+struct FReferenceSkeleton { int32 FindBoneIndex(const FName&) const { return INDEX_NONE; } int32 GetParentIndex(int32) const { return INDEX_NONE; } const TArray<FTransform>& GetRefBonePose() const { static TArray<FTransform> P; return P; } };
+struct USkeletalMesh : UObject { const FReferenceSkeleton& GetRefSkeleton() const { static FReferenceSkeleton R; return R; } FBoxSphereBounds GetBounds() const { return FBoxSphereBounds(); } };
+struct UAnimationAsset : UObject {};
+struct UAnimSequenceBase : UAnimationAsset { virtual float GetPlayLength() const { return 0; } };
+struct UAnimSequence : UAnimSequenceBase {};
+namespace EAnimationMode { enum Type { AnimationBlueprint, AnimationSingleNode, AnimationCustomMode }; }
+namespace EBoneSpaces { enum Type { WorldSpace, ComponentSpace }; }
 enum ECollisionChannel { ECC_WorldStatic, ECC_WorldDynamic, ECC_Pawn, ECC_Visibility, ECC_Vehicle };
 namespace ECollisionEnabled { enum Type { NoCollision, QueryOnly, QueryAndPhysics }; }
 enum ECollisionResponse { ECR_Ignore, ECR_Overlap, ECR_Block };
@@ -146,15 +162,19 @@ struct UActorComponent : UObject { void RegisterComponent() {} void DestroyCompo
 struct USceneComponent : UActorComponent {
   void SetupAttachment(USceneComponent*, FName = FName()) {} void SetRelativeLocation(const FVector&) {} void SetRelativeRotation(const FRotator&) {} void SetRelativeLocationAndRotation(const FVector&, const FRotator&) {}
   void SetWorldLocation(const FVector&) {} void SetWorldRotation(const FRotator&) {} FVector GetComponentLocation() const { return FVector(); } FTransform GetComponentTransform() const { return FTransform(); } FVector GetForwardVector() const { return FVector(); }
-  FRotator GetRelativeRotation() const { return FRotator(); } void SetVisibility(bool, bool = false) {} };
+  FRotator GetRelativeRotation() const { return FRotator(); } void SetVisibility(bool, bool = false) {}
+  void SetRelativeRotation(const FQuat&) {} void SetRelativeScale3D(const FVector&) {} void SetWorldLocationAndRotation(const FVector&, const FRotator&) {} FRotator GetComponentRotation() const { return FRotator(); } };
 struct UPrimitiveComponent : USceneComponent {
   FBodyInstance BodyInstance; void SetCollisionEnabled(ECollisionEnabled::Type) {} void SetCollisionProfileName(FName) {} void SetCollisionObjectType(ECollisionChannel) {} void SetCollisionResponseToAllChannels(ECollisionResponse) {}
   void SetCollisionResponseToChannel(ECollisionChannel, ECollisionResponse) {} void SetSimulatePhysics(bool) {} void SetLinearDamping(float) {} void SetAngularDamping(float) {} void SetMassOverrideInKg(FName, float, bool) {}
   FVector GetPhysicsLinearVelocity() const { return FVector(); } FVector GetPhysicsLinearVelocityAtPoint(const FVector&) const { return FVector(); } void SetPhysicsLinearVelocity(const FVector&) {} void SetPhysicsAngularVelocityInDegrees(const FVector&) {}
-  void AddForce(const FVector&) {} void AddForceAtLocation(const FVector&, const FVector&) {} void SetMaterial(int32, UMaterialInterface*) {} void SetCastShadow(bool) {} };
+  void AddForce(const FVector&) {} void AddForceAtLocation(const FVector&, const FVector&) {} void SetMaterial(int32, UMaterialInterface*) {} void SetCastShadow(bool) {} void SetGenerateOverlapEvents(bool) {} };
 struct UCapsuleComponent : UPrimitiveComponent { void InitCapsuleSize(float, float) {} void SetCapsuleSize(float, float, bool = true) {} };
 struct UBoxComponent : UPrimitiveComponent { void SetBoxExtent(const FVector&) {} };
 struct UStaticMeshComponent : UPrimitiveComponent { void SetStaticMesh(UStaticMesh*) {} };
+struct USkinnedMeshComponent : UPrimitiveComponent { FVector GetBoneLocation(FName, EBoneSpaces::Type = EBoneSpaces::WorldSpace) const { return FVector(); } };
+struct USkeletalMeshComponent : USkinnedMeshComponent { void SetSkeletalMeshAsset(USkeletalMesh*) {} USkeletalMesh* GetSkeletalMeshAsset() const { return nullptr; }
+  void SetAnimationMode(EAnimationMode::Type, bool = true) {} void PlayAnimation(UAnimationAsset*, bool) {} void SetPlayRate(float) {} void SetPosition(float, bool = true) {} };
 struct UProceduralMeshComponent : UPrimitiveComponent { bool bUseAsyncCooking = false, bUseComplexAsSimpleCollision = false;
   void CreateMeshSection_LinearColor(int32, const TArray<FVector>&, const TArray<int32>&, const TArray<FVector>&, const TArray<FVector2D>&, const TArray<FLinearColor>&, const TArray<FProcMeshTangent>&, bool) {} void AddCollisionConvexMesh(TArray<FVector>) {} };
 struct ULightComponent : USceneComponent { void SetIntensity(float) {} void SetLightColor(FLinearColor, bool = true) {} void SetCastShadows(bool) {} void SetIntensityUnits(ELightUnits) {} };
