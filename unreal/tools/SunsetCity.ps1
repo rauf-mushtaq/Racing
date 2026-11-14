@@ -14,7 +14,7 @@
 # Options: -Stream (play in a browser, for example on the iPad, through Pixel Streaming), -Rebuild (do every step again).
 # For testing: SC_HOME (where everything goes), SC_REF (a branch or commit instead of main), SC_SOURCE_DIR (a copy of the repository
 # to use instead of downloading), SC_UNATTENDED=1 (never wait for a key or open a window, install nothing), SC_NO_MAIN=1 (only define
-# the functions). Written for Windows PowerShell 5.1 (every Windows 10 and 11 has it) and kept to plain ASCII, which is how 5.1 reads it.
+# the functions), SC_QUIET_MINUTES and SC_DONE_GRACE_MINUTES (how long a silent step, or an editor that has finished but stays open, is given). Written for Windows PowerShell 5.1 (every Windows 10 and 11 has it) and kept to plain ASCII, which is how 5.1 reads it.
 param(
     [switch]$Stream,
     [switch]$Rebuild,
@@ -454,27 +454,45 @@ function Read-NewText([string]$Path, [ref]$Pos) {
     } catch { return '' }
 }
 
-function Invoke-Logged([string]$CommandLine, [string]$Log, [double]$Hours) {
+function Invoke-Logged([string]$CommandLine, [string]$Log, [double]$Hours, [string]$DoneFile = '') {
     # runs a command line through cmd.exe with everything it prints going into $Log (and its newest line shown here while it runs), so that
-    # nothing it leaves running in the background can hold this script up; returns its exit code (-1 if it ran out of time and was stopped)
+    # nothing it leaves running in the background can hold this script up; returns its exit code, or -1 if it was stopped: after $Hours, or
+    # after an hour of printing nothing at all (stuck: shader compiling and cooking print as they go). If $DoneFile is given and appears
+    # (the editor's set-up has written its result) but the program is still running ten minutes later, it is closed and counted as finished.
     if (Test-Path -LiteralPath $Log) { Remove-Item -LiteralPath $Log -Force -ErrorAction SilentlyContinue }
     $line = '/d /s /c "' + $CommandLine + ' > "' + $Log + '" 2>&1"'
     $p = Start-Process -FilePath $env:ComSpec -ArgumentList $line -NoNewWindow -PassThru
     $null = $p.Handle
+    $quiet = 60
+    if ($env:SC_QUIET_MINUTES) { $quiet = [double]$env:SC_QUIET_MINUTES }      # (shorter in the tests)
+    $grace = 10
+    if ($env:SC_DONE_GRACE_MINUTES) { $grace = [double]$env:SC_DONE_GRACE_MINUTES }
     $t0 = Get-Date
+    $heard = Get-Date
+    $doneAt = $null
     $pos = 0L
     $last = 'starting'
     while (-not $p.WaitForExit(2000)) {
         $new = Read-NewText $Log ([ref]$pos)
         if ($new) {
+            $heard = Get-Date
             $l = @($new -split "`r?`n" | Where-Object { $_.Trim() }) | Select-Object -Last 1
             if ($l) { $last = $l.Trim() }
         }
         Show-Status ('  [' + [int]((Get-Date) - $t0).TotalMinutes + ' min] ' + $last)
-        if (((Get-Date) - $t0).TotalHours -gt $Hours) {
+        $why = $null
+        if (((Get-Date) - $t0).TotalHours -gt $Hours) { $why = 'after ' + $Hours + ' hours with no end' }
+        elseif (((Get-Date) - $heard).TotalMinutes -gt $quiet) { $why = 'after ' + $quiet + ' minutes without printing anything (stuck)' }
+        if ($DoneFile -and -not $doneAt -and (Test-Path -LiteralPath $DoneFile)) { $doneAt = Get-Date }
+        $finished = $doneAt -and ((Get-Date) - $doneAt).TotalMinutes -gt $grace
+        if ($why -or $finished) {
             & $env:ComSpec /d /c ('taskkill /PID ' + $p.Id + ' /T /F >nul 2>&1')
             End-Status
-            Add-Content -LiteralPath $Log -Value ('(Stopped by the Sunset City script after ' + $Hours + ' hours with no end.)') -ErrorAction SilentlyContinue
+            if ($finished) {
+                Add-Content -LiteralPath $Log -Value ('(Closed by the Sunset City script: it had finished its work ' + $grace + ' minutes before but was still open.)') -ErrorAction SilentlyContinue
+                return 0
+            }
+            Add-Content -LiteralPath $Log -Value ('(Stopped by the Sunset City script ' + $why + '.)') -ErrorAction SilentlyContinue
             return -1
         }
     }
@@ -513,7 +531,7 @@ function Step-Setup($Engine) {
     for ($i = 0; $i -lt $ways.Count; $i++) {
         if (Test-Path -LiteralPath $result) { Remove-Item -LiteralPath $result -Force }
         $cmd = '"' + $editor + '" "' + $Project + '" ' + $ways[$i] + ' -unattended -nopause -nosplash -stdout -FullStdOutLogOutput'
-        $code = Invoke-Logged $cmd (Join-Path $Logs ('setup' + ($i + 1) + '.log')) 4
+        $code = Invoke-Logged $cmd (Join-Path $Logs ('setup' + ($i + 1) + '.log')) 4 $result
         if (Test-Path -LiteralPath $result) {
             $r = (Get-Content -Raw -LiteralPath $result).Trim()
             if ($r -match '^OK') { Say ('Set up: ' + (($r -split "`r?`n") -join '; ')) Green; return $null }

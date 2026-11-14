@@ -106,6 +106,8 @@ public static class FakeUnreal
                 File.WriteAllText(result, "FAILED\nTraceback (most recent call last):\nRuntimeError: the map /Game/SunsetCity/Maps/Main was not made\n");
             }
             else if (mode == "ignore-first" && viaExec) Console.WriteLine("LogPython: (stand-in) not running the script this way");
+            else if (mode == "stay-open") { File.WriteAllText(result, "OK\n42 assets in /Game/SunsetCity\n"); Console.WriteLine("LogPython: done, but not closing"); System.Threading.Thread.Sleep(300000); }
+            else if (mode == "silent") System.Threading.Thread.Sleep(300000);
             else File.WriteAllText(result, "OK\n42 assets in /Game/SunsetCity\n");
         }
         return 0;
@@ -250,6 +252,23 @@ Clear-Report
 $rc = Run-Bat $bat
 Check 'set-up fails: not 0, and a report with the script''s error' ($rc -ne 0 -and (Test-Path $report) -and ((Get-Content -Raw $report) -like '*the map /Game/SunsetCity/Maps/Main was not made*')) "exit $rc"
 
+# 8b. an editor that finishes the set-up but does not close is closed after a while, and the run carries on; one that prints nothing for
+#     too long is counted as stuck (the waits are cut to seconds here: SC_DONE_GRACE_MINUTES and SC_QUIET_MINUTES)
+$env:SC_DONE_GRACE_MINUTES = '0.1'
+$env:SC_QUIET_MINUTES = '0.3'
+$env:FAKE_SETUP = 'stay-open'
+$t0 = Get-Date
+$rc = Run-Bat $bat
+Check ('an editor that stays open after the set-up is closed and the run carries on (' + [int]((Get-Date) - $t0).TotalSeconds + ' s)') ($rc -eq 0 -and ((Get-Date) - $t0).TotalSeconds -lt 120 -and ((Get-Content -Raw (Join-Path $home1 'logs\setup1.log')) -like '*Closed by the Sunset City script*')) "exit $rc"
+$env:FAKE_SETUP = 'silent'
+Add-Content -LiteralPath (Join-Path $src 'unreal\SunsetCity\Content\Python\sc_setup.py') -Value '# (test change 6)'
+Clear-Report
+$t0 = Get-Date
+$rc = Run-Bat $bat
+Check ('an editor that prints nothing for too long is stopped, both ways, and reported (' + [int]((Get-Date) - $t0).TotalSeconds + ' s)') ($rc -ne 0 -and ((Get-Date) - $t0).TotalSeconds -lt 180 -and (Test-Path $report) -and ((Get-Content -Raw $report) -like '*without printing anything (stuck)*')) "exit $rc"
+$env:SC_DONE_GRACE_MINUTES = ''
+$env:SC_QUIET_MINUTES = ''
+
 # 9. packaging fails: a report, and the last version that worked starts
 $env:FAKE_SETUP = ''
 $env:FAKE_PACKAGE = 'fail'
@@ -268,8 +287,9 @@ Check 'iPad: finishes' ($rc -eq 0) "exit $rc"
 Check 'iPad: packages first, as it had not worked' ((Count $c 'RunUAT.bat*') -eq 1)
 Check 'iPad: starts the signalling web server' (Wait-Call $m 'signalling server start.bat')
 Check 'iPad: starts the game for Pixel Streaming (no window, the server''s address)' (Wait-Call $m 'SunsetCity.exe -AudioMixer -RenderOffScreen*-PixelStreamingURL=ws://127.0.0.1:8888*')
-$gw = @(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | ForEach-Object { $_.IPv4Address } | ForEach-Object { $_.IPAddress })
-Check 'iPad: shows first the address on the network the PC uses (the one with a router), to type on the iPad' ($gw.Count -gt 0 -and $script:lastOutput -match ('open this address:\s+http://' + [regex]::Escape($gw[0]) + '\s')) ('gateway address ' + ($gw -join ', '))
+$gw = ''
+try { $route = @(Find-NetRoute -RemoteIPAddress '192.0.2.1' -ErrorAction Stop); $gw = [string]$route[0].IPAddress } catch { $gw = 'none: ' + $_.Exception.Message }
+Check 'iPad: shows first the address the PC''s way to the internet goes through, to type on the iPad' ($script:lastOutput -match ('open this address:\s+http://' + [regex]::Escape($gw) + '\s')) ('Windows'' route says ' + $gw)
 
 # 11. -Rebuild does every step again
 $m = Mark

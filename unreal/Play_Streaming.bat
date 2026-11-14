@@ -34,8 +34,9 @@ if not defined SIGSCRIPT (
 )
 rem Every spelling of the flags is given (the engine versions differ): the ones a version does not know are ignored.
 start "Sunset City" "%GAME%" -AudioMixer -RenderOffScreen -ForceRes -ResX=1920 -ResY=1080 -Windowed -PixelStreamingURL=ws://127.0.0.1:8888 -PixelStreamingConnectionURL=ws://127.0.0.1:8888 -PixelStreamingIP=127.0.0.1 -PixelStreamingPort=8888
-rem The address to type is the one on the network this PC really uses (the one with a router); virtual networks (WSL, Hyper-V, VirtualBox) have addresses too.
-if not defined SC_BEST_ADDRESS for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "$c = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1; if ($c) { $c.IPv4Address[0].IPAddress }" 2^>nul`) do set "SC_BEST_ADDRESS=%%a"
+rem The address to type is the one on the network this PC really uses (the one its way to the internet goes through: asking Windows which
+rem address it would send from sends nothing); virtual networks inside the PC (WSL, Hyper-V, VirtualBox) have addresses too.
+if not defined SC_BEST_ADDRESS for /f "usebackq delims=" %%a in (`powershell -NoProfile -Command "try { $u = New-Object Net.Sockets.UdpClient; $u.Connect('192.0.2.1', 9); $u.Client.LocalEndPoint.Address.ToString(); $u.Close() } catch { }" 2^>nul`) do set "SC_BEST_ADDRESS=%%a"
 echo.
 echo Sunset City is starting. It has no window on this PC: its picture goes to the browser.
 if defined SC_BEST_ADDRESS (

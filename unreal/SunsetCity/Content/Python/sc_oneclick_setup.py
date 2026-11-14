@@ -1,7 +1,7 @@
 """Sunset City: the set-up step of the one-click Windows script (unreal/tools/SunsetCity.ps1).
 
 The script starts the editor with no window (UnrealEditor-Cmd.exe <project> -ExecutePythonScript=<this file>, or failing that
--run=pythonscript -script=<this file>), which closes again by itself when this has run. This runs sc_setup.py (the map, the
+-run=pythonscript -script=<this file>), which closes again by itself when this has run (this asks it to as well). This runs sc_setup.py (the map, the
 materials, the models), checks that the map the game starts on is there, saves anything left unsaved, and writes how it went to the
 file named by the SC_SETUP_RESULT environment variable: a first line "OK" and a summary, or "FAILED" and why. The script reads it."""
 import os
@@ -57,6 +57,11 @@ def main():
         text = traceback.format_exc()
         unreal.log_error('[SunsetCity] one-click set-up FAILED:\n' + text)
         write_result('FAILED\n' + text)
+    # Started this way the editor closes by itself when the script is done; asking as well does no harm, in case a version does not.
+    try:
+        unreal.SystemLibrary.quit_editor()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 main()
