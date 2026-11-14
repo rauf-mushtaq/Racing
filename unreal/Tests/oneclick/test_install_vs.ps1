@@ -1,6 +1,6 @@
 # Installs Visual Studio Build Tools 2022 with the one-click script's own Install-BuildTools (the exact download and installer options a PC
 # without Visual Studio gets), then checks the result is what Unreal 5.5 needs: the C++ compiler for 64-bit Windows (and the 14.38 one Unreal
-# 5.5 prefers) and a Windows SDK. Run by hand from .github/workflows/windows-oneclick.yml: it takes about half an hour.
+# 5.5 prefers) and a Windows SDK. Run by hand from .github/workflows/windows-oneclick.yml: it took 4 minutes there.
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $env:SC_NO_MAIN = '1'
