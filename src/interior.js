@@ -19,6 +19,77 @@ function dataTex(S, fn) {
 }
 const hash = (x, y) => { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); };
 const noise = (x, y, f) => { const xi = Math.floor(x * f), yi = Math.floor(y * f), xf = x * f - xi, yf = y * f - yi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf); return (hash(xi, yi) * (1 - u) + hash(xi + 1, yi) * u) * (1 - v) + (hash(xi, yi + 1) * (1 - u) + hash(xi + 1, yi + 1) * u) * v; };
+// Surfaces with depth: a colour, a normal map (worked out from a height field, so tile joints, brick mortar and wood grain catch the light) and a roughness
+// map (joints duller than the faces). fn(u, v, x, y) returns [r, g, b, height 0..1, roughness 0..1]. Made the first time a room needs them.
+function surfaceTex(S, fn, bump = 2.5) {
+  const col = new Uint8Array(S * S * 4), nrm = new Uint8Array(S * S * 4), rgh = new Uint8Array(S * S * 4), h = new Float32Array(S * S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const c = fn(x / S, y / S, x, y), o = (y * S + x) * 4; col[o] = c[0]; col[o + 1] = c[1]; col[o + 2] = c[2]; col[o + 3] = 255; h[y * S + x] = c[3] ?? 0.5;
+    const r = Math.round((c[4] ?? 0.6) * 255); rgh[o] = r; rgh[o + 1] = r; rgh[o + 2] = r; rgh[o + 3] = 255;
+  }
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const hx = h[y * S + ((x + 1) % S)] - h[y * S + ((x - 1 + S) % S)], hy = h[((y + 1) % S) * S + x] - h[((y - 1 + S) % S) * S + x];
+    let nx = -hx * bump, ny = -hy * bump, nz = 1; const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+    const o = (y * S + x) * 4; nrm[o] = (nx * 0.5 + 0.5) * 255; nrm[o + 1] = (-ny * 0.5 + 0.5) * 255; nrm[o + 2] = (nz * 0.5 + 0.5) * 255; nrm[o + 3] = 255;
+  }
+  const mk = (d, srgb) => { const t = new THREE.DataTexture(d, S, S, THREE.RGBAFormat); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.anisotropy = 8; t.needsUpdate = true; return t; };
+  return { map: mk(col, true), normalMap: mk(nrm, false), roughnessMap: mk(rgh, false) };
+}
+const fbm = (u, v, f) => 0.5 * noise(u, v, f) + 0.25 * noise(u, v, f * 2.03) + 0.125 * noise(u, v, f * 4.1) + 0.125 * noise(u, v, f * 8.3);
+export const SURF = {};
+const SURFACES = {
+  // Vinyl floor tiles (a shop, a petrol station's kiosk): 4 x 4 tiles of a greyish white with a darker one now and then, scuffed, sealed joints.
+  vinyl: () => surfaceTex(512, (u, v) => {
+    const tu = (u * 4) % 1, tv = (v * 4) % 1, ix = Math.floor(u * 4), iy = Math.floor(v * 4), e = Math.min(tu, 1 - tu, tv, 1 - tv), joint = e < 0.008, alt = hash(ix, iy) > 0.82;
+    const tone = (alt ? 0.7 : 0.9) * (0.97 + 0.04 * hash(ix + 7, iy)) * (0.95 + 0.06 * fbm(u, v, 18)), scuff = Math.pow(noise(u * 3 + 0.3, v * 9, 6), 6) * 0.25;
+    const g = joint ? 0.55 : tone - scuff; return [g * 236, g * 236, g * 230, joint ? 0.2 : 0.62 + 0.04 * fbm(u, v, 30), joint ? 0.85 : 0.42 + 0.2 * scuff + 0.08 * noise(u, v, 40)];
+  }, 3),
+  // Polished marble in squares (a bank, a museum): veins of grey through white, pale joints.
+  marble: () => surfaceTex(512, (u, v) => {
+    const tu = (u * 2) % 1, tv = (v * 2) % 1, e = Math.min(tu, 1 - tu, tv, 1 - tv), joint = e < 0.006, checker = (Math.floor(u * 2) + Math.floor(v * 2)) & 1;
+    const w = fbm(u + 3 * checker, v, 3), vein = Math.abs(Math.sin((u * 5 + w * 5 + v * 2.2) * 6.28)), k = (checker ? 0.83 : 0.93) * (1 - 0.3 * Math.pow(1 - vein, 9)) * (0.96 + 0.05 * fbm(u, v, 24));
+    const g = joint ? 0.7 : k; return [g * 252, g * 248, g * 240, joint ? 0.3 : 0.55, joint ? 0.5 : 0.08 + 0.05 * noise(u, v, 30)];
+  }, 2),
+  // Black granite with flecks (a jeweller).
+  granite: () => surfaceTex(512, (u, v, x, y) => {
+    const tu = (u * 2) % 1, tv = (v * 2) % 1, joint = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.006, f = hash(x, y), fleck = f > 0.985 ? 0.6 : f > 0.94 ? 0.3 : 0.12;
+    const g = joint ? 0.3 : fleck + 0.05 * fbm(u, v, 12); return [g * 230, g * 220, g * 215, joint ? 0.3 : 0.55, joint ? 0.6 : 0.1];
+  }, 2),
+  // Rubber gym flooring: black tiles a metre square, with coloured flecks, the joints between them.
+  rubber: () => surfaceTex(512, (u, v, x, y) => {
+    const tu = (u * 4) % 1, tv = (v * 4) % 1, joint = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.006, f = hash(x * 1.7, y * 2.3);
+    const c = f > 0.965 ? [0.62, 0.62, 0.64] : f > 0.94 ? [0.55, 0.42, 0.12] : f > 0.92 ? [0.18, 0.35, 0.6] : [0.12, 0.12, 0.13];
+    const k = 0.9 + 0.12 * fbm(u, v, 16); return [c[0] * 255 * k, c[1] * 255 * k, c[2] * 255 * k, joint ? 0.15 : 0.55 + 0.15 * hash(x, y), joint ? 1 : 0.86];
+  }, 4),
+  // Oak boards (a museum's galleries).
+  oak: () => surfaceTex(512, (u, v) => {
+    const plank = Math.floor(u * 8), local = (u * 8) % 1, off = hash(plank, 1), lv = (v + off) % 1, row = Math.floor((v + off) * 2), end = (lv * 2) % 1 < 0.006;
+    const tone = 0.78 + 0.22 * hash(plank, row), grain = 0.86 + 0.14 * Math.sin((local * 9 + fbm(u * 0.4, v * 3, 5) * 6) * 3.1), gap = local < 0.012 || end;
+    const g = tone * grain * (gap ? 0.45 : 1); return [160 * g, 112 * g, 70 * g, gap ? 0.1 : 0.55 + 0.05 * grain, gap ? 0.8 : 0.32];
+  }, 3),
+  // Plaster: painted, faintly uneven.
+  plaster: () => surfaceTex(256, (u, v) => { const n = fbm(u, v, 9), g = 0.94 + 0.05 * n; return [g * 246, g * 240, g * 230, n, 0.88]; }, 1.2),
+  // Painted brick (a gym): stretcher bond, the mortar recessed.
+  brick: () => surfaceTex(512, (u, v) => {
+    const rows = 16, cols = 6, r = Math.floor(v * rows), lv = (v * rows) % 1, lu = (u * cols + (r & 1) * 0.5) % 1, c = Math.floor(u * cols + (r & 1) * 0.5);
+    const mortar = lv < 0.09 || lu < 0.025, face = 0.93 + 0.06 * hash(c, r) + 0.05 * fbm(u, v, 20), round = Math.min(1, Math.min(lv - 0.09, 1 - lv, lu - 0.025, 1 - lu) * 18);
+    const g = mortar ? 0.8 : face; return [g * 238, g * 234, g * 226, mortar ? 0.0 : 0.45 + 0.4 * Math.max(0, round) + 0.08 * noise(u, v, 60), mortar ? 0.95 : 0.8];
+  }, 3.5),
+  // A suspended ceiling: tiles of 0.57 m with a grid between them and the pits of acoustic board.
+  ceiling: () => surfaceTex(512, (u, v, x, y) => {
+    const tu = (u * 7) % 1, tv = (v * 7) % 1, e = Math.min(tu, 1 - tu, tv, 1 - tv), grid = e < 0.018, pit = hash(x, y) > 0.97;
+    const g = grid ? 0.9 : 0.97 - (pit ? 0.05 : 0) + 0.02 * noise(u, v, 40); return [g * 244, g * 243, g * 238, grid ? 0.0 : 0.6 - (pit ? 0.06 : 0) + Math.min(0, e - 0.04) * 4, grid ? 0.5 : 0.95];
+  }, 0.8),
+  // Bare concrete overhead (the gym's high ceiling, painted dark).
+  concrete: () => surfaceTex(256, (u, v) => { const n = fbm(u, v, 7), g = 0.85 + 0.15 * n; return [g * 200, g * 200, g * 198, n, 0.9]; }, 1.5),
+};
+export function surface(name) { return SURF[name] || (SURF[name] = SURFACES[name]()); }
+// Which surfaces a kind of place has: [floor, walls, ceiling], and how the floor shines.
+const LOOK = {
+  petrol: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }], shop: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }],
+  jeweller: ['granite', 'plaster', 'ceiling', { clearcoat: 0.8, rough: 0.6 }], bank: ['marble', 'plaster', 'ceiling', { clearcoat: 0.85, rough: 0.6 }],
+  museum: ['oak', 'plaster', 'ceiling', { clearcoat: 0.55, rough: 0.9 }], gym: ['rubber', 'brick', 'concrete', { clearcoat: 0, rough: 1 }],
+};
 export const TEX = {};
 function makeTextures() {
   if (TEX.marble) return;
@@ -177,6 +248,12 @@ export class Interior {
     this.dust = null;
     // Four lights for every room (the same number always, so no shader is ever rebuilt when a different room is entered).
     this.lights = []; for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xfff1d8, 1, 16, 1.6); l.layers.set(1); l.visible = false; env.scene.add(l); this.lights.push(l); }
+    // The light that casts the room's shadows (only where the graphics have shadows at all).
+    if (env.shadows) {
+      const K = this.key = new THREE.DirectionalLight(0xfff4e6, 1.3); K.layers.set(1); K.visible = false; K.castShadow = true;
+      K.shadow.mapSize.set(env.shadows >= 2 ? 2048 : 1024, env.shadows >= 2 ? 2048 : 1024); K.shadow.bias = -0.0004; K.shadow.normalBias = 0.03; K.shadow.radius = 4;
+      env.scene.add(K); env.scene.add(K.target);
+    }
     this.env0 = null; this.saved = null; this.fade = 0;
   }
   get ready() { return !!this.room; }
@@ -194,12 +271,26 @@ export class Interior {
     this.dispose();
     const R = new Room(venue.kind, Math.round(venue.x), Math.round(venue.z)); R.mats = this.mats; R.art = [TEX.art0, TEX.art1, TEX.art2, TEX.art3]; plan(R, venue); decorate(R, venue); this.room = R;
     const g = new THREE.Group(); g.visible = false;
-    for (const k of ['floor', 'wall', 'ceil', 'prop', 'metal', 'emit']) { const gb = R.gb[k]; if (!gb.count) continue; const mesh = new THREE.Mesh(gb.geometry(), this.mats[k]); mesh.frustumCulled = false; g.add(mesh); }
-    for (const o of R.loose) g.add(o);
+    for (const k of ['floor', 'wall', 'ceil', 'prop', 'metal', 'emit']) {
+      const gb = R.gb[k]; if (!gb.count) continue; const mesh = new THREE.Mesh(gb.geometry(), this.mats[k]); mesh.frustumCulled = false;
+      mesh.receiveShadow = k !== 'emit'; mesh.castShadow = k === 'prop' || k === 'metal'; g.add(mesh);
+    }
+    for (const o of R.loose) { o.traverse(m => { if (m.isMesh && m.material !== this.mats.glass) { m.receiveShadow = true; if (m.castShadow === false && !m.material.transparent) m.castShadow = true; } }); g.add(o); }
     for (const m of softMeshes(R, this.mats)) g.add(m);
     this.dust = makeDust(R); g.add(this.dust.points);
     g.traverse(o => o.layers.set(1)); this.env.scene.add(g); this.group = g; this.venue = venue;
-    this.mats.floor.map = venue.kind === 'petrol' || venue.kind === 'shop' ? TEX.lino : venue.kind === 'jeweller' ? TEX.blackstone : venue.kind === 'bank' ? TEX.marble : TEX.marble; this.mats.floor.needsUpdate = true;
+    // The surfaces of this kind of place.
+    const look = LOOK[venue.kind] || LOOK.shop, F = surface(look[0]), Wl = surface(look[1]), Cl = surface(look[2]), fm = this.mats.floor;
+    fm.map = F.map; fm.normalMap = F.normalMap; fm.roughnessMap = F.roughnessMap; fm.roughness = look[3].rough; fm.clearcoat = look[3].clearcoat; fm.clearcoatRoughness = 0.15; fm.normalScale.set(1, 1); fm.needsUpdate = true;
+    const wm = this.mats.wall; wm.map = Wl.map; wm.normalMap = Wl.normalMap; wm.roughnessMap = Wl.roughnessMap; wm.roughness = 1; wm.needsUpdate = true;
+    const cm = this.mats.ceil; cm.map = Cl.map; cm.normalMap = Cl.normalMap; cm.roughnessMap = Cl.roughnessMap; cm.roughness = 1; cm.needsUpdate = true;
+    // Shadows: one light from overhead (a soft directional, square over the room) that casts them, with the room's other lamps filling in.
+    if (this.key) {
+      const b = R.bounds, cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, half = Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + 1, K = this.key, sc = K.shadow.camera;
+      K.position.set(cx + 1.5, R.oy + R.H + 6, cz - 2.5); K.target.position.set(cx, R.oy, cz); K.target.updateMatrixWorld();
+      sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half; sc.near = 1; sc.far = R.H + 14; sc.updateProjectionMatrix(); K.shadow.needsUpdate = true;
+      K.intensity = venue.kind === 'gym' ? 1.6 : 1.3;
+    }
     R.lights.forEach((l, i) => { const L = this.lights[i]; if (!L) return; L.position.set(l.x, l.y, l.z); L.color.set(l.col); L.intensity = 14 * l.k; L.distance = Math.max(R.W, R.D) * 1.3; });
     return R;
   }
@@ -211,19 +302,22 @@ export class Interior {
   enter() {
     const { scene, camera, walker } = this.env, R = this.room;
     this.saved = { env: scene.environment, exposure: this.env.renderer.toneMappingExposure, layers: camera.layers.mask };
-    scene.environment = this.makeEnv(); camera.layers.set(1); this.group.visible = true; for (const L of this.lights) L.visible = true;
+    scene.environment = this.makeEnv(); camera.layers.set(1); this.group.visible = true; for (const L of this.lights) L.visible = true; if (this.key) this.key.visible = true;
     for (let i = R.lights.length; i < this.lights.length; i++) this.lights[i].intensity = 0;
     walker.interior = this; this.active = true; this.t = 0;
     walker.place(R.exit.x, R.exit.z + 1.0, 0); walker.y = STAGE_Y; this.floorY = STAGE_Y;
   }
   exit() {
     const { scene, camera, walker } = this.env;
-    scene.environment = this.saved.env; camera.layers.mask = this.saved.layers; this.group.visible = false; for (const L of this.lights) L.visible = false;
+    scene.environment = this.saved.env; camera.layers.mask = this.saved.layers; this.group.visible = false; for (const L of this.lights) L.visible = false; if (this.key) this.key.visible = false;
     walker.interior = null; this.active = false;
   }
   update(dt) { this.t += dt; if (this.dust) this.dust.step(dt); }
   // ---- What the walker and the camera ask of it ------------------------------------------------------------------------------------------------
-  ground() { return _ground; }
+  ground(x, z) {                                                                       // (the floor, or a raised deck: a boxing ring)
+    const d = this.room && this.room.decks; if (d && x !== undefined) for (const q of d) if (x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1) { _deck.y = this.room.oy + q.h; return _deck; }
+    return _ground;
+  }
   ceil() { return this.room.bounds.y1; }
   inside(x, z, pad = 0) { const b = this.room.bounds; return x > b.x0 + pad && x < b.x1 - pad && z > b.z0 + pad && z < b.z1 - pad; }
   // The boxes and posts within r of a point, in the shape the city's colliders have.
@@ -251,4 +345,4 @@ export class Interior {
     return { t: best, type };
   }
 }
-const _ground = { y: STAGE_Y, kind: 'tile', grass: false };
+const _ground = { y: STAGE_Y, kind: 'tile', grass: false }, _deck = { y: STAGE_Y, kind: 'tile', grass: false };

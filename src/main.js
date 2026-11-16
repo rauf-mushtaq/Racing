@@ -65,6 +65,7 @@ import { Melee } from './melee.js';
 import { Interior } from './interior.js';
 import { planFor } from './rooms.js';
 import { Heist } from './heist.js';
+import { Gym } from './gym.js';
 import { venueNear, VENUE_TYPES } from './venues.js';
 import { initMenus } from './menus.js';
 import { Profiler, PerfGuard } from './perf.js';
@@ -253,7 +254,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let brawl = null, motes = null, birds = null, heist = null, interior = null, melee = null, bigmap = null, heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, towns, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
+let gym = null, brawl = null, motes = null, birds = null, heist = null, interior = null, melee = null, bigmap = null, heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, towns, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -312,7 +313,7 @@ async function build() {
   melee = new Melee({
     walker, yaw: () => footCam.yaw, get peds() { return peds; }, get officers() { return officers; }, get brawl() { return brawl; }, audio, hud: { toast: (t, s) => hud.toast(t, s) }, fx: police.fx,
     crime: (kind, n) => assault(n), heat: a => { if (game.chaseOn) police.addHeat(a); }, shake: v => { game.shake = Math.max(game.shake, v); },
-    walls: (x, z) => solidAt(x, z), targets: () => heistTargets(), active: () => !!game.onFoot && game.state === 'free',
+    walls: (x, z) => solidAt(x, z), targets: () => heistTargets(), active: () => !!game.onFoot && game.state === 'free', power: () => (gym ? gym.strength : 0),
   });
   arsenal = new Arsenal({
     scene, melee, fx: police.fx, police, traffic, city, peds, audio, camera, aimRay, get officers() { return officers; }, get brawl() { return brawl; }, get interior() { return interior && interior.active ? interior : null; }, get heist() { return heist; },
@@ -322,9 +323,10 @@ async function build() {
     active: () => !!game.onFoot && game.state === 'free', get touch() { return input.lastDevice === 'touch'; },
   });
   walker.placeWeapon = w => arsenal.place(w);
-  interior = new Interior({ scene, camera, renderer, walker, audio, get hud() { return hud; } });
+  interior = new Interior({ scene, camera, renderer, walker, audio, get hud() { return hud; }, shadows: Q.shadows ? (Q.shadow >= 2048 ? 2 : 1) : 0 });
   heist = new Heist({ scene, interior, walker, arsenal, audio, fx: police.fx, toast: (t, s) => hud.toast(t, s), startWanted: stars => startWanted('robbery', stars), hurt: d => hurtPlayer(d), shake: v => { game.shake = Math.max(game.shake, v); } });
   settings.cash = settings.cash || 0;
+  gym = new Gym({ scene, interior, walker, audio, toast: (t, s) => hud.toast(t, s), settings, save });
   // What is seen inside a building as well as in the street: the gun in hand, the grenades, the bullet holes, the sparks and tracers of a shot.
   lay1(arsenal.holder); arsenal.grenadeMeshes.forEach(lay1); arsenal.rocketMeshes.forEach(lay1); arsenal.marks.meshes.forEach(lay1); for (const f of [police.fx, worldFx]) { if (!f) continue; lay1(f.add.pts); lay1(f.smoke.pts); f.tracers.forEach(t => lay1(t.m)); }
   // Police officers on foot (officers.js): they step out of cruisers that pull up near you, and shoot back.
@@ -518,7 +520,7 @@ function leaveCar() {
 }
 input.on('use', () => {
   if (game.state !== 'free') return;
-  if (game.inside) { if (game.insideT > 0.5 && heist.use() === 'exit') leaveVenue(); return; }                          // (in a building: the button does what the prompt says)
+  if (game.inside) { if (game.insideT > 0.5 && (gym && gym.active ? gym.use() : heist.use()) === 'exit') leaveVenue(); return; }                          // (in a building: the button does what the prompt says)
   if (game.onFoot) { const v = !nearCar() ? venueNear(walker.x, walker.z, 3.6) : null; if (v) enterVenue(v); else if (!enterCar()) hud.toast('GET CLOSER TO THE CAR', 1.0); } else leaveCar();
 });
 // Circles for the walker to bump into: your own car, the traffic and the parked cars near it.
@@ -551,7 +553,8 @@ function footUpdate(dt, raw) {
   const f = raw.foot; walker.update(dt, f, footCam.yaw, obstacles);
   footCamStep(dt, f, false); setAimRay(arsenal.cur >= 0 ? raw.arms.cursor : null);
   arsenal.update(dt, raw.arms, walker, camera, true); melee.update(dt);
-  if (walker.interior) { interior.update(dt); heist.update(dt); return; }                // (in a building: nothing of the street reaches in)
+  walker.sprintK = 1 + 0.02 * (gym ? gym.stamina : 0);                                  // (stamina from the gym: a quicker sprint)
+  if (walker.interior) { interior.update(dt); heist.update(dt); if (gym) gym.update(dt, f); return; }                // (in a building: nothing of the street reaches in)
   // The boot of the car is an armoury: walk up to it and the guns are topped up.
   const near = nearCar(); if (near && !arsenal.nearCar && arsenal.needsStock()) arsenal.bootRestock(); arsenal.nearCar = near;
   walker.sight = walker.crouching ? 55 : walker.speed > 5 ? 150 : 100;
@@ -903,8 +906,8 @@ function enterVenue(v, instant) {
     if (v.dx !== undefined) { walker.x = v.x; walker.z = v.z; }
     interior.build(v, planFor(v.kind)); interior.enter(); footCam.reset(0); footCam.dist = 2.7; game.inside = v; game.insideT = 0;
     if (arsenal) arsenal.aimToggle = false;
-    heist.begin(v, VENUE_TYPES[v.kind] || VENUE_TYPES.shop);
-    hud.toast(VENUE_TYPES[v.kind] ? VENUE_TYPES[v.kind].name + ': ' + VENUE_TYPES[v.kind].blurb.toUpperCase() : '', 2.4);
+    if (VENUE_TYPES[v.kind] && VENUE_TYPES[v.kind].gym) gym.begin(v);                    // (a gym: training, not a robbery)
+    else { heist.begin(v, VENUE_TYPES[v.kind] || VENUE_TYPES.shop); hud.toast(VENUE_TYPES[v.kind] ? VENUE_TYPES[v.kind].name + ': ' + VENUE_TYPES[v.kind].blurb.toUpperCase() : '', 2.4); }
     renderer.compile(scene, camera);                                                     // (the first time, the room's shaders are made now, under the fade)
   };
   if (instant) go(); else fadeTo(go);
@@ -913,7 +916,7 @@ function enterVenue(v, instant) {
 function leaveVenue(instant) {
   if (!interior.active) return false;
   const go = () => {
-    const r = game.venueRet, loot = heist.loot; heist.end(); interior.exit(); game.inside = null; footCam.dist = 3.5;
+    const r = game.venueRet, loot = heist.loot; heist.end(); if (gym) gym.end(); interior.exit(); game.inside = null; footCam.dist = 3.5;
     walker.place(r.x, r.z, r.h); footCam.reset(r.h);
     if (loot > 0) { settings.heists = (settings.heists || 0) + 1; game.carried = (game.carried || 0) + loot; if (!game.chaseOn) bankCarried(); else hud.toast('BAG $' + game.carried.toLocaleString('en-US') + ': SAFE WHEN YOU LOSE THE POLICE', 3); }
   };
@@ -921,7 +924,7 @@ function leaveVenue(instant) {
   return true;
 }
 // Out of a building at once (a chase ended, or back to the menu): whatever was in the bag is lost, unless it was banked.
-function forceLeave() { if (!interior.active) return; heist.end(); interior.exit(); game.inside = null; footCam.dist = 3.5; const r = game.venueRet; if (r) { walker.place(r.x, r.z, r.h); footCam.reset(r.h); } }
+function forceLeave() { if (!interior.active) return; heist.end(); if (gym) gym.end(); interior.exit(); game.inside = null; footCam.dist = 3.5; const r = game.venueRet; if (r) { walker.place(r.x, r.z, r.h); footCam.reset(r.h); } }
 function bankCarried() {
   const n = game.carried || 0; if (!n) return; game.carried = 0; settings.cash = (settings.cash || 0) + n; save();
   hud.toast('+ $' + n.toLocaleString('en-US') + ' BANKED', 2.6); audio.beep(1500, 0.08, 0.2); setTimeout(() => audio.beep(2100, 0.12, 0.2), 90);
@@ -1172,7 +1175,8 @@ function checkDiscoveries() {
 function updatePrompt() {
   let txt = '';
   if (game.state === 'free') {
-    if (game.inside && heist && heist.active) txt = heist.prompt === 'LEAVE' ? 'LEAVE' : heist.prompt;
+    if (game.inside && gym && gym.active) txt = gym.prompt;
+    else if (game.inside && heist && heist.active) txt = heist.prompt === 'LEAVE' ? 'LEAVE' : heist.prompt;
     else if (game.onFoot) { if (nearCar()) txt = 'GET IN'; else { const v = venueNear(walker.x, walker.z, 3.6); if (v && VENUE_TYPES[v.kind]) txt = 'ENTER ' + VENUE_TYPES[v.kind].name; } }
     else if (car.speed < 6.5) txt = 'GET OUT';
   }       // (leaveCar needs under 7 m/s)
@@ -1418,4 +1422,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-if (DEBUG) window.__game = { get brawl() { return brawl; }, knockedOut, get dof() { return dofPass; }, get motes() { return motes; }, get birds() { return birds; }, get composer() { return composer; }, get heist() { return heist; }, hurtPlayer, bankCarried, venueNear, VENUE_TYPES, get interior() { return interior; }, enterVenue, leaveVenue, get melee() { return melee; }, assault, bench, startBench, get bigmap() { return bigmap; }, toggleMap, teleportTo, snapToRoad, spotClear, teleportWhy, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get towns() { return towns; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+if (DEBUG) window.__game = { get gym() { return gym; }, get brawl() { return brawl; }, knockedOut, get dof() { return dofPass; }, get motes() { return motes; }, get birds() { return birds; }, get composer() { return composer; }, get heist() { return heist; }, hurtPlayer, bankCarried, venueNear, VENUE_TYPES, get interior() { return interior; }, enterVenue, leaveVenue, get melee() { return melee; }, assault, bench, startBench, get bigmap() { return bigmap; }, toggleMap, teleportTo, snapToRoad, spotClear, teleportWhy, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get towns() { return towns; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };

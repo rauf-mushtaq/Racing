@@ -122,7 +122,7 @@ export class Peds {
         body.pelvis(_pv); p.x = _pv.x; p.z = _pv.z; p.y = groundAt(p.x, p.z).y; p.lie = 1;
         B.root.position.set(p.x, p.y, p.z); B.root.rotation.set(0, p.h, 0); B.root.updateMatrixWorld(true); body.ragApply();
         sl.person.updateFace(dt);
-        if (p.downT <= 0 && body.settled) { const r = body.getUp(false); if (r) { p.h = r.h; p.x = r.x; p.z = r.z; p.state = 'getup'; p.rag = false; p.speed = 0; } else { p.rag = false; } }
+        if (p.downT <= 0 && body.settled && !p.dead) { const r = body.getUp(false); if (r) { p.h = r.h; p.x = r.x; p.z = r.z; p.state = 'getup'; p.rag = false; p.speed = 0; } else { p.rag = false; } }
         continue;
       }
       if (p.state === 'cower') {                                                      // ducking at a gunshot (moves.js 'duck'), then off at a run
@@ -162,7 +162,7 @@ export class Peds {
       const d = OFFSETS[(rnd() * OFFSETS.length) | 0], ring = ringOf(i, j, d), s = rnd() * ring.L, [x, z, tx, tz] = ringAt(ring, s);
       const dist = Math.hypot(x - focus.x, z - focus.z); if (dist < (initial ? 12 : 55) || dist > 150) continue;
       if (!initial && camera) { const dx = x - camera.position.x, dz = z - camera.position.z; const f = camera.getWorldDirection(this.tmpV || (this.tmpV = new THREE.Vector3())); if ((dx * f.x + dz * f.z) / (Math.hypot(dx, dz) || 1) > 0.6 && dist < 110) continue; }
-      Object.assign(p, { i, j, d, s, dir: rnd() < 0.5 ? 1 : -1, x, z, h: Math.atan2(tx, tz), state: 'walk', idleT: 0, panic: 0, downT: 0, vx: 0, vz: 0, vy: 0, y: groundAt(x, z).y, phase: rnd() * 6.28, speedBase: 1.0 + rnd() * 0.55, speed: 0, t: rnd() * 20, look: 0, hit: false, lie: 0, ring });
+      Object.assign(p, { dead: false, rag: false, cowering: false, i, j, d, s, dir: rnd() < 0.5 ? 1 : -1, x, z, h: Math.atan2(tx, tz), state: 'walk', idleT: 0, panic: 0, downT: 0, vx: 0, vz: 0, vy: 0, y: groundAt(x, z).y, phase: rnd() * 6.28, speedBase: 1.0 + rnd() * 0.55, speed: 0, t: rnd() * 20, look: 0, hit: false, lie: 0, ring });
       p.colors = [SHIRTS[(rnd() * SHIRTS.length) | 0], PANTS[(rnd() * PANTS.length) | 0], SHOES[(rnd() * SHOES.length) | 0], SKINS[(rnd() * SKINS.length) | 0], HAIRS[(rnd() * HAIRS.length) | 0]];
       const ra = rnd(); p.kind = ra < ARCH.bruiser ? 'bruiser' : ra < ARCH.bruiser + ARCH.armed ? 'armed' : 'civ'; p.grudge = false;
       if (p.kind === 'bruiser') p.colors[0] = BRUISER_SHIRTS[(rnd() * BRUISER_SHIRTS.length) | 0];
@@ -228,12 +228,13 @@ export class Peds {
       if (p.state === 'down' && p.rag && !p.real) { p.rag = false; p.lie = 1; }          // (lost his real body while lying there: the crowd figure lies instead)
       if (p.state === 'getup') { if (!p.real) { p.state = 'panic'; p.panic = 4; p.lie = 0; this.relink(p); } p.speed = 0; continue; }
       if (p.state === 'cower') { if (!p.real) { p.state = 'panic'; p.cowering = false; } p.t += dt; p.speed = damp(p.speed, 0, 10, dt); continue; }
-      if (p.state === 'down' && p.rag) { p.downT -= dt; p.speed = 0; if (inWater(p.x, p.z)) { p.state = 'away'; p.rag = false; } continue; }
+      if (p.state === 'down' && p.rag) { p.downT -= dt; p.speed = 0; if (inWater(p.x, p.z) || (p.dead && p.downT <= 0)) { p.state = 'away'; p.rag = false; p.dead = false; } continue; }
       if (p.state === 'down') {
         p.downT -= dt; p.vy -= 16 * dt; p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt; const g = groundAt(p.x, p.z).y;
         if (p.y <= g) { p.y = g; p.vy = 0; const k = Math.exp(-5 * dt); p.vx *= k; p.vz *= k; }
         if (inWater(p.x, p.z)) { p.state = 'away'; continue; }                                         // (knocked into the river: gone; someone else turns up)
         p.lie = damp(p.lie, 1, 14, dt); p.speed = 0;
+        if (p.downT <= 0 && p.dead) { p.state = 'away'; p.dead = false; continue; }
         if (p.downT <= 0) { p.state = 'panic'; p.panic = 4; p.lie = 0; this.relink(p); if (p.grudge) { p.grudge = false; if (this.provoke(p, { car: true })) continue; } }
       } else {
         let spd = 0;

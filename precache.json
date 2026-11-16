@@ -76,6 +76,7 @@
   "src/grass.js",
   "src/grid.js",
   "src/gt.js",
+  "src/gym.js",
   "src/heist.js",
   "src/heli.js",
   "src/hills.js",

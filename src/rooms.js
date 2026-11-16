@@ -153,6 +153,105 @@ export const PLANS = {
     R.spot('customer', -2, 3.5, 0); R.spot('customer', 5, 8, 0);
   },
 };
+// ---- A gym (gym.js runs it): not a place to rob but to train. Reception and a membership desk by the door, a row of heavy bags and a tall kick bag, a
+// dumbbell rack and a bench in front of a mirror wall, treadmills facing the windows, a boxing ring with two fighters sparring in it, lockers, and
+// industrial lights and ducts under a high ceiling. The bags hang from pivots (R.bags) so a blow sets them swinging.
+const bagMat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.62, metalness: 0.0, envMapIntensity: 0.8 });
+function heavyBag(R, x, z, o = {}) {
+  const len = o.len ?? 1.15, r = o.r ?? 0.19, top = o.top ?? 2.75, col = o.col ?? 0x1c1c1e, g = new THREE.Group(); g.position.set(R.ox + x, R.oy + top, R.oz + z);
+  const ch = top - (o.bottom ?? 0.62) - len;                                       // (the chain: from the beam down to a bag whose foot is at knee height)
+  const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, ch, 6), new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 1, roughness: 0.3 })); chain.position.y = -ch / 2; g.add(chain);
+  for (const s of [-1, 1]) { const st = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.36, 5), chain.material); st.position.set(s * r * 0.55, -ch - 0.12, 0); st.rotation.z = s * 0.45; g.add(st); }
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(r, len - 2 * r, 6, 20), bagMat(col)); body.position.y = -ch - 0.22 - len / 2 + 0.22; g.add(body);
+  const y0 = -ch - len;                                                                // (the bag's foot, from the pivot)
+  for (const t of [0.12, 0.88]) { const band = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.01, r * 1.01, 0.05, 20), bagMat(o.band ?? 0xb0121a)); band.position.y = y0 + len * (1 - t); g.add(band); }
+  const logo = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.012, r * 1.012, 0.16, 20, 1, true, -0.6, 1.2), bagMat(0xe8e2d0)); logo.position.y = y0 + len * 0.55; g.add(logo);
+  g.traverse(m => { m.castShadow = true; });
+  R.loose.push(g); const bag = { g, x: R.ox + x, z: R.oz + z, ax: 0, az: 0, vx: 0, vz: 0, k: o.stiff ?? 4.5 }; R.bags.push(bag);
+  R.circs.push({ x: R.ox + x, z: R.oz + z, r: r + 0.05, y0: R.oy + top + y0, y1: R.oy + top - ch });
+  return bag;
+}
+function standingBag(R, x, z) {                                       // a free-standing kick bag on a weighted base, rocking about its foot
+  const g = new THREE.Group(); g.position.set(R.ox + x, R.oy + 0.0, R.oz + z);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.32, 24), bagMat(0x151517)); base.position.y = 0.16; g.add(base);
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 1.15, 6, 20), bagMat(0x7a1010)); body.position.y = 0.32 + 0.78; g.add(body);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.205, 0.205, 0.08, 20), bagMat(0x111111)); band.position.y = 1.2; g.add(band);
+  g.traverse(m => { m.castShadow = true; }); R.loose.push(g); const bag = { g, x: R.ox + x, z: R.oz + z, ax: 0, az: 0, vx: 0, vz: 0, k: 22, foot: true }; R.bags.push(bag);
+  R.circs.push({ x: R.ox + x, z: R.oz + z, r: 0.38, y0: R.oy, y1: R.oy + 1.9 });
+  return bag;
+}
+const dumbbell = (R, x, y, z, along, len = 0.34, r = 0.055, col = C(0x1e1f22)) => {
+  const ax = along === 'x'; R.box('metal', ax ? x - len / 2 : x - 0.013, ax ? z - 0.013 : z - len / 2, ax ? x + len / 2 : x + 0.013, ax ? z + 0.013 : z + len / 2, y - 0.013, y + 0.013, C(0xa8adb3));
+  for (const s of [-1, 1]) { const cx = ax ? x + s * (len / 2 - 0.05) : x, cz = ax ? z : z + s * (len / 2 - 0.05); R.drum('prop', cx, cz, r, y - r, y + r, col, false, 10); }
+};
+PLANS.gym = function (R, v, rnd) {
+  R.bags = [];
+  const W = 18, D = 16, H = 4.6, black = C(0x18181b), steel = C(0x8e959c), red = C(0xb0121a), yellow = C(0xf2c230);
+  R.shell(W, D, H, { floor: C(0xffffff), wall: C(0xe4ddd4), trim: C(0x222226), ceil: C(0x55575c), floorS: 4 });
+  // Reception: a long desk with a screen, the chain's colours behind it.
+  R.slab('prop', -7.6, 1.3, -3.4, 2.1, 0, 1.1, black, C(0xd8d4cc));
+  R.box('prop', -7.6, 1.25, -3.4, 1.3, 0.12, 1.0, yellow);
+  R.box('prop', -6.0, 1.75, -5.4, 1.85, 1.1, 1.48, C(0x202226)); R.box('emit', -5.98, 1.73, -5.42, 1.75, 1.15, 1.44, C(0x5fb0ff).multiplyScalar(1.6));     // the membership screen
+  R.box('wall', -W / 2, 3.4, -2.6, 3.6, 0, 2.6, C(0x141416), true); R.box('emit', -7.4, 3.38, -3.8, 3.4, 1.55, 2.25, C(0xf2c230).multiplyScalar(1.4));            // the back wall of reception, with the lit sign
+  R.item({ id: 'desk', type: 'desk', x: -5.5, z: 1.15, y: 1.0, r: 2.0, label: 'MEMBERSHIP', dur: 0 });
+  R.spot('staff', -5.2, 2.75, Math.PI);
+  // Heavy bags, in a row on a steel beam.
+  R.box('metal', -8.4, 12.3, -0.8, 12.5, H - 0.25, H - 0.05, steel);
+  for (const [i, x] of [[0, -7.2], [1, -4.8], [2, -2.4]].map(([i, x]) => [i, x])) {
+    heavyBag(R, x, 12.4, { top: H - 0.25, col: [0x1c1c1e, 0x5a1010, 0x1c1c1e][i] });
+    R.item({ id: 'bag' + i, type: 'bag', x, z: 11.6, y: 1.3, r: 1.0, label: 'TRAIN: HEAVY BAG', dur: 0, face: 0, bag: R.bags.length - 1 });
+  }
+  R.spot('boxer', -2.4, 11.6, 0, { bag: 2 });
+  // The kick bag.
+  standingBag(R, -7.6, 8.2); R.item({ id: 'kick', type: 'kickbag', x: -7.6, z: 7.15, y: 1.2, r: 1.1, label: 'TRAIN: KICK BAG', dur: 0, face: 0, bag: R.bags.length - 1 });
+  // Weights: a rack of dumbbells along the left wall, a mirror over it, a bench.
+  R.box('metal', -8.95, 3.9, -8.35, 7.6, 0, 0.9, C(0x2a2c30), true);
+  for (let k = 0; k < 9; k++) { const z = 4.15 + k * 0.4, r = 0.045 + k * 0.006; dumbbell(R, -8.65, 0.95, z, 'x', 0.32 + k * 0.01, r); dumbbell(R, -8.65, 0.5, z, 'x', 0.32 + k * 0.01, r); }
+  { const m = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 2.1), new THREE.MeshStandardMaterial({ color: 0xe8ecef, metalness: 1, roughness: 0.04, envMapIntensity: 1.4 })); m.position.set(R.ox - W / 2 + 0.03, R.oy + 2.0, R.oz + 5.75); m.rotation.y = Math.PI / 2; R.loose.push(m); }
+  R.box('prop', -W / 2 + 0.01, 3.6, -W / 2 + 0.05, 7.9, 0.94, 3.08, C(0x1a1a1c));                                                      // the mirror's frame
+  R.slab('prop', -6.6, 5.1, -6.2, 6.4, 0, 0.45, black, C(0x2a2a2e)); R.box('metal', -6.5, 5.0, -6.3, 5.15, 0, 0.42, steel);                // a bench
+  R.item({ id: 'weights', type: 'weights', x: -7.5, z: 5.75, y: 1.0, r: 1.2, label: 'TRAIN: DUMBBELLS', dur: 0, face: -Math.PI / 2 });
+  R.spot('lifter', -7.5, 7.0, -Math.PI / 2);
+  // Treadmills along the front, facing the windows.
+  for (let i = 0; i < 3; i++) {
+    const x = 2.6 + i * 1.9, z0 = 1.0, z1 = 3.0;
+    R.box('metal', x - 0.45, z0, x + 0.45, z1, 0, 0.12, C(0x2b2d31)); R.box('prop', x - 0.36, z0 + 0.15, x + 0.36, z1 - 0.1, 0.12, 0.135, C(0x101012));
+    for (const s of [-1, 1]) R.box('metal', x + s * 0.42 - 0.03, z0 + 0.1, x + s * 0.42 + 0.03, z0 + 0.2, 0.12, 1.25, steel);
+    R.box('prop', x - 0.45, z0 + 0.05, x + 0.45, z0 + 0.3, 1.2, 1.4, C(0x202226), true); R.box('emit', x - 0.2, z0 + 0.29, x + 0.2, z0 + 0.31, 1.25, 1.36, C(0x6ff0a0).multiplyScalar(1.3));
+    R.item({ id: 'tread' + i, type: 'treadmill', x, z: 2.15, y: 1.0, r: 0.75, label: 'TRAIN: TREADMILL', dur: 0, face: Math.PI });
+  }
+  R.spot('runner', 6.4, 2.15, Math.PI, { tread: true });
+  // The windows of the front wall (light comes in through them).
+  for (const x of [2.0, 5.0, 8.0]) R.box('emit', x - 1.2, -0.02, x + 0.4, 0.0, 0.9, 3.4, C(0xd8ecff).multiplyScalar(1.8));
+  // The boxing ring: a raised canvas, four corner posts, three ropes a side, steps.
+  const rx0 = 2.4, rx1 = 8.2, rz0 = 8.4, rz1 = 14.2, rh = 0.62;
+  R.slab('prop', rx0, rz0, rx1, rz1, 0, rh, C(0x16161a), C(0x2a4f8a), false);
+  for (const [x0, z0, x1, z1] of [[rx0, rz0, rx1, rz0 + 0.2], [rx0, rz1 - 0.2, rx1, rz1], [rx0, rz0, rx0 + 0.2, rz1], [rx1 - 0.2, rz0, rx1, rz1]]) R.boxes.push({ x0: R.ox + x0, x1: R.ox + x1, z0: R.oz + z0, z1: R.oz + z1, y0: R.oy, y1: R.oy + rh + 1.4 });      // (the ropes keep you out, and the boxers in)
+  R.decks = [{ x0: R.ox + rx0, x1: R.ox + rx1, z0: R.oz + rz0, z1: R.oz + rz1, h: rh }];
+  R.box('prop', rx0 + 0.4, rz0 + 0.4, rx1 - 0.4, rz1 - 0.4, rh, rh + 0.006, C(0x3a64a8));
+  const posts = [[rx0 + 0.15, rz0 + 0.15, red], [rx1 - 0.15, rz0 + 0.15, C(0xf0f0f0)], [rx1 - 0.15, rz1 - 0.15, C(0x1c4fb0)], [rx0 + 0.15, rz1 - 0.15, C(0xf0f0f0)]];
+  for (const [x, z, c] of posts) { R.drum('metal', x, z, 0.06, rh, rh + 1.45, steel, false, 10); R.box('prop', x - 0.11, z - 0.11, x + 0.11, z + 0.11, rh + 0.25, rh + 1.35, c); }
+  for (let k = 0; k < 3; k++) {
+    const y = rh + 0.45 + k * 0.38, t = 0.025, c = [red, C(0xf0f0f0), C(0x1c4fb0)][k];
+    R.box('prop', rx0 + 0.15, rz0 + 0.13, rx1 - 0.15, rz0 + 0.17, y - t, y + t, c); R.box('prop', rx0 + 0.15, rz1 - 0.17, rx1 - 0.15, rz1 - 0.13, y - t, y + t, c);
+    R.box('prop', rx0 + 0.13, rz0 + 0.15, rx0 + 0.17, rz1 - 0.15, y - t, y + t, c); R.box('prop', rx1 - 0.17, rz0 + 0.15, rx1 - 0.13, rz1 - 0.15, y - t, y + t, c);
+  }
+  R.box('metal', rx0 - 0.6, rz0 + 1.0, rx0, rz0 + 1.8, 0, 0.3, steel); R.box('metal', rx0 - 0.3, rz0 + 1.0, rx0, rz0 + 1.8, 0.3, 0.5, steel);
+  R.spot('sparA', 4.6, 11.3, Math.PI / 2, { ring: rh }); R.spot('sparB', 6.0, 11.3, -Math.PI / 2, { ring: rh });
+  // Lockers along the back wall, benches, a water cooler, towels.
+  for (let i = 0; i < 7; i++) { const x0 = -0.2 + i * 0.52; R.box('metal', x0, D - 0.5, x0 + 0.5, D - 0.02, 0, 1.95, i % 2 ? C(0x5f6871) : C(0x56606a), true); R.box('prop', x0 + 0.38, D - 0.52, x0 + 0.42, D - 0.5, 0.95, 1.12, C(0xd0d4d8)); for (let s = 0; s < 3; s++) R.box('prop', x0 + 0.08, D - 0.505, x0 + 0.42, D - 0.5, 1.6 + s * 0.06, 1.62 + s * 0.06, C(0x30363c)); }
+  R.box('prop', 0.4, D - 1.5, 3.2, D - 1.15, 0, 0.45, C(0x6b4a32), true);
+  R.box('prop', -0.2, 6.5, 0.25, 6.95, 0, 1.05, C(0xe8eaec), true); R.drum('prop', 0.02, 6.72, 0.14, 1.05, 1.42, C(0x9fd0ff), false, 12);
+  for (let k = 0; k < 4; k++) R.box('prop', -0.15 + k * 0.08, 6.55, -0.1 + k * 0.08, 6.9, 0.2 + k * 0.012, 0.28 + k * 0.012, C(0xf4f2ec));
+  // Posters of fighters' silhouettes and the chain's slogans.
+  for (const [z, c1, c2] of [[9.5, 0xf2c230, 0x111111], [13.0, 0xb0121a, 0xf0f0f0]]) { R.box('prop', -W / 2 + 0.01, z, -W / 2 + 0.03, z + 1.4, 1.5, 3.3, C(c2)); R.box('prop', -W / 2 + 0.02, z + 0.08, -W / 2 + 0.04, z + 1.32, 1.58, 3.22, C(c1)); }
+  for (const x of [-4, 2.5]) { R.box('prop', x, D - 0.04, x + 2.6, D - 0.01, 2.4, 3.2, C(0x111113)); R.box('emit', x + 0.15, D - 0.045, x + 2.45, D - 0.04, 2.6, 3.0, C(0xf2c230).multiplyScalar(1.2)); }
+  // An industrial ceiling: ducts and long hanging lights.
+  for (const z of [3.5, 8.5, 13]) { R.box('metal', -W / 2 + 0.3, z - 0.22, W / 2 - 0.3, z + 0.22, H - 0.55, H - 0.25, C(0x9aa2aa)); }
+  for (const x of [-5.5, 0, 5.5]) for (const z of [2.5, 6.5, 10.5, 14]) { R.box('metal', x - 0.01, z - 0.01, x + 0.01, z + 0.01, H - 0.9, H, C(0x222222)); R.box('prop', x - 1.0, z - 0.1, x + 1.0, z + 0.1, H - 0.98, H - 0.9, C(0x2a2a2a)); R.panel(x, z, 1.9, 0.12, H - 0.98, C(0xfff7e8), 3.4); }
+  R.light(-4.5, H - 1.2, 4, 1.25); R.light(4.5, H - 1.2, 4, 1.15); R.light(-4.5, H - 1.2, 12, 1.2); R.light(5.3, H - 1.2, 11.3, 1.3);
+  R.gymRing = { x0: R.ox + rx0, x1: R.ox + rx1, z0: R.oz + rz0, z1: R.oz + rz1, h: rh };
+};
 export function planFor(kind) {
   const f = PLANS[kind];
   return (R, v) => { const s = (v.seed ?? 1) >>> 0; let a = s + 0x6D2B79F5; const rnd = () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; f(R, v, rnd); };

@@ -43,6 +43,7 @@ export class Walker {
     this.arms = null; this.faceYaw = null; this.placeWeapon = null;      // (a weapon in hand: see weapons.js)
     this.melee = null; this.meleeYaw = null; this.mw = 0;               // (a blow being thrown: see melee.js)
     this.hands = 0;                                                      // (0..1: hands up, for someone being held up)
+    this.hold = false; this.treadmill = 0; this.lift = null; this.sprintK = 1;   // (in a gym, gym.js: held at a machine; running on a treadmill (m/s); curling dumbbells (the curl's phase); and stamina's quicker sprint)
     this.interior = null;                                                // inside a building (interior.js): its own floor, walls and ceiling instead of the city's
     lay1(this.mesh); lay1(this.blob);
     this.setOutfit(outfit);
@@ -130,7 +131,7 @@ export class Walker {
     const knocked = this.downT > 0; if (knocked) this.downT -= dt;
     // A recorded move that takes over (a blow, getting up): no walking, and the body goes where the move takes it.
     const act = this.body && this.body.act, held = !!(act && act.lock);
-    if (held) { f = NOMOVE; this.vx *= Math.exp(-12 * dt); this.vz *= Math.exp(-12 * dt); }
+    if (held || this.hold) { f = NOMOVE; this.vx *= Math.exp(-12 * dt); this.vz *= Math.exp(-12 * dt); }
     if (act && /^getup/.test(act.name)) this.down = clamp(1 - act.t / act.c.dur * 1.35, 0, 1);
     if (!(act && /^getup/.test(act.name))) this.down = damp(this.down, knocked ? 1 : 0, knocked ? 14 : 5, dt);
     let mx = knocked ? 0 : f.mx, my = knocked ? 0 : f.my; const mag = Math.min(1, Math.hypot(mx, my));
@@ -139,7 +140,7 @@ export class Walker {
     const armed = !!this.arms && this.arms.draw > 0.5, aiming = armed && this.faceYaw != null, striking = (!!this.melee || held) && this.meleeYaw != null && !aiming;      // (with a gun up you face where it points, and you cannot sprint)
     const sprint = !!f.sprint && !this.crouching && mag > 0.1 && !aiming && !striking;
     // The speed asked for: an analogue stick walks gently and runs fully; the keyboard is a jog; Shift sprints.
-    let want = sprint ? SPEED.sprint : this.crouching ? SPEED.crouch : lerp(SPEED.walk, SPEED.jog, clamp((mag - 0.35) / 0.55, 0, 1));
+    let want = sprint ? SPEED.sprint * this.sprintK : this.crouching ? SPEED.crouch : lerp(SPEED.walk, SPEED.jog, clamp((mag - 0.35) / 0.55, 0, 1));
     want *= mag > 0.05 ? Math.min(1, mag * 1.6) : 0; if (striking) want *= this.melee ? (this.melee.kind === 'kick' ? 0.2 : 0.4) : 0; if (aiming) want = Math.min(want, this.crouching ? SPEED.crouch : SPEED.walk * 1.1);
     const sn = Math.sin(camYaw), cs = Math.cos(camYaw);
     let dx = sn * my - cs * mx, dz = cs * my + sn * mx;                  // forward is (sin, cos); right is (-cos, sin)
@@ -161,6 +162,7 @@ export class Walker {
     for (let i = 0; i < n; i++) { this.x += this.vx * dt / n; this.z += this.vz * dt / n; if (!this.noClip) this.collide(obstacles); }
     if (this.body) { this.body.tick(dt, this); if (this.body.act && !this.noClip) this.collide(obstacles); }
     this.speed = Math.hypot((this.x - this.px) / dt, (this.z - this.pz) / dt) || 0; if (this.speed < 0.05 || (this.body && this.body.act && this.body.act.lock)) this.speed = 0;
+    if (this.treadmill > 0) { this.speed = this.treadmill; this.x = this.px; this.z = this.pz; }          // (running on the spot)
     // Vertical: step onto kerbs, fall off ledges, land.
     const gy = this.gnd(this.x, this.z);
     this.kind = gy.kind || (gy.grass ? 'grass' : 'asphalt');
@@ -198,7 +200,12 @@ export class Walker {
       // Recorded walking, running and standing; the stick skeleton takes over the legs when crouching, in the air or knocked down, and the arms and spine with a gun up.
       const air = Math.abs(this.air), wk = armed ? this.arms.draw * (1 - air * 0.85) * (1 - dn) : 0;
       this.mw = damp(this.mw, this.melee ? 1 : 0, this.melee ? 22 : 12, dt || 1 / 60); const kick = this.melee && this.melee.kind === 'kick' ? this.mw : 0;
-      const pLegs = clamp(this.crouch * 1.3 + air * 1.3 + dn * 3 + kick, 0, 1), pUpper = clamp(wk + air * 1.3 + dn * 3 + this.crouch * 0.9 + this.mw + this.hands * 1.5, 0, 1);
+      if (this.lift != null) {                                                                     // curling dumbbells: one arm, then the other
+        const cl = Math.max(0, Math.sin(this.lift)), cr = Math.max(0, Math.sin(this.lift + Math.PI));
+        for (const [side, c] of [['L', cl], ['R', cr]]) { const sh = B['shoulder' + side], el = B['elbow' + side]; sh.rotation.set(-0.12 - 0.15 * c, 0, side === 'L' ? -0.12 : 0.12); el.rotation.set(-(0.25 + 2.15 * c), 0, 0); B['wrist' + side].rotation.set(-0.2 * c, 0, 0); }
+        this.person.grip('L', 1); this.person.grip('R', 1);
+      }
+      const pLegs = clamp(this.crouch * 1.3 + air * 1.3 + dn * 3 + kick, 0, 1), pUpper = clamp(wk + air * 1.3 + dn * 3 + this.crouch * 0.9 + this.mw + this.hands * 1.5 + (this.lift != null ? 1 : 0), 0, 1);
       const o = { speed: this.vs || 0, phase: this.phase / (Math.PI * 2), t: this.t, pLegs, pUpper };
       if (body) body.pose(B, o, dt); else this.person.poseMocap(B, o);
       this.person.updateFace(dt);

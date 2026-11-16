@@ -78,9 +78,10 @@ class Brawler {
   clearBlow() { const w = this.walker; if (this.atk && this.atk.clip && w.body && w.body.act && w.body.act.c.name === this.atk.def.clip) w.body.stop(0.15); this.atk = null; w.melee = null; w.meleeYaw = null; }
   defeat(info) {
     const w = this.walker, m = this.mgr, env = m.env; this.hp = 0; this.clearBlow(); this.fleeT = 0;
-    this.dead = !!(info.gun || info.blade || info.car || info.blast); this.ko = !this.dead;
+    this.dead = !!(info.gun || info.blade || info.car || info.blast || info.lethal); this.ko = !this.dead;
     if (this.W) this.W.aimK = 0;
-    w.faceYaw = null; w.knockDown((this.dir.x || 0) * 3.2, (this.dir.z || 0) * 3.2, { at: info.gun ? (info.head ? 'head' : 'chest') : info.car ? 'legs' : /kick|roundhouse/.test(info.kind || '') ? 'chest' : 'head', hurt: true });
+    const fl = 3.2 * (1 + 0.15 * (info.power || 0)) + (info.lethal ? 3 : 0);
+    w.faceYaw = null; w.knockDown((this.dir.x || 0) * fl, (this.dir.z || 0) * fl, { at: info.gun ? (info.head ? 'head' : 'chest') : info.car ? 'legs' : /kick|roundhouse/.test(info.kind || '') ? 'chest' : 'head', hurt: true });
     if (this.dead) { w.downT = 1e9; this.gone = 0; } else { w.downT = this.koT = 5 + Math.random() * 2; }
     if (!this.paid) {                                                          // the wallet
       this.paid = true; const [lo, hi] = this.def.wallet, n = Math.round((lo + Math.random() * (hi - lo)) / 5) * 5;

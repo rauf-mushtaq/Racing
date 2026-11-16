@@ -15,6 +15,8 @@ export const VENUE_TYPES = {
   jeweller: { kind: 'jeweller', name: 'DIAMOND JEWELLER', tier: 3, stars: 2, delay: 6, press: [5, 9], dmg: 5.5, aim: 1.0, blurb: 'Glass cases, an armed guard, cameras', worth: '$15,000 – $30,000' },
   bank:     { kind: 'bank',     name: 'BANK',             tier: 4, stars: 3, delay: 3, press: [4, 8], dmg: 6.5, aim: 1.1, blurb: 'Tellers, two guards, a vault', worth: '$50,000 – $140,000' },
   museum:   { kind: 'museum',   name: 'MUSEUM',           tier: 5, stars: 4, delay: 0, press: [3, 6], dmg: 7.5, aim: 1.2, blurb: 'Patrols, cameras, lasers', worth: '$315,000' },
+  // Not a place to rob: a gym, to train in (gym.js).
+  gym:      { kind: 'gym',      name: 'IRON CITY GYM',    gym: true, tier: 0, stars: 0, blurb: 'Train: hit harder, run faster' },
 };
 
 // ---- Where they are ------------------------------------------------------------------------------------------------------------------------------------
@@ -40,17 +42,21 @@ export function venuesWithin(x, z, r) { const out = []; for (const v of VENUES.v
 export function venueKindFor(zone, lot, faces) {
   const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0, h = hash3(Math.round(lot.x0), Math.round(lot.z0), 73);
   if (!faces.length || Math.min(w, d) < 15) return null;
+  const gym = w >= 20 && d >= 18;                                                             // (a gym needs a lot big enough for its hall)
   if (zone === 'down' || zone === 'mid') {
     if (h < 0.014 && w >= 34 && d >= 30) return 'museum';
     if (h < 0.05) return 'jeweller';
     if (h < 0.095) return 'shop';
     if (zone === 'mid' && h < 0.135 && w >= 27 && d >= 24) return 'petrol';
+    if (h >= 0.135 && h < 0.175 && gym) return 'gym';
   } else if (zone === 'low') {
     if (h < 0.07 && w >= 27 && d >= 24) return 'petrol';
     if (h < 0.13) return 'shop';
+    if (h < 0.17 && gym) return 'gym';
   } else if (zone === 'sub') {
     if (h < 0.05 && w >= 27 && d >= 24) return 'petrol';
     if (h < 0.09) return 'shop';
+    if (h < 0.12 && gym) return 'gym';
   }
   return null;
 }
@@ -117,6 +123,19 @@ export function buildVenue(city, ctx, lot, faces, zone, kind, rnd) {
     signOver(city, ctx, b, f, 6, 3.85, Math.min(8, W * 0.7), 1.9, 0.12);
     const door = frontDoor(city, ctx, b, f, 'jeweller', { h: 2.6, pane: col(0.2, 0.3, 0.34) });
     for (const t of [-1.6, 1.6]) { const [px, pz] = city.facePt(b, f, t, 1.0); G.props.box(px - 0.08, pz - 0.08, px + 0.08, pz + 0.08, CURB, CURB + 1.0, 3, gold); addCollider({ type: 'circ', x: px, z: pz, r: 0.25 }, ctx.colliders); }
+    return door;
+  }
+  if (kind === 'gym') {
+    // A big plain hall: brick, a wall of tall dark windows with the gym lit up behind them, a black-and-yellow fascia, the sign, a bike rack.
+    city.buildMass(ctx, b, 'brick', 7.5 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: col(0.55, 0.53, 0.52) });
+    const W = Math.min(along - 3, 15), black = col(0.06, 0.06, 0.07), yellow = col(0.95, 0.76, 0.19);
+    city.faceBox(G.props, b, f, -W / 2, W / 2, -0.05, 0.18, CURB, CURB + 4.2, black);                                             // the glass front
+    for (let k = 0; k < 5; k++) { const x0 = -W / 2 + 0.3 + k * (W - 0.6) / 5, x1 = x0 + (W - 0.6) / 5 - 0.18; if (x1 > -1.4 && x0 < 1.4) continue; city.faceBox(G.props, b, f, x0, x1, -0.07, 0.2, CURB + 0.5, CURB + 3.9, col(0.55, 0.62, 0.7)); }
+    city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.5, CURB + 4.2, CURB + 5.2, black); city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.52, CURB + 4.2, CURB + 4.32, yellow); city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.52, CURB + 5.08, CURB + 5.2, yellow);
+    city.faceSign(ctx, b, f, -23, 0, 0.56, CURB + 4.25, Math.min(6, W * 0.5), 0.92);                                             // (cell 13 of the sign atlas: GYM)
+    const door = frontDoor(city, ctx, b, f, 'gym', { h: 2.6, pane: col(0.3, 0.36, 0.42) });
+    const [kx, kz] = city.facePt(b, f, W / 2 + 1.8, 0.9); for (let k = 0; k < 3; k++) { const o = k * 0.55 - 0.55, ax = f.dir[0] !== 0 ? 0 : o, az = f.dir[0] !== 0 ? o : 0; G.props.box(kx + ax - 0.03, kz + az - 0.03, kx + ax + 0.03, kz + az + 0.03, CURB, CURB + 0.8, 3, col(0.7, 0.72, 0.75)); }
+    addCollider({ type: 'box', x0: kx - 0.7, x1: kx + 0.7, z0: kz - 0.7, z1: kz + 0.7 }, ctx.colliders);
     return door;
   }
   return null;

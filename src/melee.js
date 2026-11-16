@@ -54,7 +54,7 @@ export class Melee {
     this.next[style] = NEXT[kind] || kind;
     if (style === 'fist' && !(w.body && w.body.ready('hook')) && kind === 'cross') this.next.fist = 'jab';
     this.comboT = 1.1;
-    this.clip = !!(m.clip && w.play(m.clip, { rate: m.rate, fade: 0.08, out: 0.25, onHit: () => { if (this.move === m && !this.done) { this.done = true; this.land(m); } } }));
+    this.clip = !!(m.clip && w.play(m.clip, { rate: m.rate * (1 + 0.02 * this.power()), fade: 0.08, out: 0.25, onHit: () => { if (this.move === m && !this.done) { this.done = true; this.land(m); } } }));
     // Turn to face what is being hit: the nearest thing in front (within 70 degrees of where the camera looks), else the way the camera looks.
     const cam = this.env.yaw(), t = this.nearest(w.x, w.z, cam, 2.6, 1.25);
     w.meleeYaw = t ? Math.atan2(t.x - w.x, t.z - w.z) : cam;
@@ -107,8 +107,11 @@ export class Melee {
     else w.meleeYaw = null;
   }
   // The moment of the blow: everything within reach and arc in front of the character is hit.
+  // Strength, built up in a gym (gym.js): 0 to 10. Each level makes a blow 30% harder and throws people further; at 10 a kick kills.
+  power() { return this.env.power ? this.env.power() : 0; }
   land(m) {
     const w = this.env.walker, { fx, audio } = this.env, yaw = w.meleeYaw ?? w.h; let hit = 0;
+    const P = this.power(), kick = /kick|roundhouse/.test(this.kind), lethal = kick && P >= 10 && !m.blade, power = 1 + 0.3 * P;
     const fwdX = Math.sin(yaw), fwdZ = Math.cos(yaw), y = w.y + (/kick|roundhouse/.test(this.kind) ? 0.9 : 1.35);
     const strikes = [];
     this.each((t, tx, tz, type) => {
@@ -118,11 +121,11 @@ export class Melee {
     });
     strikes.sort((a, b) => a.d - b.d);
     for (const s of strikes.slice(0, m.knock >= 0.9 ? 2 : 1)) {                                // (a kick can catch two people; the rest hit one)
-      const n = Math.hypot(s.dx, s.dz) || 1, dir = { x: s.dx / n, z: s.dz / n }, info = { dmg: m.dmg, knock: m.knock, blade: !!m.blade, kind: this.kind, dir, from: w };
+      const n = Math.hypot(s.dx, s.dz) || 1, dir = { x: s.dx / n, z: s.dz / n }, info = { dmg: lethal ? 9999 : m.dmg * (m.blade ? 1 : power), knock: m.blade ? m.knock : Math.min(1, m.knock + 0.07 * P), blade: !!m.blade, kind: this.kind, dir, from: w, power: m.blade ? 0 : P, lethal };
       this.strike(s, info); hit++;
       fx && fx.puff && fx.puff(w.x + dir.x * 0.9, y, w.z + dir.z * 0.9, dir.x * 1.2, 0.4, dir.z * 1.2, 0.18, 0.5, m.blade ? 0.5 : 0.7, 0.2, 0.9);
     }
-    if (hit) { this.landed++; this.hitT = 0.2; if (m.blade && audio.slice) audio.slice(); else audio.thump(0.28 + m.knock * 0.3); if (this.env.shake) this.env.shake(0.04 + m.knock * 0.08); }
+    if (hit) { this.landed++; this.hitT = 0.2; if (m.blade && audio.slice) audio.slice(); else audio.thump(Math.min(1, 0.28 + m.knock * 0.3 + P * 0.04)); if (this.env.shake) this.env.shake(0.04 + m.knock * 0.08 + P * 0.012); }
     else if (this.env.walls && this.env.walls(w.x + fwdX * (m.reach + 0.2), w.z + fwdZ * (m.reach + 0.2))) audio.clang && audio.clang(m.blade ? 3 : 1);
   }
   strike(s, info) {
@@ -133,10 +136,13 @@ export class Melee {
         const b = peds.provoke(p, info);
         if (b) { b.hit(info.dmg, info); peds.scare(b.x, b.z, 22, 5); if (crime) crime('assault', info.blade ? 2 : 1); return; }
       }
-      p.state = 'down'; p.downT = 1.6 + info.knock * 1.2; p.vx = info.dir.x * (1.5 + info.knock * 3); p.vz = info.dir.z * (1.5 + info.knock * 3); p.vy = 1.6 + info.knock * 1.5; p.lie = 0; p.at = /kick|roundhouse/.test(info.kind) ? 'chest' : 'head';
+      const fling = 1 + 0.15 * (info.power || 0) + (info.lethal ? 0.8 : 0);                          // (strength throws people further)
+      p.state = 'down'; p.downT = 1.6 + info.knock * 1.2; p.vx = info.dir.x * (1.5 + info.knock * 3) * fling; p.vz = info.dir.z * (1.5 + info.knock * 3) * fling; p.vy = (1.6 + info.knock * 1.5) * Math.min(1.8, fling); p.lie = 0; p.at = /kick|roundhouse/.test(info.kind) ? 'chest' : 'head';
+      if (info.lethal) { p.dead = true; p.downT = 25; this.env.hud.toast('ONE KICK', 0.9); }
       peds.scare(p.x, p.z, 22, 5); if (crime) crime('assault', info.blade ? 2 : 1);
     } else if (s.type === 'officer') {
-      const killed = officers.damage(t, info.dmg, false); if (info.knock > 0.8) t.walker.knockDown(info.dir.x * 4, info.dir.z * 4, { at: info.kind === 'haymaker' ? 'head' : 'chest' }); else if (!killed) { const w2 = t.walker; w2.flinch(info.dir.x, info.dir.z, 0.6 + info.knock, !/kick|roundhouse/.test(info.kind)); if (info.dir.x * Math.sin(w2.h) + info.dir.z * Math.cos(w2.h) > 0.5) w2.play('stumble', { fade: 0.08, out: 0.3, rate: 1.1 }); }
+      const killed = officers.damage(t, info.dmg, false), fl = 4 * (1 + 0.15 * (info.power || 0)) + (info.lethal ? 3 : 0);
+      if (info.knock > 0.8 || killed) t.walker.knockDown(info.dir.x * fl, info.dir.z * fl, { at: info.kind === 'haymaker' ? 'head' : 'chest' }); else if (!killed) { const w2 = t.walker; w2.flinch(info.dir.x, info.dir.z, 0.6 + info.knock, !/kick|roundhouse/.test(info.kind)); if (info.dir.x * Math.sin(w2.h) + info.dir.z * Math.cos(w2.h) > 0.5) w2.play('stumble', { fade: 0.08, out: 0.3, rate: 1.1 }); }
       if (killed) { this.env.hud.toast('OFFICER DOWN', 1.1); this.env.heat && this.env.heat(0.3); } else this.env.heat && this.env.heat(0.03);
     } else if (t.hit) t.hit(info.dmg, info);
   }
