@@ -24,10 +24,15 @@ export const KINDS = {
   enforcer: { hp: 150, wallet: [200, 520], bulk: 0.85, gun: 'pistol', speed: 5.7, stagger: false, flees: false },
 };
 // A blow: how long it takes, when in it the fist lands (0..1), how far it reaches, what it does, and which arm throws it.
+// clip: the recorded move (moves.js) a real fighter plays instead, at `rate` times its speed; it lands at the clip's own moments (a combination lands three times).
 export const BLOWS = {
-  jab:   { dur: 0.34, hit: 0.42, reach: 1.5, dmg: 7, hand: 'left', knock: 0 },
-  cross: { dur: 0.42, hit: 0.45, reach: 1.6, dmg: 12, hand: 'right', knock: 0 },
-  hook:  { dur: 0.7, hit: 0.58, reach: 1.75, dmg: 20, hand: 'right', knock: 1 },          // the big swing: a long wind-up (there is time to step back), and it knocks you down
+  jab:   { dur: 0.34, hit: 0.42, reach: 1.5, dmg: 7, hand: 'left', knock: 0, clip: 'jab', rate: 1.2 },
+  cross: { dur: 0.42, hit: 0.45, reach: 1.6, dmg: 12, hand: 'right', knock: 0, clip: 'cross', rate: 1.15 },
+  body:  { dur: 0.42, hit: 0.45, reach: 1.5, dmg: 10, hand: 'right', knock: 0, clip: 'body', rate: 1.15 },
+  combo: { dur: 0.42, hit: 0.45, reach: 1.55, dmg: 6, hand: 'right', knock: 0, clip: 'combo', rate: 1.1 },
+  hook:  { dur: 0.7, hit: 0.58, reach: 1.75, dmg: 20, hand: 'right', knock: 1, clip: 'haymaker', rate: 0.95 },          // the big swing: a long wind-up (there is time to step back), and it knocks you down
+  kick:  { dur: 0.7, hit: 0.5, reach: 1.8, dmg: 14, hand: null, knock: 0, clip: 'kick', rate: 1.1 },
+  frontkick: { dur: 0.7, hit: 0.5, reach: 1.9, dmg: 18, hand: null, knock: 1, clip: 'frontkick', rate: 1.05 },        // (the enforcer's: a trained kick that puts you down)
 };
 const GUN = { cfg: WEAPONS.pistol.cfg, dmg: 3.6, gap: 0.5, burst: 2, pause: [1.3, 2.3], mag: 8, reload: 1.8 };
 const gunMeshes = {};
@@ -45,7 +50,7 @@ class Brawler {
     this.lx = 0; this.lz = 0; this.los = true; this.losT = 0; this.seen = 0; this.dir = { x: 0, z: 1 };
     if (this.def.gun) {
       this.gun = gunFor(); this.gun.visible = false; env.scene.add(this.gun);
-      this.W = { draw: 0, aimK: 0, twist: 0, pitch: 0, recoil: 0, reload: 0, radio: 0, cfg: GUN.cfg, out: { palm: new THREE.Vector3(), q: new THREE.Quaternion(), palmL: new THREE.Vector3() } };
+      this.W = { draw: 0, aimK: 0, twist: 0, pitch: 0, recoil: 0, reload: 0, radio: 0, kind: 'pistol', cfg: GUN.cfg, out: { palm: new THREE.Vector3(), q: new THREE.Quaternion(), palmL: new THREE.Vector3() } };
       this.walker.arms = this.W; this.walker.placeWeapon = w => placeGun(w, this.gun, this.W, this.W.draw);
       this.mag = GUN.mag; this.reloadT = 0; this.reloadTotal = 1; this.fireT = 0.7 + Math.random() * 0.5; this.shots = 0; this.fired = false;
     }
@@ -59,18 +64,23 @@ class Brawler {
     if (!this.alive) return false;
     const w = this.walker; this.hp -= dmg * (info.head ? 1.7 : 1); this.hurtT = 0; this.state = this.state === 'draw' ? 'fight' : this.state;
     if (info.dir) { this.dir.x = info.dir.x; this.dir.z = info.dir.z; }
-    if (info.knock >= 0.9 && this.def.stagger && this.hp > 0) { this.stun = 0.9; this.clearBlow(); w.knockDown(this.dir.x * 2.6, this.dir.z * 2.6); }            // (a kick puts a smaller man on the floor)
+    const head = info.head || (!info.gun && !/kick|roundhouse/.test(info.kind || ''));
+    if (info.knock >= 0.9 && this.def.stagger && this.hp > 0) { this.stun = 0.9; this.clearBlow(); w.knockDown(this.dir.x * 2.6, this.dir.z * 2.6, { at: head ? 'head' : 'chest' }); }            // (a kick puts a smaller man on the floor)
     else if (dmg >= 12 && this.hp > 0 && !info.gun) { this.stun = Math.max(this.stun, this.def.stagger ? 0.5 : 0.28); if (this.stun > 0.4) this.clearBlow(); w.vx += this.dir.x * 1.2; w.vz += this.dir.z * 1.2; }
+    if (this.hp > 0 && !w.ragdoll) w.flinch(this.dir.x, this.dir.z, Math.min(1.6, 0.35 + dmg / 18), head);
+    // Hit from behind: he stumbles forward (a recorded stumble) and has to find his feet before he can hit back.
+    const behind = this.dir.x * Math.sin(w.h) + this.dir.z * Math.cos(w.h) > 0.5;
+    if (this.hp > 0 && behind && !info.gun && !w.ragdoll && !(w.body && w.body.act && w.body.act.name === 'stumble') && !(info.knock >= 0.9 && this.def.stagger)) { this.clearBlow(); if (w.play('stumble', { fade: 0.08, out: 0.3, rate: 1.1 })) this.stun = Math.max(this.stun, 1.1); }
     if (this.hp <= 0) { this.defeat(info); return true; }
     if (this.def.flees && !this.fleeT && this.hp < this.maxHp * 0.3 && Math.random() < 0.6) { this.fleeT = 6 + Math.random() * 3; this.clearBlow(); }
     return false;
   }
-  clearBlow() { const w = this.walker; this.atk = null; w.melee = null; w.meleeYaw = null; }
+  clearBlow() { const w = this.walker; if (this.atk && this.atk.clip && w.body && w.body.act && w.body.act.c.name === this.atk.def.clip) w.body.stop(0.15); this.atk = null; w.melee = null; w.meleeYaw = null; }
   defeat(info) {
     const w = this.walker, m = this.mgr, env = m.env; this.hp = 0; this.clearBlow(); this.fleeT = 0;
     this.dead = !!(info.gun || info.blade || info.car || info.blast); this.ko = !this.dead;
     if (this.W) this.W.aimK = 0;
-    w.faceYaw = null; w.knockDown((this.dir.x || 0) * 3.2, (this.dir.z || 0) * 3.2);
+    w.faceYaw = null; w.knockDown((this.dir.x || 0) * 3.2, (this.dir.z || 0) * 3.2, { at: info.gun ? (info.head ? 'head' : 'chest') : info.car ? 'legs' : /kick|roundhouse/.test(info.kind || '') ? 'chest' : 'head', hurt: true });
     if (this.dead) { w.downT = 1e9; this.gone = 0; } else { w.downT = this.koT = 5 + Math.random() * 2; }
     if (!this.paid) {                                                          // the wallet
       this.paid = true; const [lo, hi] = this.def.wallet, n = Math.round((lo + Math.random() * (hi - lo)) / 5) * 5;
@@ -175,29 +185,45 @@ class Brawler {
     } else this.wantFire = false;
   }
 
-  // Fists: step in, wind up, swing. He hits at one moment in the swing, and only if you are still in reach and in front of him.
+  // Fists: step in, wind up, swing. He hits at one moment in the swing (a real fighter: at the recorded blow's own moments), and only if you are still in
+  // reach and in front of him. Squared up and waiting, a real fighter holds his guard up, bouncing on his feet.
   fists(dt, P, d, yaw) {
     const w = this.walker, env = this.mgr.env; this.cd = Math.max(0, this.cd - dt);
+    const strike = (a) => {
+      const dx = P.x - w.x, dz = P.z - w.z, dist = Math.hypot(dx, dz), ang = Math.abs(wrapAngle(Math.atan2(dx, dz) - w.h));
+      if (dist <= a.def.reach + 0.2 && ang < 0.9 && !(P.down > 0.3)) {
+        let dmg = a.def.dmg * (P.crouching ? 0.7 : 1);
+        env.hurt(dmg); if (env.audio.thump) env.audio.thump(0.3 + a.def.knock * 0.25); if (env.shake) env.shake(0.12 + a.def.knock * 0.18);
+        if (a.def.knock) P.knockDown(dx / (dist || 1) * 4.5, dz / (dist || 1) * 4.5, { at: 'head' }); else if (P.flinch) P.flinch(dx / (dist || 1), dz / (dist || 1), 0.5 + dmg / 20, a.def.hand !== null);
+      } else if (env.audio.swish) env.audio.swish(0.3);
+    };
     if (this.atk) {
-      const a = this.atk; a.t += dt; const k = clamp(a.t / a.def.dur, 0, 1);
-      w.melee = { kind: 'cross', k, hit: a.def.hit, hand: a.def.hand, blade: false }; w.meleeYaw = yaw;
-      if (!a.done && k >= a.def.hit) {
-        a.done = true;
-        const dx = P.x - w.x, dz = P.z - w.z, dist = Math.hypot(dx, dz), ang = Math.abs(wrapAngle(Math.atan2(dx, dz) - w.h));
-        if (dist <= a.def.reach + 0.2 && ang < 0.9 && !(P.down > 0.3)) {
-          let dmg = a.def.dmg * (P.crouching ? 0.7 : 1);
-          env.hurt(dmg); if (env.audio.thump) env.audio.thump(0.3 + a.def.knock * 0.25); if (env.shake) env.shake(0.12 + a.def.knock * 0.18);
-          if (a.def.knock) P.knockDown(dx / (dist || 1) * 4.5, dz / (dist || 1) * 4.5);
-        } else if (env.audio.swish) env.audio.swish(0.3);
+      const a = this.atk; a.t += dt; w.meleeYaw = yaw;
+      if (a.clip) {
+        const act = w.body && w.body.act;
+        if (!act || act.c.name !== a.def.clip) { this.atk = null; w.meleeYaw = null; this.cd = a.name === 'jab' ? 0.15 + Math.random() * 0.25 : 0.5 + Math.random() * 0.6; }
+        return;
       }
+      const k = clamp(a.t / a.def.dur, 0, 1);
+      w.melee = { kind: a.name === 'kick' ? 'kick' : 'cross', k, hit: a.def.hit, hand: a.def.hand, blade: false };
+      if (!a.done && k >= a.def.hit) { a.done = true; strike(a); }
       if (k >= 1) { this.atk = null; w.melee = null; w.meleeYaw = null; this.cd = a.name === 'jab' ? 0.2 + Math.random() * 0.25 : 0.65 + Math.random() * 0.6; }
       return;
     }
+    const real = !!(w.body && w.body.ready('jab'));
     if (this.cd <= 0 && d <= 1.75 && !(P.down > 0.3)) {
-      let name = this.combo === 1 ? 'cross' : ['jab', 'jab', 'cross', 'cross', 'hook'][(Math.random() * 5) | 0];
-      this.combo = name === 'jab' ? 1 : 0; this.atk = { name, def: BLOWS[name], t: 0, done: false };
+      const pool = real ? ['jab', 'jab', 'cross', 'cross', 'combo', 'body', 'kick', 'hook'].concat(this.kindName === 'enforcer' ? ['frontkick'] : []) : ['jab', 'jab', 'cross', 'cross', 'hook'];
+      let name = this.combo === 1 ? 'cross' : pool[(Math.random() * pool.length) | 0];
+      if (!real && (name === 'combo' || name === 'body' || name === 'kick' || name === 'frontkick')) name = 'cross';
+      this.combo = name === 'jab' ? 1 : 0; const def = BLOWS[name];
+      this.atk = { name, def, t: 0, done: false, clip: false };
+      if (real) this.atk.clip = w.play(def.clip, { rate: def.rate * (this.kindName === 'bruiser' ? 0.95 : 1), fade: 0.1, out: 0.25, onHit: () => { if (this.atk && this.atk.def === def) strike(this.atk); } });
       if (env.audio.swish) env.audio.swish(0.22);
+      return;
     }
+    // The guard, when close and waiting.
+    if (real && d < 4.5 && !(P.down > 0.3)) { if (!w.body.act) w.play('guard', { legs: false, lock: false, root: false, fade: 0.3 }); }
+    else if (w.body && w.body.act && w.body.act.c.name === 'guard') w.body.stop(0.3);
   }
 
   shoot(P, d, dx, dz) {

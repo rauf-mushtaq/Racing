@@ -10,6 +10,7 @@ import { groundAt } from './world.js';
 import { raycastStatic } from './police.js';
 import { queryColliders } from './city.js';
 import { clamp, lerp, wrapAngle } from './util.js';
+import { reloadKeys } from './person.js';
 
 // ---- The guns ---------------------------------------------------------------------------------------------------------------------
 // cfg: where the right palm and (relative to it) the left palm go when aimed: to the right, up, forward, in metres (see person.js aimArms).
@@ -128,13 +129,71 @@ function makeGrenade() {
 // A gun for someone else to hold (the police officers): 'pistol' or 'smg', without the silencer.
 export function makeGun(kind) { return kind === 'smg' ? makeSMG(false) : makePistol(false); }
 // Put a gun in a walker's hand once its pose is final: where the arms' IK put the palm, drawn to the real hand, pointing the way the aim frame says.
+// While reloading (W.reload, W.kind), the empty magazine is dropped and the new one (or a shell, or a rocket) is in the left hand: see person.js reloadKeys.
 export function placeGun(walker, m, W, draw = 1) {
   const o = W.out, rig = walker.rig;
   _w.copy(o.palm); rig.torso.localToWorld(_w); rig.torso.getWorldQuaternion(_q); _q.multiply(o.q);
   if (walker.person) { walker.person.worldPos('Bip01_R_Hand', _v); walker.person.worldPos('Bip01_R_Finger2', _aim); _v.lerp(_aim, 0.5); _w.lerp(_v, 0.85); }
   m.position.copy(_w); m.quaternion.copy(_q); m.scale.setScalar(lerp(0.6, 1, clamp((draw - 0.35) / 0.65, 0, 1)));
   m.updateMatrixWorld(true);
+  reloadProps(walker, m, W);
 }
+
+// ---- What a reload handles: a magazine, a shell, a rocket ------------------------------------------------------------------------
+// The one in the hand (one per person: W.prop) and the empty magazines that fall to the ground and lie there a while (a few, shared).
+const PROPS = {}, MAGWELL = { pistol: [0, -0.1, -0.035], smg: [0, -0.13, 0.1] };
+function propMesh(kind) {
+  if (PROPS[kind]) return PROPS[kind];
+  const k = new Kit();
+  if (kind === 'pistol') k.box(0.026, 0.095, 0.04, poly, 0, -0.03, 0, 0.17).box(0.03, 0.012, 0.05, steel, 0, -0.08, -0.008, 0.17);
+  else if (kind === 'smg') k.box(0.024, 0.16, 0.034, poly, 0, -0.06, 0, 0.1).box(0.028, 0.012, 0.04, steel, 0, -0.14, 0.008, 0.1);
+  else if (kind === 'shell') k.cyl(0.0105, 0.0105, 0.05, redM, 0, 0, 0.005, 10).cyl(0.011, 0.011, 0.015, chrome, 0, 0, -0.027, 10);
+  else k.add(new THREE.ConeGeometry(0.046, 0.18, 16).rotateX(Math.PI / 2), redM, 0, 0, 0.16).cyl(0.044, 0.044, 0.18, olive, 0, 0, 0, 16);
+  return (PROPS[kind] = k.build('prop-' + kind));
+}
+const drops = [], _dv = new THREE.Vector3(); let dropClock = 0;
+function dropMag(scene, kind, m, floorY) {
+  const well = MAGWELL[kind]; if (!well) return;
+  let d = drops.find(x => !x.on); if (!d) { if (drops.length >= 10) d = drops.reduce((a, b) => (a.t > b.t ? a : b)); else { d = { mesh: null }; drops.push(d); } }
+  if (!d.mesh || d.kind !== kind) { if (d.mesh) d.mesh.parent && d.mesh.parent.remove(d.mesh); d.mesh = propMesh(kind).clone(); d.kind = kind; }
+  if (d.mesh.parent !== scene) scene.add(d.mesh);
+  d.mesh.position.set(well[0], well[1], well[2]).applyMatrix4(m.matrixWorld); d.mesh.quaternion.copy(m.quaternion); d.mesh.visible = true;
+  d.v = new THREE.Vector3(0, -0.6, 0).applyQuaternion(m.quaternion); d.spin = new THREE.Vector3((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 9);
+  d.floor = floorY + 0.012; d.t = 0; d.on = true; d.rest = false;
+}
+const held = new Set();                                                            // (the props in people's hands: hidden if their owner stops being drawn)
+function stepDrops() {
+  const now = performance.now() / 1000, dt = Math.min(0.05, now - dropClock); if (dt <= 0) return; dropClock = now;
+  for (const S of held) if (now - S.seen > 0.25) { if (S.mesh) S.mesh.visible = false; held.delete(S); }
+  for (const d of drops) {
+    if (!d.on) continue; d.t += dt; if (d.t > 9) { d.on = false; d.mesh.visible = false; continue; }
+    if (d.rest) continue;
+    d.v.y -= 9.8 * dt; d.mesh.position.addScaledVector(d.v, dt);
+    _dv.copy(d.spin).multiplyScalar(dt); d.mesh.rotateX(_dv.x); d.mesh.rotateY(_dv.y); d.mesh.rotateZ(_dv.z);
+    if (d.mesh.position.y <= d.floor) {
+      d.mesh.position.y = d.floor; d.v.multiplyScalar(0.3); d.v.y = Math.abs(d.v.y) * 0.5; d.spin.multiplyScalar(0.45);
+      if (Math.abs(d.v.y) < 0.25) {                                                    // (lying flat on its side)
+        d.rest = true; const e = new THREE.Euler().setFromQuaternion(d.mesh.quaternion, 'YXZ'); d.mesh.rotation.set(0, e.y, Math.PI / 2);
+      }
+    }
+  }
+}
+function reloadProps(walker, m, W) {
+  stepDrops();
+  let scene = m; while (scene.parent) scene = scene.parent;                         // (the world: the gun itself may sit in a holder that is hidden with it)
+  const kind = W.kind, t = W.reload || 0; if (!kind || scene === m) return;
+  const S = W.prop || (W.prop = { mesh: null, kind: null, dropped: false, last: 0 });
+  if (t <= 0 || t < S.last - 0.5) S.dropped = false; S.last = t;
+  if ((kind === 'pistol' || kind === 'smg') && t > 0.1 && !S.dropped) { S.dropped = true; dropMag(scene, kind, m, walker.y); }
+  const hold = t > 0 ? holdOf(kind, t) : null, pk = hold === 'mag' ? kind : hold;
+  if (!pk || !walker.person) { if (S.mesh) S.mesh.visible = false; return; }
+  if (!S.mesh || S.kind !== pk) { if (S.mesh && S.mesh.parent) S.mesh.parent.remove(S.mesh); S.mesh = propMesh(pk).clone(); S.kind = pk; }
+  if (S.mesh.parent !== scene) scene.add(S.mesh);
+  walker.person.worldPos('Bip01_L_Hand', _v); walker.person.worldPos('Bip01_L_Finger2', _aim); _v.lerp(_aim, 0.45);
+  S.mesh.position.copy(_v); S.mesh.quaternion.copy(m.quaternion); S.mesh.visible = true; S.mesh.updateMatrixWorld(true); S.seen = performance.now() / 1000; held.add(S);
+}
+const _hold = { left: new THREE.Vector3(), leftChest: false, leftK: 0, tilt: 0, roll: 0, pull: 0, bump: 0, hold: null };
+function holdOf(kind, t) { return reloadKeys(kind, t, _hold) !== undefined ? _hold.hold : null; }
 
 // ---- Bullet holes and glass cracks ---------------------------------------------------------------------------------------------
 // Flat dark discs stuck to whatever a bullet hit (walls, the ground, cars), and star-shaped cracks where it hit glass higher up: two ring buffers
@@ -365,7 +424,7 @@ export class Arsenal {
     const hd = Math.hypot(dx, dz);
     walker.arms = this.draw > 0.01 ? W : null;
     W.draw = this.draw; W.aimK = this.aimK; W.recoil = this.recoil; W.reload = this.reloadT > 0 ? 1 - this.reloadT / this.reloadTotal : 0;
-    const k = this.key; if (k) W.cfg = WEAPONS[k].cfg;
+    const k = this.key; if (k) { W.cfg = WEAPONS[k].cfg; W.kind = k; }
     const yaw = hd > 0.5 ? Math.atan2(dx, dz) : walker.h;
     W.pitch = clamp(Math.atan2(dy, Math.max(hd, 2)), -0.85, 0.85); W.twist = wrapAngle(yaw - walker.h);
     walker.faceYaw = !isMelee && (this.aimK > 0.5 || this.lastFire < 1.6) && this.draw > 0.5 ? yaw : null;
@@ -440,6 +499,7 @@ export class Arsenal {
     else if (r.type === HIT.officer) {
       const o = r.ref, head = r.y - o.walker.y > (o.crouched ? 1.05 : 1.5), killed = this.env.officers.damage(o, w.dmg * fall * (head ? 2.3 : 1), head);
       spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = head ? 0.3 : 0.15; this.env.heat(0.02);
+      if (!killed) o.walker.flinch(d.x, d.z, head ? 1.3 : 0.8, head);
       if (killed) { hud.toast(head ? 'HEADSHOT: OFFICER DOWN' : 'OFFICER DOWN', 1.3); this.env.heat(0.3); }
     }
     else if (r.type === HIT.brawler) {
@@ -451,7 +511,7 @@ export class Arsenal {
       const p = r.ref, pe = this.env.peds, head = r.y - p.y > 1.5;
       const b = p.kind !== 'civ' ? pe.provoke(p, { gun: true, dir: { x: d.x, z: d.z } }) : null;
       if (b) b.hit(w.dmg * fall * (head ? 1.4 : 1), { gun: true, head, knock: 0, dir: { x: d.x, z: d.z } });
-      else { p.state = 'down'; p.downT = 2.2; p.vx = d.x * 2.2; p.vz = d.z * 2.2; p.vy = 2.0; p.lie = 0; }
+      else { p.state = 'down'; p.downT = 2.2; p.vx = d.x * 2.2; p.vz = d.z * 2.2; p.vy = 2.0; p.lie = 0; p.at = head ? 'head' : 'chest'; }
       spark(2); fx.puff(ex, ey, ez, 0, 0.3, 0, 0.25, 0.6, 0.35, 0.3, 1.5); this.hitT = 0.15; pe.scare(p.x, p.z, 24, 6);
     }
     else if (r.type === HIT.heli) { r.ref.damage(w.dmg * fall); spark(3); this.hitT = 0.15; this.env.heat(0.01); }

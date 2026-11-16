@@ -40,7 +40,7 @@ class Officer {
     const env = mgr.env;
     this.walker = new Walker(env.scene, key, { lite: true });
     this.gun = gunFor(kind); this.gun.visible = false; env.scene.add(this.gun);
-    const W = this.W = { draw: 0, aimK: 0, twist: 0, pitch: 0, recoil: 0, reload: 0, radio: 0, cfg: this.kind.cfg, out: { palm: new THREE.Vector3(), q: new THREE.Quaternion(), palmL: new THREE.Vector3() } };
+    const W = this.W = { draw: 0, aimK: 0, twist: 0, pitch: 0, recoil: 0, reload: 0, radio: 0, kind: this.kind === KINDS.smg ? 'smg' : 'pistol', cfg: this.kind.cfg, out: { palm: new THREE.Vector3(), q: new THREE.Quaternion(), palmL: new THREE.Vector3() } };
     this.walker.arms = W; this.walker.placeWeapon = w => placeGun(w, this.gun, W, W.draw);
     this.hp = this.maxHp = kind === 'smg' ? 120 : 62; this.dead = false; this.deadT = 0; this.remove = false; this.retreat = false; this.retreatT = 0;
     this.exitT = 0.9; this.t = Math.random() * 6; this.los = false; this.losT = 0; this.seen = 0; this.lx = 0; this.lz = 0;

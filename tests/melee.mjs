@@ -70,7 +70,8 @@ try {
     for (let i = 0; i < 3; i++) { m.attack('fist'); seq.push(m.kind); for (let k = 0; k < 40 && m.busy; k++) g.tick(1 / 60); for (let k = 0; k < 8; k++) g.tick(1 / 60); }
     return seq;
   });
-  check('punches alternate jab, cross, jab', combo.join() === 'jab,cross,jab', combo.join());
+  const real = await P.evaluate(() => { const w = window.__game.walker; return !!(w.body && w.body.ready('hook')); });
+  check(real ? 'punches go jab, cross, hook (the recorded moves)' : 'punches alternate jab, cross, jab', combo.join() === (real ? 'jab,cross,hook' : 'jab,cross,jab'), combo.join());
   // A press near the end of a blow is kept and thrown next.
   const queued = await P.evaluate(() => { const g = window.__game, m = g.melee; m.cool = 0; m.next.fist = 'jab'; m.attack('fist'); for (let i = 0; i < 12; i++) g.tick(1 / 60); const q = m.attack('fist'); const had = m.queued; for (let i = 0; i < 60; i++) g.tick(1 / 60); return { q, had, swung: m.swung }; });
   check('a press in the last half of a blow is queued and thrown next', queued.had === 'fist' && !queued.q, JSON.stringify(queued));
@@ -93,7 +94,7 @@ try {
   await step(P, 60);
   const n3 = await P.evaluate(() => { const m = window.__game.melee; m.cool = 0; m.queued = null; return m.swung; });
   await P.keyboard.down('KeyX'); await step(P, 6); await P.keyboard.up('KeyX');
-  check('X with nothing in hand throws a punch', await P.evaluate(n3 => window.__game.melee.swung > n3 && /jab|cross/.test(window.__game.melee.kind), n3));
+  check('X with nothing in hand throws a punch', await P.evaluate(n3 => window.__game.melee.swung > n3 && /jab|cross|hook|haymaker/.test(window.__game.melee.kind), n3));
 
   console.log('the police');
   await step(P, 90);

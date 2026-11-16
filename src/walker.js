@@ -6,6 +6,8 @@ import { animate, buildRig, PERSON_H } from './person.js';
 import { makeSmoothFigure } from './figure.js';
 import { loadPerson, personKey, COPS, PEDS } from './people.js';
 import { Mocap } from './mocap.js';
+import { Moves } from './moves.js';
+import { Body } from './body.js';
 import { groundAt, isWater, coastX, WORLD_LIM } from './world.js';
 import { pushFromWater } from './rivercourse.js';
 import { queryColliders, EDGE } from './city.js';
@@ -15,8 +17,9 @@ import { clamp, damp, lerp, wrapAngle } from './util.js';
 // objects in the street and in a shop; the city is on layer 0 only and the rooms on layer 1 only (see interior.js).
 export const lay1 = o => { o.traverse(c => c.layers.enable(1)); return o; };
 export const SPEED = { walk: 1.9, jog: 3.9, sprint: 6.7, crouch: 1.45 };
-const RAD = 0.34, GRAV = 15, JUMP = 5.0;
-const found = [], _fp = new THREE.Vector3();
+const RAD = 0.34, GRAV = 15, JUMP = 5.0, NOMOVE = { mx: 0, my: 0, sprint: false, jump: false, crouch: false };
+const found = [], _fp = new THREE.Vector3(), _kv = new THREE.Vector3(), _kk = new THREE.Vector3();
+const FISTS = /^(jab|cross|hook|body|haymaker|combo|guard)/;
 
 let blobMat = null, blobGeo = null;
 export class Walker {
@@ -51,7 +54,7 @@ export class Walker {
   // the smooth made-up figure stands in.
   attachPerson(p) {
     if (this.person && this.person !== p) { this.rig.root.remove(this.person.root); if (!this.lite) for (const k in this.person.mats) { const m = this.person.mats[k]; for (const t of [m.map, m.normalMap, m.roughnessMap]) t && t.dispose(); } }
-    this.person = p; this.rig.root.add(p.root); lay1(p.root);
+    this.person = p; this.rig.root.add(p.root); lay1(p.root); this.body = new Body(p);
     for (const m of this.rig.meshes) m.visible = false;
     this.pose(0);
   }
@@ -63,32 +66,81 @@ export class Walker {
   // Stand somewhere, facing a way.
   place(x, z, h) {
     this.x = this.px = x; this.z = this.pz = z; this.h = h; this.vx = this.vz = this.vy = 0; this.speed = 0; this.crouch = 0; this.crouching = false; this.down = 0; this.downT = 0;
+    if (this.body) { this.body.ragOn = false; this.body.act = null; this.body.old = null; this.body.snapW = 0; this.body.dead = false; }
     this.y = this.gnd(x, z).y; this.grounded = true; this.air = 0; this.phase = 0;
     this.show(true); this.pose(0);
   }
   show(v) { this.active = v; this.mesh.visible = v; this.blob.visible = v; }
 
-  // Knocked flat (by a car): flung along (vx, vz) and stays down for a moment.
-  knockDown(vx, vz) {
+  // Knocked flat: flung along (vx, vz) (m/s) and down for a moment (downT; the callers set it very long for someone who is dead). A real person goes limp
+  // (the ragdoll: body.js) and gets up with a recorded get-up; o: { vy (upwards), at: where the push lands ('legs' for a car, 'head' for a punch, 'chest',
+  // 'pelvis'), hurt (gets up slowly) }. Knocking someone already down pushes the body along the ground.
+  knockDown(vx, vz, o = {}) {
+    const b = this.body;
+    if (b && Moves.ready && this.active && b.rag !== false) {
+      const sp = Math.hypot(vx, vz), at = o.at || 'chest', vy = o.vy ?? (at === 'legs' ? 1.0 + Math.min(2.2, sp * 0.1) : 1.1);
+      const share = at === 'legs' ? 0.42 : 0.4;
+      _kv.set(vx * share + this.vx * 0.5, vy, vz * share + this.vz * 0.5); _kk.set(vx * (1 - share) * 1.25, at === 'legs' ? vy * 0.5 : 0.6, vz * (1 - share) * 1.25);
+      if (b.ragOn) { if (this.t - (this.pushT ?? -9) > 0.35) { this.pushT = this.t; b.push(_kv, { at, v: _kk }); this.downT = Math.max(this.downT, 1.2); } return; }
+      this.mesh.updateMatrixWorld(true);
+      if (b.knock(_kv, { at, v: _kk })) { this.downT = 2.4; this.hurtUp = !!o.hurt; this.vx = this.vz = this.vy = 0; this.melee = null; this.meleeYaw = null; this.faceYaw = null; return; }
+    }
     if (this.down > 0.3) return;
     this.downT = 2.4; this.vx = vx; this.vz = vz; this.vy = 2.5; this.grounded = false;
+  }
+  // A recorded move (moves.js): see Body.play. Returns false if there is no real person (or the moves are not loaded).
+  play(name, o) { return !!(this.body && this.active && !this.body.ragOn && this.body.play(name, o)); }
+  get acting() { return !!(this.body && this.body.act); }
+  get ragdoll() { return !!(this.body && this.body.ragOn); }
+  // Hit, but still standing: a flinch ((dx, dz) the way the blow travels; k how hard).
+  flinch(dx, dz, k = 1, head = false) { if (this.body) this.body.flinch(dx, dz, k, this.h, head); }
+  // Pushed out of walls, poles and cars (for a body in a ragdoll: a point p and its radius). Returns true if it moved.
+  pushOut(p, r) {
+    if (this.interior) this.interior.solids(p.x, p.z, r + 1.2, found); else queryColliders(p.x, p.z, r + 1.2, found);
+    let moved = false;
+    for (const c of found) {
+      if (c.type === 'box') { const qx = clamp(p.x, c.x0, c.x1), qz = clamp(p.z, c.z0, c.z1), dx = p.x - qx, dz = p.z - qz, d = Math.hypot(dx, dz); if (d >= r || d < 1e-4) continue; p.x += dx / d * (r - d); p.z += dz / d * (r - d); moved = true; }
+      else { const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), rr = r + c.r; if (d >= rr || d < 1e-5) continue; p.x += dx / d * (rr - d); p.z += dz / d * (rr - d); moved = true; }
+    }
+    return moved;
+  }
+  // Knocked over (a ragdoll): the body falls where it falls; the walker follows its hips, and when it has come to rest (and the time down is over) it gets up.
+  ragUpdate(dt) {
+    const b = this.body; this.t += dt; this.px = this.x; this.pz = this.z;
+    if (this.downT < 1e8) this.downT -= dt;
+    const asleep = b.settled && this.downT > 1e8;                                   // (dead and still: nothing more to work out)
+    if (!asleep) b.ragStep(dt, (x, z) => this.gnd(x, z).y, this._push || (this._push = (p, r) => this.pushOut(p, r)));
+    else if (this.slept) { this.blobAt(); return; }
+    this.slept = asleep;
+    b.pelvis(_fp); this.x = _fp.x; this.z = _fp.z; this.y = this.gnd(this.x, this.z).y;
+    this.speed = 0; this.vs = 0; this.down = 1; this.air = 0; this.grounded = true; this.vx = this.vz = this.vy = 0; this.crouching = false; this.crouch = 0;
+    if (b.settled && this.downT <= 0) {
+      const r = b.getUp(this.hurtUp);
+      if (r) { this.h = r.h; this.x = r.x; this.z = r.z; this.y = this.gnd(this.x, this.z).y; }
+    }
+    this.pose(dt);
   }
 
   // f: { mx, my (right and forward, -1..1, relative to the camera), sprint, jump, crouch (held) }; camYaw: where the camera looks.
   // obstacles(x, z, out): fills `out` with circles { x, z, r } of cars near a point.
   update(dt, f, camYaw, obstacles) {
     if (!this.active) return;
+    if (this.body && this.body.ragOn) { this.ragUpdate(dt); return; }
     this.t += dt; this.px = this.x; this.pz = this.z;
     const knocked = this.downT > 0; if (knocked) this.downT -= dt;
-    this.down = damp(this.down, knocked ? 1 : 0, knocked ? 14 : 5, dt);
+    // A recorded move that takes over (a blow, getting up): no walking, and the body goes where the move takes it.
+    const act = this.body && this.body.act, held = !!(act && act.lock);
+    if (held) { f = NOMOVE; this.vx *= Math.exp(-12 * dt); this.vz *= Math.exp(-12 * dt); }
+    if (act && /^getup/.test(act.name)) this.down = clamp(1 - act.t / act.c.dur * 1.35, 0, 1);
+    if (!(act && /^getup/.test(act.name))) this.down = damp(this.down, knocked ? 1 : 0, knocked ? 14 : 5, dt);
     let mx = knocked ? 0 : f.mx, my = knocked ? 0 : f.my; const mag = Math.min(1, Math.hypot(mx, my));
     // Crouch toggles on while held.
     this.crouching = !!f.crouch && !knocked; this.crouch = damp(this.crouch, this.crouching ? 1 : 0, 10, dt);
-    const armed = !!this.arms && this.arms.draw > 0.5, aiming = armed && this.faceYaw != null, striking = !!this.melee && this.meleeYaw != null && !aiming;      // (with a gun up you face where it points, and you cannot sprint)
+    const armed = !!this.arms && this.arms.draw > 0.5, aiming = armed && this.faceYaw != null, striking = (!!this.melee || held) && this.meleeYaw != null && !aiming;      // (with a gun up you face where it points, and you cannot sprint)
     const sprint = !!f.sprint && !this.crouching && mag > 0.1 && !aiming && !striking;
     // The speed asked for: an analogue stick walks gently and runs fully; the keyboard is a jog; Shift sprints.
     let want = sprint ? SPEED.sprint : this.crouching ? SPEED.crouch : lerp(SPEED.walk, SPEED.jog, clamp((mag - 0.35) / 0.55, 0, 1));
-    want *= mag > 0.05 ? Math.min(1, mag * 1.6) : 0; if (striking) want *= this.melee.kind === 'kick' ? 0.2 : 0.4; if (aiming) want = Math.min(want, this.crouching ? SPEED.crouch : SPEED.walk * 1.1);
+    want *= mag > 0.05 ? Math.min(1, mag * 1.6) : 0; if (striking) want *= this.melee ? (this.melee.kind === 'kick' ? 0.2 : 0.4) : 0; if (aiming) want = Math.min(want, this.crouching ? SPEED.crouch : SPEED.walk * 1.1);
     const sn = Math.sin(camYaw), cs = Math.cos(camYaw);
     let dx = sn * my - cs * mx, dz = cs * my + sn * mx;                  // forward is (sin, cos); right is (-cos, sin)
     const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
@@ -107,7 +159,8 @@ export class Walker {
     // Move in small steps so nothing is skipped over.
     const n = Math.max(1, Math.ceil(sp * dt / 0.12));
     for (let i = 0; i < n; i++) { this.x += this.vx * dt / n; this.z += this.vz * dt / n; if (!this.noClip) this.collide(obstacles); }
-    this.speed = Math.hypot((this.x - this.px) / dt, (this.z - this.pz) / dt) || 0; if (this.speed < 0.05) this.speed = 0;
+    if (this.body) { this.body.tick(dt, this); if (this.body.act && !this.noClip) this.collide(obstacles); }
+    this.speed = Math.hypot((this.x - this.px) / dt, (this.z - this.pz) / dt) || 0; if (this.speed < 0.05 || (this.body && this.body.act && this.body.act.lock)) this.speed = 0;
     // Vertical: step onto kerbs, fall off ledges, land.
     const gy = this.gnd(this.x, this.z);
     this.kind = gy.kind || (gy.grass ? 'grass' : 'asphalt');
@@ -130,30 +183,42 @@ export class Walker {
   }
 
   pose(dt) {
-    const B = this.rig, armed = this.arms && this.arms.draw > 0.001;
-    animate(B, { phase: this.phase, speed: this.speed, run: this.run, crouch: this.crouch, air: this.air, t: this.t, turn: this.turn, down: this.down, look: this.look, weapon: armed ? this.arms : null, melee: this.melee, hands: this.hands });
+    const B = this.rig, armed = this.arms && this.arms.draw > 0.001, body = this.body && this.person ? this.body : null, dn = body ? 0 : this.down;
+    // The figure first (a real person's moves and ragdoll work in the world).
+    this.mesh.position.set(this.x, this.y + dn * 0.13, this.z); this.mesh.rotation.set(0, this.h, 0);
+    if (body && (body.ragOn || body.snapW > 0)) this.mesh.updateMatrixWorld(true);
+    if (body && body.ragOn) { body.ragApply(); this.person.updateFace(dt); this.footLift = 0; this.blobAt(); return; }
+    animate(B, { phase: this.phase, speed: this.speed, run: this.run, crouch: this.crouch, air: this.air, t: this.t, turn: this.turn, down: dn, look: this.look, weapon: armed ? this.arms : null, melee: this.melee, hands: this.hands });
     if (this.person) {
       const lnch = armed && this.arms.cfg.launcher;                                                  // (a pistol grip has a trigger finger lying along the guard; a launcher's grip is fully closed)
-      const fist = this.melee && !this.melee.blade && this.melee.kind !== 'kick' ? this.mw : 0;
+      const act = body && body.act, punching = !!(act && FISTS.test(act.name));
+      this.fists = damp(this.fists || 0, punching ? 1 : 0, 14, dt || 1 / 60);
+      const fist = Math.max(this.melee && !this.melee.blade && this.melee.kind !== 'kick' ? this.mw : 0, this.fists);
       this.person.grip('R', Math.max(armed ? 1 : 0, fist), armed && !lnch ? 0.38 : 1); this.person.grip('L', Math.max(armed && !this.arms.cfg.one ? 1 : 0, fist));
       // Recorded walking, running and standing; the stick skeleton takes over the legs when crouching, in the air or knocked down, and the arms and spine with a gun up.
-      const air = Math.abs(this.air), wk = armed ? this.arms.draw * (1 - air * 0.85) * (1 - this.down) : 0;
+      const air = Math.abs(this.air), wk = armed ? this.arms.draw * (1 - air * 0.85) * (1 - dn) : 0;
       this.mw = damp(this.mw, this.melee ? 1 : 0, this.melee ? 22 : 12, dt || 1 / 60); const kick = this.melee && this.melee.kind === 'kick' ? this.mw : 0;
-      const pLegs = clamp(this.crouch * 1.3 + air * 1.3 + this.down * 3 + kick, 0, 1), pUpper = clamp(wk + air * 1.3 + this.down * 3 + this.crouch * 0.9 + this.mw + this.hands * 1.5, 0, 1);
-      this.person.poseMocap(B, { speed: this.vs || 0, phase: this.phase / (Math.PI * 2), t: this.t, pLegs, pUpper });
+      const pLegs = clamp(this.crouch * 1.3 + air * 1.3 + dn * 3 + kick, 0, 1), pUpper = clamp(wk + air * 1.3 + dn * 3 + this.crouch * 0.9 + this.mw + this.hands * 1.5, 0, 1);
+      const o = { speed: this.vs || 0, phase: this.phase / (Math.PI * 2), t: this.t, pLegs, pUpper };
+      if (body) body.pose(B, o, dt); else this.person.poseMocap(B, o);
       this.person.updateFace(dt);
     }
-    this.mesh.position.set(this.x, this.y + this.down * 0.13, this.z);
-    this.mesh.rotation.y = this.h;
     // Feet on a slope or a kerb: if either ankle would sink into the ground, the whole body is lifted by that much (smoothed).
-    if (this.person && this.grounded && this.down < 0.1 && dt > 0) {
+    const lying = body && body.act && /^getup/.test(body.act.name);
+    if (this.person && this.grounded && this.down < 0.1 && dt > 0 && !lying) {
       this.mesh.updateMatrixWorld(true); let lift = 0;
       for (const n of ['Bip01_L_Foot', 'Bip01_R_Foot']) { this.person.worldPos(n, _fp); lift = Math.max(lift, this.gnd(_fp.x, _fp.z).y + this.person.ankleH - 0.025 - _fp.y); }
       this.footLift = damp(this.footLift || 0, clamp(lift, 0, 0.35), lift > (this.footLift || 0) ? 28 : 7, dt);
       this.mesh.position.y += this.footLift;
     } else this.footLift = damp(this.footLift || 0, 0, 10, dt || 1 / 60);
     if (armed && this.placeWeapon) { this.mesh.updateMatrixWorld(true); this.placeWeapon(this); }      // the gun goes where the hand is
-    this.blob.position.set(this.x, this.y + 0.04, this.z); this.blob.scale.setScalar(1 + this.down * 1.2); this.blob.material.opacity = this.grounded ? 1 : clamp(1 - (this.y - this.gnd(this.x, this.z).y) * 0.5, 0.3, 1);
+    this.blobAt();
+  }
+  blobAt() {
+    const lying = this.body && (this.body.ragOn || (this.body.act && /^getup/.test(this.body.act.name)));
+    let bx = this.x, bz = this.z;
+    if (lying && this.person) { this.person.worldPos('Bip01_Spine2', _fp); bx = (bx + _fp.x) / 2; bz = (bz + _fp.z) / 2; }
+    this.blob.position.set(bx, this.y + 0.04, bz); this.blob.scale.setScalar(1 + this.down * 1.2); this.blob.material.opacity = this.grounded ? 1 : clamp(1 - (this.y - this.gnd(this.x, this.z).y) * 0.5, 0.3, 1);
   }
 
   // Push out of buildings, poles, trees, cars and the sea.

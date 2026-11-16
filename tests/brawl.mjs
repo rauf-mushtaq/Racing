@@ -61,8 +61,9 @@ try {
   check('left alone with him, he hits you: your health goes down', minHp < 100, 'lowest ' + minHp);
   const fist = await P.evaluate(() => { const b = window.__game.brawl.list[0]; return { melee: !!b, name: b && b.cd !== undefined }; });
   // His blows are thrown with the pose of a punch (the melee pose is set while he swings).
-  let sawPose = false; for (let i = 0; i < 120 && !sawPose; i++) { await step(P, 3); sawPose = await P.evaluate(() => { const b = window.__game.brawl.list[0]; return !!(b && b.walker.melee && b.walker.melee.kind); }); }
-  check('while he swings, his arm really moves in a punch (the melee pose)', sawPose, 'no swing seen');
+  // (a real fighter plays a recorded blow, moves.js; without the moves, the stick figure's punch pose is set while he swings)
+  let sawPose = false; for (let i = 0; i < 120 && !sawPose; i++) { await step(P, 3); sawPose = await P.evaluate(() => { const b = window.__game.brawl.list[0], a = b && b.walker.body && b.walker.body.act; return !!(b && ((b.walker.melee && b.walker.melee.kind) || (b.atk && b.atk.clip && a && /jab|cross|combo|body|haymaker|kick/.test(a.c.name)))); }); }
+  check('while he swings, his body really throws a punch (a recorded blow, or the melee pose)', sawPose, 'no swing seen');
   // He takes a lot of punishment, and goes down in the end.
   await P.evaluate(() => { const g = window.__game, b = g.brawl.list[0], w = g.walker; g.game.hp = 100; w.place(b.x - Math.sin(b.walker.h) * 1.0, b.z - Math.cos(b.walker.h) * 1.0, b.walker.h); b.walker.h; });
   const before = await P.evaluate(() => Math.round(window.__game.brawl.list[0].hp));

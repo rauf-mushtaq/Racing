@@ -12,6 +12,7 @@ import { backlight } from './paintfx.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { Mocap } from './mocap.js';
+import { Moves } from './moves.js';
 
 export const PEOPLE = {
   agent:   { name: 'Agent',   file: 'assets/people/agent.glb',   sw: [0x202022, 0x1a1a1c] },
@@ -49,8 +50,8 @@ function template(key) {
   if (!templates.has(key)) templates.set(key, new GLTFLoader().loadAsync(def.file).then(g => g.scene).catch(e => { templates.delete(key); throw e; }));
   return templates.get(key);
 }
-export const preload = key => { Mocap.load(); return template(key); };
-export async function loadPerson(key) { key = COPS[key] || PEDS[key] ? key : personKey(key); const [t] = await Promise.all([template(key), Mocap.load()]); return new Person(key, cloneSkinned(t)); }
+export const preload = key => { Mocap.load(); Moves.load(); return template(key); };
+export async function loadPerson(key) { key = COPS[key] || PEDS[key] ? key : personKey(key); const [t] = await Promise.all([template(key), Mocap.load(), Moves.load()]); return new Person(key, cloneSkinned(t)); }
 
 // The real bones, parents first: [bone, the child it points at (to find its rest direction), which stick joint drives it, straighten (an arm)].
 const ARMS = ['L', 'R'].flatMap(s => [[`Bip01_${s}_UpperArm`, `Bip01_${s}_Forearm`], [`Bip01_${s}_Forearm`, `Bip01_${s}_Hand`], [`Bip01_${s}_Hand`, `Bip01_${s}_Finger2`]]);
@@ -92,6 +93,7 @@ export class Person {
       if (armChild[name] && this.bones[armChild[name]]) { _v.copy(wp(armChild[name])).sub(wp(name)).normalize(); e.S = new THREE.Quaternion().setFromUnitVectors(_v, DOWN); }
       this.rest[name] = e; this.order.push(e);
     }
+    this.restPos = {}; for (const [name] of DRIVEN) if (this.bones[name]) this.restPos[name] = wp(name);     // (where each bone is standing at rest, in metres in the character's own frame: for the ragdoll)
     this.hipY0 = this.bones.Bip01.position.y; this.height = this.heightNow();
     this.ankleH = Math.max(0.04, wp('Bip01_L_Foot').y);                         // (how high the ankle bones stand above the sole, standing)
     this.fingers = {}; for (const s of ['L', 'R']) this.fingers[s] = [0, 1, 2, 3, 4].map(f => [f ? `Bip01_${s}_Finger${f}` : `Bip01_${s}_Finger0`, f ? `Bip01_${s}_Finger${f}1` : `Bip01_${s}_Finger01`, f ? `Bip01_${s}_Finger${f}2` : `Bip01_${s}_Finger02`].map(n => this.bones[n]).filter(Boolean));
@@ -202,8 +204,36 @@ export class Person {
       const b = this.mbones[i]; if (!b || this.driven.has(Mocap.bones[i])) continue;
       b.quaternion.fromArray(this.mq, i * 4);
     }
+    if (o.acts) for (const a of o.acts) if (a && a.w > 0.001) this.layer(a.c, a.t, a.w, a.legs !== false);
+    if (o.snap && o.snap.w > 0.001) this.fromSnap(o.snap.pose, o.snap.w);
     this.curlFingers();
     return true;
+  }
+  // A move (moves.js) laid over the pose by w (0..1): every body bone turned towards the move's, and the hips towards its height. The move's path over the
+  // ground is not here: whoever plays it moves the person along it (see walker.js). legs false: the upper body only.
+  layer(c, t, w, legs = true) {
+    if (!Moves.ready || !c) return;
+    const nB = Moves.bones.length;
+    if (!this.aq) { this.aq = new Float32Array(nB * 4); this.apos = new Float32Array(3); this.abones = Moves.bones.map(n => this.bones[n] || null); this.alegs = Moves.bones.map(n => LEGS.has(n)); }
+    Moves.sample(c, t, this.aq, this.apos, null);
+    for (let i = 0; i < nB; i++) {
+      const b = this.abones[i]; if (!b || (!legs && this.alegs[i])) continue;
+      _qm.fromArray(this.aq, i * 4); if (w >= 0.999) b.quaternion.copy(_qm); else b.quaternion.slerp(_qm, w);
+    }
+    if (legs) { const P = this.bones.Bip01.position, y = this.apos[1] * this.hipY0 / Moves.hip; P.x += (0 - P.x) * w; P.z += (0 - P.z) * w; P.y += (y - P.y) * w; }
+  }
+  // The pose now, kept (the body bones' rotations, and the hip bone in the world), to blend away from: after a ragdoll, or to cut smoothly into a fall.
+  snapshot(out) {
+    out = out || { q: new Float32Array(this.order.length * 4), pos: new THREE.Vector3(), wq: new THREE.Quaternion() };
+    this.order.forEach((e, i) => e.b.quaternion.toArray(out.q, i * 4));
+    this.bones.Bip01.getWorldPosition(out.pos); this.bones.Bip01.getWorldQuaternion(out.wq); return out;
+  }
+  // Blend towards a kept pose by w (the hip bone's turn and place are kept in the world, so the body stays put if the figure carrying it has moved or turned).
+  fromSnap(S, w) {
+    const B0 = this.bones.Bip01;
+    this.order.forEach((e, i) => { if (e.b === B0) return; _qm.fromArray(S.q, i * 4); e.b.quaternion.slerp(_qm, w); });
+    B0.parent.updateMatrixWorld(true); B0.parent.getWorldQuaternion(_q).invert(); _qm.copy(_q).multiply(S.wq); B0.quaternion.slerp(_qm, w);
+    _v.copy(S.pos); B0.parent.worldToLocal(_v); B0.position.lerp(_v, w);
   }
   hipScale() { return this._hs || (this._hs = this.hipY0 / 89.5); }
   curlFingers() {

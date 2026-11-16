@@ -346,7 +346,7 @@ export class PoliceChase {
     for (const c of this.cops) {
       const dx = w.x - c.x, dz = w.z - c.z; if (dx * dx + dz * dz > 49 || c.speed < 4) continue;
       const fx = Math.sin(c.h), fz = Math.cos(c.h), a = clamp(dx * fx + dz * fz, -c.len / 2, c.len / 2), d = Math.hypot(dx - fx * a, dz - fz * a);
-      if (d < c.rad + 0.35) { w.knockDown(fx * c.speed * 0.7 + (dx - fx * a) * 2, fz * c.speed * 0.7 + (dz - fz * a) * 2); c.speed *= 0.5; if (this.onCrash) this.onCrash(9000); }
+      if (d < c.rad + 0.35) { w.knockDown(fx * c.speed * 0.7 + (dx - fx * a) * 2, fz * c.speed * 0.7 + (dz - fz * a) * 2, { at: 'legs' }); c.speed *= 0.5; if (this.onCrash) this.onCrash(9000); }
     }
   }
   // Damage from walls and other cars (the physics' hit callback).

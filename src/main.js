@@ -559,7 +559,7 @@ function footUpdate(dt, raw) {
     if (!t.active || !t.pts || t.mode === 'wreck') continue; const dx = walker.x - t.x, dz = walker.z - t.z; if (dx * dx + dz * dz > 36) continue;
     const v = traffic.velocityOf(t), sp = Math.hypot(v[0], v[1]); if (sp < 3.5) continue;
     const fx = Math.sin(t.h), fz = Math.cos(t.h), a = clamp(dx * fx + dz * fz, -t.len / 2, t.len / 2), d = Math.hypot(dx - fx * a, dz - fz * a);
-    if (d < (t.rad || 0.95) + 0.3) { walker.knockDown(v[0] * 0.9 + (dx - fx * a) * 2, v[1] * 0.9 + (dz - fz * a) * 2); audio.thump(0.5); game.shake = Math.max(game.shake, 0.3); }
+    if (d < (t.rad || 0.95) + 0.3) { walker.knockDown(v[0] * 0.9 + (dx - fx * a) * 2, v[1] * 0.9 + (dz - fz * a) * 2, { at: 'legs' }); audio.thump(0.5); game.shake = Math.max(game.shake, 0.3); }
   }
 }
 
@@ -962,6 +962,7 @@ function hurtPlayer(d) {
 }
 function knockedOut() {
   game.ko = true; if (interior && interior.active) forceLeave(); game.carried = 0;
+  if (game.onFoot && walker.active && !walker.ragdoll) { walker.knockDown(-Math.sin(walker.h) * 1.2, -Math.cos(walker.h) * 1.2, { at: 'head', vy: 0.4 }); walker.downT = 1e9; }      // (he crumples)
   const cash = settings.cash || 0, bill = Math.min(cash, Math.round((cash * 0.06 + 40) / 10) * 10); settings.cash = cash - bill; save();
   hud.toast('KNOCKED OUT' + (bill ? ': $' + bill.toLocaleString('en-US') + ' HOSPITAL BILL' : ''), 3.4); audio.beep(220, 0.3, 0.25);
   fadeTo(() => {

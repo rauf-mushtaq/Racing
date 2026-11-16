@@ -10,6 +10,8 @@ import { inWater } from './rivercourse.js';
 import { mulberry32, clamp, damp, wrapAngle } from './util.js';
 import { PEDS, loadPerson } from './people.js';
 import { Mocap } from './mocap.js';
+import { Moves } from './moves.js';
+import { Body } from './body.js';
 import { Q } from './quality.js';
 
 const SHIRTS = [0xd9d4cc, 0x2c3e55, 0x8a2b2b, 0x2f5d44, 0xe0b23c, 0x3a3a3f, 0xf0f0f0, 0x7a4b8a, 0x2a7aa8, 0xc7632b, 0xb8a58a, 0x1e1e22, 0xc44d6b, 0x587a3a, 0x9bb7d4, 0xe8c9b0];
@@ -21,6 +23,7 @@ export const ARCH = { bruiser: 0.06, armed: 0.09 };
 const BRUISER_SHIRTS = [0x1e1e22, 0xf0f0f0, 0x8a2b2b, 0x3a3a3f, 0x2a7aa8, 0x2f5d44];
 const BRUISER = { w: 1.2, h: 1.07 };            // (the crowd figures of a big man are drawn wider and taller; the real people have muscle bones instead: people.js setBulk)
 const SHOW_R = 125;
+const _pv = new THREE.Vector3(), _pk = new THREE.Vector3();
 // The people close to the camera are real people (Rocketbox models with recorded walking, see people.js and mocap.js): a small pool of them is
 // handed to whoever is nearest, and given back as they walk away (the rest of the crowd is the instanced figures below).
 const REAL = { ultra: 10, high: 8, medium: 5, low: 3 }[Q.name] ?? 4, REAL_IN = 36, REAL_OUT = 46;
@@ -88,7 +91,8 @@ export class Peds {
     for (const sl of R.slots) {
       const p = sl.ped; if (!p) continue;
       const d2 = (p.x - cx) ** 2 + (p.z - cz) ** 2;
-      if (p.state === 'away' || p.seen !== this.frame || d2 > REAL_OUT * REAL_OUT || sl.idx >= n) { sl.ped = null; p.real = null; sl.rig.root.visible = false; }
+      const busy = (p.rag || p.state === 'getup' || p.state === 'cower') && p.seen === this.frame && d2 < (REAL_OUT * 1.5) ** 2;          // (someone lying or getting up near you keeps his body)
+      if (!busy && (p.state === 'away' || p.seen !== this.frame || d2 > REAL_OUT * REAL_OUT || sl.idx >= n)) { sl.ped = null; p.real = null; sl.rig.root.visible = false; if (sl.body) { sl.body.ragOn = false; sl.body.act = null; sl.body.old = null; sl.body.snapW = 0; } }
     }
     if (!n) return;
     const cand = this.vis.filter(p => !p.real && p.state !== 'away' && (p.x - cx) ** 2 + (p.z - cz) ** 2 < REAL_IN * REAL_IN);
@@ -105,7 +109,42 @@ export class Peds {
     const cx = camera.position.x, cz = camera.position.z;
     for (const sl of this.real.slots) {
       const p = sl.ped; if (!p) continue;
-      const sp = Math.min(p.speed, 5.5), lie = p.lie || 0, B = sl.rig, d2 = (p.x - cx) ** 2 + (p.z - cz) ** 2;
+      const B = sl.rig, body = sl.body || (sl.body = new Body(sl.person));
+      // Knocked over: the ragdoll (body.js), then the recorded get-up that matches how he lies.
+      if (p.state === 'down' && !p.rag && Moves.ready) {
+        B.root.position.set(p.x, p.y, p.z); B.root.rotation.set(0, p.h, 0); B.root.updateMatrixWorld(true);
+        const car = (p.vy || 0) > 2.9, at = p.at || (car ? 'legs' : 'chest'); p.at = null;
+        _pv.set((p.vx || 0) * (car ? 0.55 : 0.45), car ? (p.vy || 0) * 0.75 : 1.0, (p.vz || 0) * (car ? 0.55 : 0.45)); _pk.set((p.vx || 0) * 0.8, car ? 1.2 : 0.5, (p.vz || 0) * 0.8);
+        if (body.knock(_pv, { at, v: _pk })) { p.rag = true; p.vx = p.vz = p.vy = 0; p.cowering = false; }
+      }
+      if (p.rag && body.ragOn) {
+        body.ragStep(dt, (x, z) => groundAt(x, z).y, null);
+        body.pelvis(_pv); p.x = _pv.x; p.z = _pv.z; p.y = groundAt(p.x, p.z).y; p.lie = 1;
+        B.root.position.set(p.x, p.y, p.z); B.root.rotation.set(0, p.h, 0); B.root.updateMatrixWorld(true); body.ragApply();
+        sl.person.updateFace(dt);
+        if (p.downT <= 0 && body.settled) { const r = body.getUp(false); if (r) { p.h = r.h; p.x = r.x; p.z = r.z; p.state = 'getup'; p.rag = false; p.speed = 0; } else { p.rag = false; } }
+        continue;
+      }
+      if (p.state === 'cower') {                                                      // ducking at a gunshot (moves.js 'duck'), then off at a run
+        if (!p.cowering) { p.cowering = true; if (!body.play('duck', { fade: 0.15, out: 0.35, rate: 1.15 })) p.state = 'panic'; }
+        if (p.state === 'cower' && !body.act) { p.state = 'panic'; p.cowering = false; }
+        if (p.state === 'cower') {
+          body.tick(dt, p); p.y = groundAt(p.x, p.z).y; p.lie = 0;
+          B.root.position.set(p.x, p.y, p.z); B.root.rotation.set(0, p.h, 0); B.root.updateMatrixWorld(true);
+          animate(B, { t: p.t, speed: 0 }); body.pose(B, { speed: 0, phase: 0, t: p.t, pLegs: 0, pUpper: 0 }, dt); sl.person.updateFace(dt);
+          continue;
+        }
+      }
+      if (p.state === 'getup') {
+        if (!body.act) { p.state = 'panic'; p.panic = 4; p.lie = 0; this.relink(p); }
+        else {
+          body.tick(dt, p); p.y = groundAt(p.x, p.z).y; p.lie = 0;
+          B.root.position.set(p.x, p.y, p.z); B.root.rotation.set(0, p.h, 0); B.root.updateMatrixWorld(true);
+          animate(B, { t: p.t, speed: 0 }); body.pose(B, { speed: 0, phase: 0, t: p.t, pLegs: 0, pUpper: 0 }, dt); sl.person.updateFace(dt);
+          continue;
+        }
+      }
+      const sp = Math.min(p.speed, 5.5), lie = p.lie || 0, d2 = (p.x - cx) ** 2 + (p.z - cz) ** 2;
       p.mphase = (p.mphase ?? p.phase / 6.283) + sp * dt / Mocap.strideAt(Math.max(sp, 0.7));
       if (lie > 0.01 || p.clap) { animate(B, { down: lie, t: p.t, speed: 0 }); if (p.clap) clapArms(B, p.t); } else B.root.rotation.x = 0;
       sl.person.faceOn = d2 < 450;
@@ -146,11 +185,12 @@ export class Peds {
   // Everyone within r metres of a point is frightened and runs (and with `fight`, as for a gunshot, the armed ones near it go for their guns).
   scare(x, z, r, secs = 4, fight = false) {
     for (const p of this.list) {
-      if (p.state === 'down' || p.state === 'away') continue; const dx = p.x - x, dz = p.z - z; if (dx * dx + dz * dz > r * r) continue;
+      if (p.state === 'down' || p.state === 'away' || p.state === 'getup' || p.state === 'cower') continue; const dx = p.x - x, dz = p.z - z; if (dx * dx + dz * dz > r * r) continue;
       if (fight && p.kind === 'armed' && p.state !== 'watch' && dx * dx + dz * dz < 18 * 18 && Math.random() < 0.5 && this.provoke(p, {})) continue;
       if (p.state === 'watch') { this.relink(p); p.spot = null; p.clap = 0; p.state = 'panic'; p.panic = secs * (0.7 + this.rnd() * 0.6); p.dir = 1; continue; }     // (the audience scatters)
       if (!p.ring) continue;
       p.state = 'panic'; p.panic = secs * (0.7 + this.rnd() * 0.6); const [, , tx, tz] = ringAt(p.ring, p.s); p.dir = (tx * dx + tz * dz) >= 0 ? 1 : -1;
+      if (fight && p.real && Moves.ready && this.rnd() < 0.6) { p.state = 'cower'; p.cowering = false; }          // (a shot nearby: a real person near you ducks, arms over the head, before running)
     }
   }
 
@@ -185,6 +225,10 @@ export class Peds {
       }
       if (!p.colors || p.state === 'away' || Math.hypot(p.x - focus.x, p.z - focus.z) > 230) { this.spawn(p, focus, camera, !this._started); if (p.state === 'away') continue; }
       p.t += dt;
+      if (p.state === 'down' && p.rag && !p.real) { p.rag = false; p.lie = 1; }          // (lost his real body while lying there: the crowd figure lies instead)
+      if (p.state === 'getup') { if (!p.real) { p.state = 'panic'; p.panic = 4; p.lie = 0; this.relink(p); } p.speed = 0; continue; }
+      if (p.state === 'cower') { if (!p.real) { p.state = 'panic'; p.cowering = false; } p.t += dt; p.speed = damp(p.speed, 0, 10, dt); continue; }
+      if (p.state === 'down' && p.rag) { p.downT -= dt; p.speed = 0; if (inWater(p.x, p.z)) { p.state = 'away'; p.rag = false; } continue; }
       if (p.state === 'down') {
         p.downT -= dt; p.vy -= 16 * dt; p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt; const g = groundAt(p.x, p.z).y;
         if (p.y <= g) { p.y = g; p.vy = 0; const k = Math.exp(-5 * dt); p.vx *= k; p.vz *= k; }

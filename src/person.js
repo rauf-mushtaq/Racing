@@ -165,20 +165,74 @@ function solveArm(B, joint, shoulder, elbow, target, pole, k) {
   B[shoulder_name(joint)].quaternion.slerp(_Q1, k); B[elbow].quaternion.slerp(_Q2, k);
 }
 const shoulder_name = j => 'shoulder' + j;
-// W: { draw, aimK, pitch (up +), recoil, reload (0..1), cfg: { rx, ry, rz (right palm: to the right, up, forward, in the aim frame), lx, ly, lz (left palm, from the right one), one }, out: filled in }
+const ease = x => x * x * (3 - 2 * x), _bQ = new THREE.Quaternion();
+// ---- Reloading ----------------------------------------------------------------------------------------------------------------
+// A reload worked out step by step, the way it is done (W.reload runs 0..1 over the reload's time, W.kind says which gun):
+//   a pistol or a submachine gun: the gun comes in and tips so the magazine well faces the other hand; the empty magazine drops out (weapons.js lets it fall);
+//     the left hand goes to the pouch on the belt, brings a full one up, pushes it home and slaps it, then racks the slide (the cocking handle on the SMG);
+//   the shotgun: three shells, one at a time, from the belt into the loading port under the gun, then the pump worked;
+//   the rocket launcher: the left hand reaches back over the shoulder for a rocket and feeds it into the front of the tube.
+// Returns how far the gun is brought in (0..1) and fills R: { tilt (muzzle up, radians), roll, pull (towards the chest), bump (the slap, the rack),
+// left (where the left palm goes, in the gun's own frame relative to the right palm, or in the chest's frame when R.leftChest), leftK (0..1 from the grip
+// to there), hold ('mag' | 'shell' | 'rocket' | null: what is in the left hand) }.
+const sm = (t, a, b) => ease(clamp((t - a) / (b - a), 0, 1));
+const RL = { left: new THREE.Vector3(), leftChest: false, leftK: 0, tilt: 0, roll: 0, pull: 0, bump: 0, hold: null };
+const POUCH = new THREE.Vector3(0.17, 0.03, 0.07), POUCH_F = new THREE.Vector3(0.09, 0.02, 0.15), BACK = new THREE.Vector3(0.12, 0.66, -0.12);
+const _k0 = new THREE.Vector3(), _k1 = new THREE.Vector3();
+export function reloadKeys(kind, t, R = RL) {
+  const e = Math.min(sm(t, 0, 0.14), 1 - sm(t, 0.9, 1)); R.leftChest = false; R.hold = null; R.bump = 0; R.leftK = 0;
+  const seq = (pts) => {                                          // pts: [[time, where (a Vector3 in the gun's frame), chest frame?], ...]: the left hand from point to point
+    let a = pts[0], b = pts[0];
+    for (let i = 0; i < pts.length - 1; i++) if (t >= pts[i][0]) { a = pts[i]; b = pts[i + 1]; }
+    const u = sm(t, a[0], b[0]);
+    if (a[2] === b[2]) { R.left.copy(a[1]).lerp(b[1], u); R.leftChest = !!a[2]; }
+    else { R.left.copy(u < 0.5 ? a[1] : b[1]); R.leftChest = !!(u < 0.5 ? a[2] : b[2]); }            // (crossing between frames: the IK blends the jump)
+  };
+  if (kind === 'shotgun') {
+    R.tilt = 0.25 * e; R.roll = 0.55 * e; R.pull = 0.08 * e;
+    const port = _k0.set(0.0, -0.06, 0.13), pump = _k1.set(0, -0.02, 0.2), ps = [[0.0, pump, false]];
+    for (let i = 0; i < 3; i++) { const t0 = 0.06 + i * 0.24; ps.push([t0 + 0.04, pump.clone().setY(-0.05), false], [t0 + 0.1, POUCH, true], [t0 + 0.13, POUCH, true], [t0 + 0.2, port, false], [t0 + 0.24, port, false]); }
+    ps.push([0.8, pump, false], [0.86, pump.clone().setZ(0.11), false], [0.93, pump, false], [1, pump, false]);
+    seq(ps); R.leftK = 1 - sm(t, 0.95, 1);
+    for (let i = 0; i < 3; i++) { const t0 = 0.06 + i * 0.24; if (t > t0 + 0.11 && t < t0 + 0.21) R.hold = 'shell'; }
+    R.bump = t > 0.84 && t < 0.9 ? 1 : 0; return e;
+  }
+  if (kind === 'launcher') {
+    R.tilt = -0.45 * e; R.roll = 0.2 * e; R.pull = 0.12 * e;
+    seq([[0.0, _k0.set(0, 0, 0.2), false], [0.1, _k0.clone().setY(-0.08), false], [0.32, BACK, true], [0.4, BACK, true], [0.62, _k1.set(0, 0.1, 0.62), false], [0.75, _k1.clone().setZ(0.5), false], [0.86, _k1.clone().setZ(0.5), false], [1, _k0.set(-0.02, 0, 0.2), false]]);
+    R.leftK = 1 - sm(t, 0.92, 1); if (t > 0.38 && t < 0.74) R.hold = 'rocket'; return e;
+  }
+  // A magazine.
+  const smg = kind === 'smg', well = smg ? _k0.set(0, -0.16, 0.1) : _k0.set(0, -0.13, -0.035), below = well.clone().add(_k1.set(0, -0.07, smg ? 0 : -0.01));
+  const rack = smg ? new THREE.Vector3(-0.05, 0.05, 0.03) : new THREE.Vector3(0, 0.075, 0.02), racked = rack.clone().add(_k1.set(0, 0, smg ? -0.07 : -0.065));
+  const grip = smg ? new THREE.Vector3(0, -0.03, 0.17) : new THREE.Vector3(-0.03, -0.02, 0.0);
+  R.tilt = (smg ? 0.3 : 0.4) * e; R.roll = (smg ? 0.5 : 0.65) * e; R.pull = (smg ? 0.1 : 0.14) * e;
+  seq([[0.0, grip, false], [0.1, grip.clone().add(_k1.set(-0.06, -0.06, 0)), false], [0.3, POUCH_F.clone().lerp(POUCH, smg ? 0.3 : 1), true], [0.38, POUCH_F.clone().lerp(POUCH, smg ? 0.3 : 1), true],
+    [0.58, below, false], [0.66, well, false], [0.72, well, false], [0.77, rack, false], [0.84, racked, false], [0.88, racked, false], [1, grip, false]]);
+  R.leftK = 1 - sm(t, 0.94, 1); if (t > 0.34 && t < 0.67) R.hold = 'mag';
+  R.bump = t > 0.66 && t < 0.71 ? 0.6 : t > 0.82 && t < 0.87 ? 1 : 0;
+  return e;
+}
+
+// W: { draw, aimK, pitch (up +), recoil, reload (0..1), kind, cfg: { rx, ry, rz (right palm: to the right, up, forward, in the aim frame), lx, ly, lz (left palm, from the right one), one }, out: filled in }
 function aimArms(B, W, k) {
-  const cfg = W.cfg, low = 1 - W.aimK, rl = Math.sin(W.reload * Math.PI);
-  // The gun's direction: aimed along the crosshair, or (ready, not aimed) angled down across the belt.
-  const pAim = W.pitch + W.recoil * 0.05 - rl * 0.3, pLow = -0.5 - rl * 0.3;
+  const cfg = W.cfg, rel = W.reload > 0 && W.kind && W.kind !== 'knife' ? reloadKeys(W.kind, W.reload) : 0, R = RL, low = (1 - W.aimK) * (1 - rel);
+  // The gun's direction: aimed along the crosshair, or (ready, not aimed) angled down across the belt; reloading, brought in and tipped.
+  const pAim = W.pitch + W.recoil * 0.05, pLow = -0.5, pRel = -0.15 + (rel ? R.tilt : 0);
   _Q1.setFromAxisAngle(_bx.set(1, 0, 0), -pAim); _Q2.setFromAxisAngle(_bx.set(1, 0, 0), -pLow);
   _Q1.slerp(_Q2, low);
+  if (rel) { _Q2.setFromAxisAngle(_bx.set(1, 0, 0), -pRel).multiply(_bQ.setFromAxisAngle(_by.set(0, 1, 0), 0.25 * rel)).multiply(_bQ.setFromAxisAngle(_bz.set(0, 0, 1), -R.roll)); _Q1.slerp(_Q2, rel); }
   _right.set(-1, 0, 0).applyQuaternion(_Q1); _up.set(0, 1, 0).applyQuaternion(_Q1); _fwd.set(0, 0, 1).applyQuaternion(_Q1);
   // Where the right palm goes: aimed, out in front of the chest; ready, low in front of the belt.
   _o0.set(0, J.shoulderY - 0.02, 0);
   _palmR.copy(_o0).addScaledVector(_right, cfg.rx).addScaledVector(_up, cfg.ry).addScaledVector(_fwd, cfg.rz - W.recoil * (cfg.kick ?? 0.05));
   if (low > 0.001) { _palmL.set(-cfg.rx * 0.6, cfg.lowY ?? 0.2, cfg.lowZ ?? 0.3); _palmR.lerp(_palmL, low); }
+  if (rel) { _palmL.set(-0.06, J.shoulderY - 0.17 + R.bump * 0.015, 0.3 - R.pull); _palmR.lerp(_palmL, rel); }
   _palmL.copy(_palmR).addScaledVector(_right, cfg.lx).addScaledVector(_up, cfg.ly).addScaledVector(_fwd, cfg.lz);
-  _palmL.y -= 0.2 * rl; _palmL.addScaledVector(_fwd, -0.1 * rl);
+  if (rel && R.leftK > 0.001) {                                                                     // the left hand off doing the reload
+    if (R.leftChest) _o0.copy(R.left); else _o0.copy(_palmR).addScaledVector(_right, R.left.x).addScaledVector(_up, R.left.y).addScaledVector(_fwd, R.left.z);
+    _palmL.lerp(_o0, R.leftK);
+  }
   if (W.radio > 0.01) { _o0.set(0.14, 0.6, 0.1); _palmL.lerp(_o0, W.radio); }                       // the left hand up to the radio on the shoulder
   if (W.out) { W.out.palm.copy(_palmR); W.out.q.copy(_Q1); W.out.palmL.copy(_palmL); }
   // The character's right arm is the stick figure's 'L' joint (it stands at -x); its left arm is 'R'.
@@ -256,8 +310,8 @@ export function animate(B, a) {
 // A punch winds the fist back, throws it at the end of the arm with the chest turning into it, and brings it home to a guard by the chin; the
 // other fist stays up. A kick lifts the knee, snaps the leg out at the moment of the hit and leans the body back against it. A slash swings the knife
 // across from high on the right; a stab pulls it back to the hip and drives it forward. W (when a weapon is in hand) is told where the palm is.
-const _bp = new THREE.Vector3(), _bo = new THREE.Vector3(), _bpoleS = new THREE.Vector3(), _bpoleO = new THREE.Vector3(), _be = new THREE.Euler(), _bQ = new THREE.Quaternion();
-const ease = x => x * x * (3 - 2 * x), seg = (k, a, b) => clamp((k - a) / (b - a), 0, 1);
+const _bp = new THREE.Vector3(), _bo = new THREE.Vector3(), _bpoleS = new THREE.Vector3(), _bpoleO = new THREE.Vector3(), _be = new THREE.Euler();
+const seg = (k, a, b) => clamp((k - a) / (b - a), 0, 1);
 const toward = (v, arr, t) => v.set(lerp(v.x, arr[0], t), lerp(v.y, arr[1], t), lerp(v.z, arr[2], t));
 function armTo(B, side, target, pole, k) {                                            // side 'L' is the character's right arm
   solveArm(B, side, [side === 'L' ? -J.shoulderX : J.shoulderX, J.shoulderY, 0], 'elbow' + side, target, pole, k);

@@ -31,7 +31,7 @@ class Actor {
     this.fleeT = 0; this.coverT = 0; this.strafe = Math.random() < 0.5 ? 1 : -1; this.strafeT = 1;
     if (this.armed) {
       this.gun = gunClone(); this.gun.visible = false; H.env.scene.add(this.gun); this.gun.traverse(o => o.layers.set(1));
-      const W = this.W = { draw: 0, aimK: 0, twist: 0, pitch: 0, recoil: 0, reload: 0, radio: 0, cfg: WEAPONS.pistol.cfg, out: { palm: new THREE.Vector3(), q: new THREE.Quaternion(), palmL: new THREE.Vector3() } };
+      const W = this.W = { draw: 0, aimK: 0, twist: 0, pitch: 0, recoil: 0, reload: 0, radio: 0, kind: 'pistol', cfg: WEAPONS.pistol.cfg, out: { palm: new THREE.Vector3(), q: new THREE.Quaternion(), palmL: new THREE.Vector3() } };
       w.arms = W; w.placeWeapon = ww => placeGun(ww, this.gun, W, W.draw);
     }
   }
