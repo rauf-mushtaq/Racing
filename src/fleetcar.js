@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { attachSSR } from './ssr.js';
 import { paintFlakes } from './paintfx.js';
-import { glowTex } from './textures.js';
+import { glowTex, carShadowTex } from './textures.js';
 import { buildCockpit } from './cockpit.js';
 
 // What each kind of car is like to drive: mass (kg), peak torque (Nm) and where it peaks, the red line, its top speed (m/s, where
@@ -92,7 +92,7 @@ export function makeFleetCar(md, color, mats, envMap) {
     });
   }
   // A soft shadow on the road under it.
-  const cs = new THREE.Mesh(new THREE.PlaneGeometry(md.width + 0.7, md.len + 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glow, color: 0x000000, transparent: true, opacity: 0.75, depthWrite: false }));
+  const cs = new THREE.Mesh(new THREE.PlaneGeometry(md.width + 0.7, md.len + 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: carShadowTex(), transparent: true, depthWrite: false }));
   cs.position.y = 0.02; cs.renderOrder = 2; root.add(cs);
   // Wheels: a group at each hub that steers, with the wheel inside it that rolls.
   const wheels = [];
@@ -114,6 +114,6 @@ export function disposeFleetCar(root) {
   root.parent && root.parent.remove(root);
   root.traverse(o => {
     if (o.geometry && !keep.has(o.geometry)) o.geometry.dispose();
-    for (const m of [].concat(o.material || [])) if (!keep.has(m)) { for (const k of ['map', 'bumpMap', 'normalMap', 'roughnessMap', 'emissiveMap']) if (m[k] && m[k] !== _glow.t) m[k].dispose(); m.dispose(); }
+    for (const m of [].concat(o.material || [])) if (!keep.has(m)) { for (const k of ['map', 'bumpMap', 'normalMap', 'roughnessMap', 'emissiveMap']) if (m[k] && m[k] !== _glow.t && m[k] !== carShadowTex()) m[k].dispose(); m.dispose(); }          // (the glow and the shadow texture are shared by every car)
   });
 }

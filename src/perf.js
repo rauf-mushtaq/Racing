@@ -6,7 +6,7 @@
 // against the whole frame: JS time near the frame time means the CPU is the limit; much less means the graphics are.
 //
 //   guard.sample(frameMs, jsMs, resAtFloor) once per frame while playing
-//   -> 'gpu-down' | 'cpu-down' | 'up' | null      (the caller then applies or undoes the next step of its ladder)
+//   -> 'gpu-down' | 'cpu-down' | 'up' | 'exhausted' | 'capped' | null      (the caller then applies or undoes the next step of its ladder)
 //
 // No browser or graphics code in here, so it is tested on its own (tests/perf.mjs).
 
@@ -42,7 +42,7 @@ export class PerfGuard {
     if (frameMs > 250) return null;                                  // a hitch (a model loading, the tab coming back), not a trend
     this.t += dt; this.n++; this.fSum += frameMs; this.jSum += jsMs;
     if (this.t < this.window) return null;
-    const f = this.fSum / this.n, j = this.jSum / this.n; this.t = this.n = this.fSum = this.jSum = 0;
+    const f = this.fSum / this.n, j = this.jSum / this.n; this.t = this.n = this.fSum = this.jSum = 0; this.lastF = f;
     const cpuBound = j > 0.55 * f && j > 10;
     if (f > this.slowMs) { this.slow++; this.fast = 0; } else if (f < this.fastMs) { this.fast++; this.slow = 0; this.stuck = 0; } else { this.slow = this.fast = 0; this.stuck = 0; }
     if (this.slow >= (cpuBound ? this.downAfter : this.downAfter + 1)) {          // (a slow picture first gets the resolution lowered, by the caller, which says when it is at its floor)
@@ -53,13 +53,16 @@ export class PerfGuard {
       if (this.cpu < this.maxCpu) return this.down('cpu');
       if (this.gpu < this.maxGpu) return this.down('gpu');
       this.slow = 0;
-      if (++this.stuck >= 4) { this.stuck = 0; return 'exhausted'; }            // every step is already down and it is still slow: the caller may save a lighter default
+      // Every step is already down and it is still slow: the caller may save a lighter default. But not when the frames sit at exactly 30 a second and
+      // turning everything off made no difference: that is the device holding the browser to 30 (an iPad or iPhone in Low Power Mode does), not the game
+      // being too heavy, and a lighter setting would only make it look worse for nothing.
+      if (++this.stuck >= 4) { this.stuck = 0; return Math.abs(f - 1000 / 30) < 1.8 && this.f0 && f > this.f0 * 0.93 ? 'capped' : 'exhausted'; }
     }
     if (this.fast >= this.upAfter && this.level > 0) return this.up();
     return null;
   }
   down(kind) {
-    this.slow = 0;
+    this.slow = 0; if (this.level === 0) this.f0 = this.lastF;                         // (how slow it was before anything was turned off)
     if (this.lastUp && this.clock - this.lastUp.t < 25) this.banned[this.lastUp.kind].add(this.lastUp.lvl);       // it was slow again soon after the last step back up: that step stays off
     if (kind === 'gpu') this.gpu++; else this.cpu++;
     this.history.push([this.clock, kind + '-down', this.level]);

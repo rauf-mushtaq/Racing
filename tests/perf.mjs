@@ -32,6 +32,9 @@ const run = (g, seconds, frameMs, jsMs, floor = true) => { const out = []; for (
 { const g = new PerfGuard(1, 1, { grace: 0 });
   const r = run(g, 40, 45, 35, true);
   check('when every step is down and it is still slow, it says so (so a lighter default can be saved)', r.includes('exhausted'), JSON.stringify(r)); }
+{ const g = new PerfGuard(2, 2, { grace: 0 });
+  const r = run(g, 90, 1000 / 30, 4, true);
+  check('frames held at exactly 30 a second (Low Power Mode) that nothing helps: no lighter default is saved', r.includes('capped') && !r.includes('exhausted'), JSON.stringify(r)); }
 { const g = new PerfGuard(4, 3, { grace: 6 });
   const r = run(g, 5, 60, 40, true);
   check('the grace period after a load is ignored', r.length === 0); }

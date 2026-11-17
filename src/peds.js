@@ -2,6 +2,7 @@
 // something loud happens). They are drawn as instanced meshes (one per body part, so about a dozen draw calls for the whole crowd)
 // on the same skeleton and animation as the player's character. A car that hits one knocks it over; that is a crime.
 import * as THREE from 'three';
+import { blobTex } from './textures.js';
 import { bodyParts, buildRig, animate, SKINS, HAIRS } from './person.js';
 import { figureMaterials } from './figure.js';
 import { N, SP, blockRect } from './city.js';
@@ -24,7 +25,7 @@ export const ARCH = { bruiser: 0.06, armed: 0.09 };
 const BRUISER_SHIRTS = [0x1e1e22, 0xf0f0f0, 0x8a2b2b, 0x3a3a3f, 0x2a7aa8, 0x2f5d44];
 const BRUISER = { w: 1.2, h: 1.07 };            // (the crowd figures of a big man are drawn wider and taller; the real people have muscle bones instead: people.js setBulk)
 const SHOW_R = 125;
-const _pv = new THREE.Vector3(), _pk = new THREE.Vector3();
+const _pv = new THREE.Vector3(), _pk = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 // The people close to the camera are real people (Rocketbox models with recorded walking, see people.js and mocap.js): a small pool of them is
 // handed to whoever is nearest, and given back as they walk away (the rest of the crowd is the instanced figures below).
 const REAL = { ultra: 16, high: 13, medium: 10, low: 4 }[Q.name] ?? 6, REAL_IN = 56, REAL_OUT = 68;          // (most people you can make out are real ones; the jointed figures are the crowd further off)
@@ -65,6 +66,11 @@ export class Peds {
       mesh.count = 0; mesh.frustumCulled = false; mesh.castShadow = shadows; mesh.setColorAt(0, new THREE.Color(1, 1, 1));
       scene.add(mesh); this.kinds.push({ k, bones, mesh, dye: dye[k] });
     }
+    // A soft contact shadow under everyone (the real people and the crowd), so their feet sit on the pavement: the only shadow they have where shadow
+    // maps are off, and the darkening right under the feet (which a shadow map is too coarse to give) where they are on.
+    { const k = shadows ? 0.75 : 1;
+      this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: blobTex(0.66 * k, 0.32 * k), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), count);
+      this.blobs.count = 0; this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; scene.add(this.blobs); this.bm = new THREE.Matrix4(); this.bq = new THREE.Quaternion(); this.bs = new THREE.Vector3(); this.bv = new THREE.Vector3(); }
     this.vis = []; this.slotOwner = new Array(count).fill(-1); this.tmpC = new THREE.Color(); this.m = new THREE.Matrix4(); this.mir = new THREE.Matrix4().makeScale(-1, 1, 1);
     this.zero = new THREE.Matrix4().makeScale(0, 0, 0);
     this.real = { slots: [], started: false }; this.realScale = 1; this.shadows = shadows; this.frame = 0;
@@ -292,6 +298,9 @@ export class Peds {
     }
     this.frame++;
     if (this.real.slots.length) { this.bindReal(camera); this.poseReal(camera, dt); }
+    { let nb = 0; const UP = _up;
+      for (const p of this.vis) { if (nb >= this.count) break; const lie = p.lie || 0; this.bq.setFromAxisAngle(UP, p.h || 0); this.bs.set(0.8 + lie * 0.35, 1, 0.8 + lie * 1.2); this.bv.set(p.x, (p.y || 0) + 0.03, p.z); this.bm.compose(this.bv, this.bq, this.bs); this.blobs.setMatrixAt(nb++, this.bm); }
+      this.blobs.count = nb; this.blobs.instanceMatrix.needsUpdate = true; }
     const inst = this.inst || (this.inst = []); inst.length = 0; for (const p of this.vis) { if (!p.real) inst.push(p); else p.phase += p.speed * dt / (p.state === 'panic' ? 2.2 : 1.4) * 6.283; }
     const B = this.B, n = inst.length;
     for (let s = 0; s < n; s++) {

@@ -500,6 +500,33 @@ export function puffTex() {
   g.putImageData(img, 0, 0); return tex(c, true, false);
 }
 
+// A round contact shadow (under a person's feet): dark in the middle, soft at the edge. Filled pixel by pixel: the same thing drawn with the canvas's
+// gradient tool came out blank on the graphics card (a gradient of black that only changes in transparency), so the people had no shadow at all.
+const _blobs = new Map();
+export function blobTex(core = 0.72, mid = 0.36) {
+  const key = core + ',' + mid; if (_blobs.has(key)) return _blobs.get(key);
+  const S = 64, [c, g] = mk(S), img = g.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const r = Math.min(1, Math.hypot((x + 0.5) / S * 2 - 1, (y + 0.5) / S * 2 - 1)), a = r < 0.42 ? core + (mid - core) * r / 0.42 : mid * (1 - (r - 0.42) / 0.58) ** 1.6, o = (y * S + x) * 4;
+    img.data[o] = img.data[o + 1] = img.data[o + 2] = 0; img.data[o + 3] = 255 * a;
+  }
+  g.putImageData(img, 0, 0); const t = tex(c, false, false); _blobs.set(key, t); return t;
+}
+// A car's contact shadow on the road (for a quad a little bigger than the car): dark right under the body, where no light reaches, fading softly out
+// past its outline. A plain radial blob was only a faint smudge where it shows, round the car's edges, so the car seemed to hover.
+let _carShadow = null;
+export function carShadowTex() {
+  if (_carShadow) return _carShadow;
+  const W = 64, H = 128, [c, g] = mk(W, H), img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const u = Math.abs((x + 0.5) / W * 2 - 1), v = Math.abs((y + 0.5) / H * 2 - 1), r = 0.22;
+    const qx = u - (0.62 - r), qy = v - (0.72 - r), sd = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+    const k = clamp(1 - (sd + 0.06) / 0.32, 0, 1), o = (y * W + x) * 4;
+    img.data[o] = img.data[o + 1] = img.data[o + 2] = 0; img.data[o + 3] = 255 * 0.82 * k * k * (3 - 2 * k);
+  }
+  g.putImageData(img, 0, 0); return (_carShadow = tex(c, false, false));
+}
+
 export function glowTex() {
   const [c, g] = mk(128); const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
   gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');

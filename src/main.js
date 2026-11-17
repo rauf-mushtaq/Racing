@@ -8,8 +8,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CSM } from 'three/addons/csm/CSM.js';
 import { $, clamp, damp, lerp, wrapAngle, LOW_POWER, IOS, fmtTime } from './util.js';
 import { settings, save } from './store.js';
-import { setAnisotropy, setTexScale, glowTex } from './textures.js';
-import { Q, GPU } from './quality.js';
+import { setAnisotropy, setTexScale, glowTex, carShadowTex } from './textures.js';
+import { Q, GPU, PERF_BUILD } from './quality.js';
 import { WIND } from './props.js';
 import { buildSky, placeSun, SUN_DIR, LIGHT_DIR, applyHDRI } from './sky.js';
 import { Motes } from './motes.js';
@@ -227,11 +227,12 @@ const trafficLevel = (l = settings.traffic) => (!guardTraffic && l !== 'off' ? '
 function saveLighterTier() {
   const order = ['ultra', 'high', 'medium', 'low'], i = order.indexOf(Q.name);
   if (TIER_EXPLICIT || i < 0 || i >= order.length - 1 || settings.qualityAuto === order[i + 1]) return;
-  settings.qualityAuto = order[i + 1]; save(); if (hud) hud.toast('THIS DEVICE STRUGGLES: A LIGHTER GRAPHICS SETTING IS SAVED FOR NEXT TIME', 4);
+  settings.qualityAuto = order[i + 1]; settings.qualityAutoBuild = PERF_BUILD; save(); if (hud) hud.toast('THIS DEVICE STRUGGLES: A LIGHTER GRAPHICS SETTING IS SAVED FOR NEXT TIME', 4);
 }
 function applyGuard(act) {
   if (!act) return;
   if (act === 'exhausted') { saveLighterTier(); return; }
+  if (act === 'capped') return;                                         // (held at 30 frames a second by the device: nothing to save)
   if (act.endsWith('-down')) { const lad = act.startsWith('gpu') ? GPU_LADDER : CPU_LADDER, st = lad[(act.startsWith('gpu') ? guard.gpu : guard.cpu) - 1]; st.on(false); if (hud) hud.toast('SMOOTHER: ' + st.name + ' OFF', 2.2); }
   else { const gpu = act.endsWith('gpu'), st = (gpu ? GPU_LADDER : CPU_LADDER)[gpu ? guard.gpu : guard.cpu]; st.on(true); }
 }
@@ -297,6 +298,9 @@ async function build() {
   // The police chase's grand tourer and its pursuers are built up front (hidden), so their materials are in the scene for the
   // shadows and reflections and their shaders compile now rather than in the middle of a chase.
   gtMesh = makeGT(); gtMesh.visible = false; scene.add(gtMesh);
+  // A soft contact shadow on the road under your own cars (the street cars you take have their own, fleetcar.js): without it a car seems to hover
+  // wherever shadow maps are off or the street is in the shade of the buildings (all evening).
+  for (const m of [heroMesh, gtMesh]) { const d = m.userData.dims || HERO_DIMS, cs = new THREE.Mesh(new THREE.PlaneGeometry((d.width || 2) + 0.75, (d.len || 4.6) + 1.1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: carShadowTex(), transparent: true, depthWrite: false })); cs.position.set(0, 0.025, 0); cs.renderOrder = 2; cs.name = 'contact'; m.add(cs); }
   police = new PoliceChase(scene); police.beams = null; traffic.setPolice(police.models);          // (the police cars parked outside the stations are drawn with the traffic)
   police.onBoom = (x, z, power) => { peds.scare(x, z, 70, 7); audio.boom(Math.max(0.5, power), x, groundAt(x, z).y + 1, z); };
   police.onCopGun = (v, x, y, z) => audio.copShot(v, x, y, z);

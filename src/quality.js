@@ -24,8 +24,11 @@ const TIERS = {
   low: { cloudTaps: 0, dpr: 1, msaa: 0, shadow: 0, cascades: 0, csmFar: 0, probe: 0, probeEvery: 0, aniso: 2, tex: 0.5, loadR: 2, detailR: 280, treeR: 420, treeDetail: 0, sharpen: 0, clarity: 0, ao: 0, bloom: 0, tCell: 25, tR: 1, scat: 0.2, scatR: 500, grass: null, peds: 24, ssr: null, gi: null },
 };
 
+// A lighter tier the performance guard saved is kept only for the build it was saved on: after an update (the game may be lighter, the guard
+// smarter) the device's own default is tried again. Bump this when that is worth doing.
+export const PERF_BUILD = 2;
 function autoTier() {
-  if (TIERS[settings.qualityAuto]) return settings.qualityAuto;            // a lighter default the performance guard saved (see main.js)
+  if (TIERS[settings.qualityAuto] && settings.qualityAutoBuild === PERF_BUILD) return settings.qualityAuto;            // a lighter default the performance guard saved (see main.js)
   if (LOW_POWER) return 'medium';
   const r = GPU.renderer;
   if (/swiftshader|llvmpipe|software|basic render/i.test(r)) return 'low';

@@ -210,8 +210,8 @@ function buildClouds(scene) {
       p.x += Math.sin(t * 5.5) * 140 + t * t * 1400 + (rnd() - 0.5) * 200 * (0.3 + t);
       p.z += (rnd() - 0.5) * 300;
       const size = 650 + t * 1500 + rnd() * 400;
-      const c = new THREE.Color().setRGB(lerp(0.74, 1.0, t), lerp(0.48, 0.66, t), lerp(0.56, 0.70, t));
-      mk(p, size * (1 + rnd() * 0.4), size, c, 0.30 + 0.25 * (1 - t) + rnd() * 0.1);
+      const c = new THREE.Color().setRGB(lerp(0.66, 0.88, t), lerp(0.52, 0.7, t), lerp(0.54, 0.7, t));          // (smoke lit by a low sun: a dusty, greyed pink, faint, not a bright cut-out)
+      mk(p, size * (1 + rnd() * 0.4), size, c, 0.1 + 0.1 * (1 - t) + rnd() * 0.05);
     }
   }                                                            // (the rest of the sky's clouds are the shader layer in clouds.js)
   if (!quads.length) { const none = new THREE.Group(); scene.add(none); return none; }           // (only the sunset has sprite clouds: its smoke plume)

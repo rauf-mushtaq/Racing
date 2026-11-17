@@ -11,6 +11,7 @@ import { pushFromIsland } from './junctions.js';
 import { wideSdf } from './avenues.js';
 import { policeModels } from './carModel.js';
 import { CarSet } from './fleet.js';
+import { carShadowTex } from './textures.js';
 import { carMaterials } from './cardetail.js';
 import { applyImpulse, carCircles } from './collide.js';
 import { Particles } from './particles.js';
@@ -60,9 +61,7 @@ export class PoliceChase {
     const barGeo = new THREE.BoxGeometry(0.46, 0.11, 0.2), barMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.bars = [0, 1].map(() => [0, 1].map(() => { const m = new THREE.InstancedMesh(barGeo, barMat, CAP); m.count = 0; m.frustumCulled = false; scene.add(m); return m; }));
     this.zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
-    const gr = g.createRadialGradient(32, 32, 4, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
-    this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), CAP);
+    this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: carShadowTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), CAP);
     this.blobs.count = 0; this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; scene.add(this.blobs);
     // Weapons.
     const steel = new THREE.MeshStandardMaterial({ color: 0xc4c7cd, roughness: 0.3, metalness: 0.85 }), red = new THREE.MeshStandardMaterial({ color: 0xcc2210, roughness: 0.5, metalness: 0.3 });

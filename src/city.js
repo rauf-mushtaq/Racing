@@ -292,7 +292,7 @@ function facadeFx(mat, kind, grid, room, sill, clear) {
               if (r4 > 0.7 && h.x > 0.78 && h.y < 0.72) col = vec3(0.42, 0.3, 0.2);`}
             } else if (t == tt.y) {
               col = rd.y < 0.0 ? floorC : vec3(0.86, 0.85, 0.82);
-              ${kind === 0 ? `if (rd.y > 0.0 && abs(fract(h.x * 2.0) - 0.5) < 0.22 && abs(fract(h.z * 3.0) - 0.5) < 0.16) lamp = 1.0;` : `if (rd.y > 0.0 && length(vec2(h.x - 0.5, h.z - 0.45)) < 0.07) lamp = 1.0;`}
+              ${kind === 0 ? `if (rd.y > 0.0) lamp = step(0.4, r3) * (1.0 - smoothstep(0.13, 0.18, abs(fract(h.x * 2.0) - 0.5))) * (1.0 - smoothstep(0.09, 0.13, abs(fract(h.z * 3.0) - 0.5)));` : `if (rd.y > 0.0 && length(vec2(h.x - 0.5, h.z - 0.45)) < 0.07) lamp = 1.0;`}
               ${kind === 0 ? `if (rd.y < 0.0 && fract(h.z * 3.0 + 0.2) < 0.3 && fract(h.x * 2.0 + r1) < 0.7) col = vec3(0.5, 0.48, 0.45);` : ''}
             } else {
               col = wallC * 0.86;
@@ -302,7 +302,7 @@ function facadeFx(mat, kind, grid, room, sill, clear) {
             float mid = dd.x + dd.y + dd.z - min(dd.x, min(dd.y, dd.z)) - max(dd.x, max(dd.y, dd.z));
             col *= (0.55 + 0.45 * smoothstep(0.0, 0.16, mid)) * mix(1.15, 0.5, h.z);  // (dark in the corners; light falls off away from the window)
             vec3 lit = texture2D(emissiveMap, (cid + vec2(cf.x, 0.62)) / vec2(${f(grid[0])}, ${f(grid[1])}), 3.0).rgb;
-            vec3 roomRad = col * (${f(ROOM_LIGHT)} + lit * emissive * 0.85) + lamp * (${kind === 0 ? f(TOD.night ? 0.25 : 0.55) + ' + ' : ''}lit * emissive * 1.6);      // (office ceiling panels are on all day; a home's lamp only when its window is lit)
+            vec3 roomRad = col * (${f(ROOM_LIGHT)} + lit * emissive * 0.85) + lamp * (${kind === 0 ? f(TOD.night ? 0.1 : 0.26) + ' + ' : ''}lit * emissive * 1.6);      // (the ceiling panels are on in some offices all day; a home's lamp only when its window is lit)
             // Blinds or curtains in front of the room, just behind the glass.
             if (r4 < 0.3 && cf.y > 1.0 - r2 * 0.6) roomRad = mix(vec3(0.62, 0.6, 0.55), vec3(0.5, 0.52, 0.55), r1) * (0.75 + 0.25 * step(0.4, fract(cf.y * 40.0))) * (${f(ROOM_LIGHT * 1.6)} + lit * emissive * 0.8);
             else if (r4 > 0.86 && abs(cf.x - 0.5) > 0.3 - r3 * 0.1) roomRad = mix(vec3(0.6, 0.45, 0.35), vec3(0.75, 0.72, 0.65), r2) * (0.8 + 0.2 * sin(cf.x * 90.0)) * (${f(ROOM_LIGHT * 1.4)} + lit * emissive * 0.85);
@@ -369,7 +369,7 @@ export class City {
       pool: std({ vertexColors: true, roughness: 0.35, metalness: 0 }),
       water: poolMaterial(TOD.lampsOn, rippleTex()),
       sign: std({ map: misc.sign, emissiveMap: misc.sign, emissive: 0xffffff, emissiveIntensity: TOD.signs, roughness: 0.5, side: THREE.DoubleSide }),
-      rail: std({ map: misc.rail, alphaTest: 0.5, alphaToCoverage: a2c, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.4 }),
+      rail: std({ map: misc.rail, ...(a2c ? { alphaTest: 0.5, alphaToCoverage: true } : { transparent: true, depthWrite: false, alphaTest: 0.03 }), side: THREE.DoubleSide, roughness: 0.5, metalness: 0.4 }),     // (without multisampling the bars are blended, not cut out: cut out, a railing a little way off broke into shimmering moiré)
       gantry: std({ map: misc.gantry, emissiveMap: misc.gantry, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.6, side: THREE.DoubleSide }),
     };
     for (const k of ['glass', 'modern', 'shop']) attachSSR(m[k], { range: 110, rough: 0.45, view: 160, strength: 0.85 });

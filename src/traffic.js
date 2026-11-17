@@ -10,6 +10,7 @@ import { isRound, RB } from './junctions.js';
 import { AVENUES } from './avenues.js';
 import { trafficModels } from './carModel.js';
 import { CarSet } from './fleet.js';
+import { carShadowTex } from './textures.js';
 import { carMaterials } from './cardetail.js';
 import { mulberry32, clamp, wrapAngle } from './util.js';
 
@@ -31,10 +32,7 @@ export class Traffic {
     this.mats = carMaterials(); this.dt = 1 / 60;
     this.meshes = this.models.map(md => this.makeSet(md));
     // Soft contact shadows under every car (cheaper than shadow-mapping them).
-    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
-    const gr = g.createRadialGradient(32, 32, 4, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,0.75)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
-    const st = new THREE.CanvasTexture(c);
+    const st = carShadowTex();
     this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.6, 5.6).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: st, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), CAP * 2);
     this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.blobs.count = 0; scene.add(this.blobs);
     this.sphere = new THREE.Sphere(new THREE.Vector3(), 3.5); this.eul = new THREE.Euler();

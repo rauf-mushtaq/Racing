@@ -2,6 +2,7 @@
 // movement (camera-relative, with collisions against buildings, poles, parked cars and traffic), the animation and the third-person
 // camera. The figure itself is in person.js.
 import * as THREE from 'three';
+import { blobTex } from './textures.js';
 import { animate, buildRig, PERSON_H } from './person.js';
 import { makeSmoothFigure } from './figure.js';
 import { loadPerson, personKey, COPS, PEDS } from './people.js';
@@ -27,11 +28,7 @@ export class Walker {
   constructor(scene, outfit = 'street', opts = {}) {
     this.rig = opts.lite ? Object.assign(buildRig(null, null, false), { meshes: [] }) : makeSmoothFigure(outfit); this.mesh = this.rig.root; this.mesh.visible = false; scene.add(this.mesh);
     // A soft contact shadow, so the feet sit on the ground even with shadow maps off.
-    if (!blobMat) {
-      const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
-      const gr = g.createRadialGradient(32, 32, 2, 32, 32, 32); gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
-      blobGeo = new THREE.PlaneGeometry(1.1, 1.1).rotateX(-Math.PI / 2); blobMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    }
+    if (!blobMat) { blobGeo = new THREE.PlaneGeometry(1.1, 1.1).rotateX(-Math.PI / 2); blobMat = new THREE.MeshBasicMaterial({ map: blobTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); }
     this.blob = new THREE.Mesh(blobGeo, blobMat.clone()); this.blob.material.map = blobMat.map;
     this.blob.renderOrder = 1; this.blob.visible = false; scene.add(this.blob); this.lite = !!opts.lite;
     this.active = false;
