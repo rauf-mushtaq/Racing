@@ -190,7 +190,7 @@ if (quality !== 'low') {
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
   if (Q.ssr) { histPass = new HistoryPass(camera); composer.addPass(histPass); }          // keeps the picture for next frame's reflection rays
-  if (Q.ao) { aoPass = new AOPass(camera, { radius: 2.0, gain: 3.2 }); composer.addPass(aoPass); }
+  if (Q.ao) { aoPass = new AOPass(camera, { radius: 2.0, gain: 3.2, taps: Q.aoTaps || 12 }); composer.addPass(aoPass); }          // (Medium, the tablets' tier, takes 8 samples a pixel; the guard turns it off first if the frame rate drops)
   if (Q.gi) { giPass = new GIPass(camera, { rays: Q.gi.rays, steps: Q.gi.steps }); composer.addPass(giPass); }
   if (Q.dof) { dofPass = new DOFPass(camera, Q.dof); composer.addPass(dofPass); }          // (after the passes that read the depth, before the bloom)
   bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), (TOD.night ? 0.62 : TOD.lampsOn ? 0.42 : 0.22) * Q.bloom, 0.55, TOD.night ? 0.8 : TOD.lampsOn ? 0.92 : 1.6);

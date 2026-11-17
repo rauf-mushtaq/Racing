@@ -378,9 +378,11 @@ function trafficType(o) {
     lp.push(colorize(new THREE.BoxGeometry(0.3, 0.09, 0.04).translate(s * (o.w - 0.28), o.hlY, P.zf + 0.0), hl));
   }
   // NEAR.
+  // (the seats and dashboard, det.inside, are left out: seen through the tinted glass they showed as pale blocks, lighter than the glass round them where
+  // the far window doubled it; a real car's cabin from outside is just dark glass. The car you drive has a full cockpit, fleetcar.js.)
   const bodyG = sliceGeo(gi, 0, bodyTris), glassG = sliceGeo(gi, bodyTris, n - bodyTris), det = detailParts(o, P, !!o.livery);
   const near = {
-    body: mergeGeoms([bodyG, bumper()]), glass: glassG, details: mergeGeoms([...det.trim, ...det.inside]), lamps: mergeGeoms(det.lamps),
+    body: mergeGeoms([bodyG, bumper()]), glass: glassG, details: mergeGeoms(det.trim), lamps: mergeGeoms(det.lamps),
     wheel: wheelGeometry(o.wr, 0.24, !!o.livery), decal: o.livery ? policeDecals(o, P) : null,
   };
   const wheelAt = [P.wzf, P.wzr].flatMap((wz, i) => [-1, 1].map(s => [s * (o.w - 0.14), wz, i === 0]));

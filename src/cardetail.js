@@ -44,20 +44,30 @@ export function decalAtlas() {
 // ---- Wheels -------------------------------------------------------------------------------------------------------------------------------------------------------------
 // One wheel, lying along the x axis and the same from both sides (so the left and right wheels are the same instance), of radius wr and width ww.
 export function wheelGeometry(wr, ww, police = false) {
-  const hw = ww / 2, rimR = wr * 0.62, parts = [];
+  // A real alloy wheel: a tyre with a slightly lighter sidewall, a rim of five twin spokes standing out from a dark barrel (so you see through between the
+  // spokes to the brake disc and calliper behind, as on a real car, instead of a flat pale disc with dark marks painted on it), a polished outer lip and a
+  // hub with a centre cap. A police car has plain dark steel wheels with a hub cap.
+  const hw = ww / 2, rimR = wr * 0.64, parts = [];
   const prof = [[rimR * 0.98, -hw * 0.9], [rimR, -hw], [wr * 0.8, -hw * 1.03], [wr * 0.93, -hw * 0.95], [wr * 0.99, -hw * 0.6], [wr, -hw * 0.2], [wr, hw * 0.2], [wr * 0.99, hw * 0.6], [wr * 0.93, hw * 0.95], [wr * 0.8, hw * 1.03], [rimR, hw], [rimR * 0.98, hw * 0.9]];
   // (a lathe turns about y, running along its profile from v = 0 to 1; the profile above runs from one rim edge round the tread to the other)
-  const tyre = new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 28).rotateZ(Math.PI / 2);
-  parts.push(paintGeo(tyre, C(0.06, 0.06, 0.065)));
-  const steel = police ? C(0.62, 0.64, 0.68) : C(0.72, 0.74, 0.78), dark = C(0.09, 0.09, 0.1);
-  parts.push(flatUV(paintGeo(new THREE.CylinderGeometry(rimR, rimR, ww * 0.18, 24).rotateZ(Math.PI / 2), dark), 0.5, 0.05));               // the barrel
+  const tyre = paintGeo(new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 32).rotateZ(Math.PI / 2), C(0.05, 0.05, 0.055)), tc = tyre.attributes.color, tp = tyre.attributes.position;
+  for (let i = 0; i < tp.count; i++) if (Math.abs(tp.getX(i)) > hw * 0.75) tc.setXYZ(i, 0.075, 0.075, 0.08);                                        // (the sidewalls a shade lighter than the tread)
+  parts.push(tyre);
+  const metal = police ? C(0.16, 0.17, 0.18) : C(0.5, 0.52, 0.56), lip = police ? C(0.2, 0.21, 0.22) : C(0.78, 0.8, 0.84), dark = C(0.035, 0.035, 0.04);
+  parts.push(flatUV(paintGeo(new THREE.CylinderGeometry(rimR * 0.97, rimR * 0.97, ww * 0.9, 28, 1, true).rotateZ(Math.PI / 2), dark), 0.5, 0.05));    // the barrel, dark inside
+  parts.push(cyl(rimR * 0.82, rimR * 0.82, 0.02, 28, 0, 0, 0, C(0.3, 0.3, 0.32), 0, 0, Math.PI / 2));                                         // the brake disc, seen through the spokes
+  parts.push(box(0.06, rimR * 0.34, rimR * 0.48, hw * 0.22, rimR * 0.52, rimR * 0.4, police ? C(0.08, 0.08, 0.09) : C(0.6, 0.08, 0.06)));    // the calliper
   for (const s of [-1, 1]) {
-    parts.push(cyl(rimR * 0.96, rimR * 0.96, 0.012, 24, s * hw * 0.62, 0, 0, steel, 0, 0, Math.PI / 2));                                      // the face of the rim
-    for (let k = 0; k < 5; k++) { const a = k / 5 * Math.PI * 2; parts.push(box(hw * 0.2, rimR * 0.82, 0.05 + 0.0, s * hw * 0.66, Math.cos(a) * rimR * 0.5, Math.sin(a) * rimR * 0.5, dark.clone().multiplyScalar(0.5), a, 0, 0)); }    // gaps between spokes (dark)
-    parts.push(cyl(rimR * 0.2, rimR * 0.2, 0.03, 12, s * hw * 0.7, 0, 0, C(0.85, 0.86, 0.9), 0, 0, Math.PI / 2));                            // the centre cap
+    const face = s * hw * 0.62;
+    const ring = new THREE.RingGeometry(rimR * 0.86, rimR * 1.0, 32).rotateY(s * Math.PI / 2).translate(face, 0, 0); parts.push(flatUV(paintGeo(ring, lip), 0.5, 0.05));  // the polished lip
+    if (police) parts.push(flatUV(paintGeo(new THREE.CircleGeometry(rimR * 0.86, 28).rotateY(s * Math.PI / 2).translate(face - s * 0.01, 0, 0), metal), 0.5, 0.05));   // (a steel wheel is a disc)
+    else for (let k = 0; k < 5; k++) for (const da of [-0.13, 0.13]) {
+      const a = k / 5 * Math.PI * 2 + da;
+      parts.push(box(hw * 0.16, rimR * 0.66, rimR * 0.13, face - s * hw * 0.05, Math.cos(a) * rimR * 0.55, Math.sin(a) * rimR * 0.55, metal, a, 0, 0));   // a spoke (two to each pair), hub to lip
+    }
+    parts.push(cyl(rimR * 0.27, rimR * 0.3, hw * 0.16, 16, face - s * hw * 0.02, 0, 0, metal, 0, 0, Math.PI / 2));                              // the hub
+    parts.push(cyl(rimR * 0.13, rimR * 0.13, 0.02, 12, face + s * hw * 0.06, 0, 0, police ? C(0.55, 0.56, 0.6) : C(0.12, 0.12, 0.13), 0, 0, Math.PI / 2));   // the centre cap
   }
-  parts.push(cyl(rimR * 0.86, rimR * 0.86, 0.02, 24, 0, 0, 0, C(0.25, 0.26, 0.28), 0, 0, Math.PI / 2));                                       // the brake disc, seen through the spokes
-  parts.push(box(0.05, rimR * 0.34, rimR * 0.46, hw * 0.18, rimR * 0.5, rimR * 0.42, police ? C(0.75, 0.05, 0.05) : C(0.55, 0.5, 0.2)));        // the calliper
   return mergeGeomsUV(parts);
 }
 
@@ -85,7 +95,7 @@ export function detailParts(o, P, police) {
     lamps.push(box(0.4, 0.09, 0.03, s * (w - 0.3), o.tlY, zr + 0.005, C(4.6, 0.25, 0.1)), box(0.1, 0.07, 0.03, s * (w - 0.55), o.tlY - 0.02, zr + 0.005, C(3.2, 3.0, 2.8)));
   }
   // What you see through the glass: two seats with headrests, the dashboard with a screen, a steering wheel, the rear bench; (and in a police car, a laptop and a shotgun rack).
-  const small = o.len < 6.5, sy = o.clear + 0.36, sz = (wsZ + doorZ) / 2 - 0.1, dark = C(0.03, 0.03, 0.035), seat = C(0.07, 0.07, 0.075);
+  const small = o.len < 6.5, sy = o.clear + 0.36, sz = (wsZ + doorZ) / 2 - 0.1, dark = C(0.012, 0.012, 0.014), seat = C(0.025, 0.024, 0.026);          // (dark: the inside of a car is in the shade of its roof, though nothing here casts that shadow)
   if (small) for (const s of [-0.38, 0.38]) inside.push(box(0.5, 0.12, 0.5, s * w * 0.9, sy, sz - 0.1, seat), box(0.46, 0.5, 0.1, s * w * 0.9, sy + 0.3, sz - 0.36, seat, -0.18), box(0.2, 0.2, 0.08, s * w * 0.9, sy + 0.66, sz - 0.4, seat));
   const rear = small ? [box(w * 1.7, 0.4, 0.5, 0, sy + 0.12, doorZ + 0.4, seat), box(w * 1.7, 0.5, 0.1, 0, sy + 0.34, doorZ + 0.1, seat, -0.15)] : [];     // (the rear bench: kept when you drive the car, see fleetcar.js)
   if (small) inside.push(box(w * 1.7, 0.3, 0.35, 0, sy + 0.24, wsZ - 0.3, dark), box(0.34, 0.03, 0.34, w * 0.4, sy + 0.38, wsZ - 0.62, dark, 1.1), ...rear);
@@ -117,9 +127,16 @@ export function policeDecals(o, P) {
 export function carMaterials() {
   const paint = attachSSR(new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.45, roughness: 0.3, clearcoat: 1.0, clearcoatRoughness: 0.04, sheen: 0.25, sheenRoughness: 0.5, sheenColor: new THREE.Color(0.8, 0.85, 1), envMapIntensity: 1.35 }), { range: 55, rough: 0.45, view: 120 });
   paintFlakes(paint, 0.6);
-  const glass = attachSSR(new THREE.MeshPhysicalMaterial({ color: 0x0b1218, metalness: 0.9, roughness: 0.03, transparent: true, opacity: 0.58, envMapIntensity: 2.4, clearcoat: 1, clearcoatRoughness: 0.02, depthWrite: false }), { range: 55, rough: 0.2, view: 120 });
+  const glass = attachSSR(new THREE.MeshPhysicalMaterial({ color: 0x070a0d, metalness: 0.75, roughness: 0.03, transparent: true, opacity: 0.8, envMapIntensity: 2.6, clearcoat: 1, clearcoatRoughness: 0.02, depthWrite: false }), { range: 55, rough: 0.2, view: 120 });     // (tinted: from outside the cabin is dim behind the reflections, as on a real car)
   const wheel = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.55, normalMap: treadNormal(), normalScale: new THREE.Vector2(0.9, 0.9), envMapIntensity: 0.9 });
   const details = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.4, envMapIntensity: 0.7 });
+  // The cabin (the seats, the dashboard: the only parts this dark) is in the shade of the roof on a real car, but nothing here casts that shadow, so in
+  // sunshine the seats came out as pale grey blocks behind the glass. They get only a little of the direct light and the reflections.
+  details.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+    #ifdef USE_COLOR
+      if (max(vColor.r, max(vColor.g, vColor.b)) < 0.03) { reflectedLight.directDiffuse *= 0.1; reflectedLight.directSpecular *= 0.1; reflectedLight.indirectSpecular *= 0.25; reflectedLight.indirectDiffuse *= 0.6; }
+    #endif`); };
+  details.customProgramCacheKey = () => 'cabinShade';
   const lamps = new THREE.MeshBasicMaterial({ vertexColors: true });
   const decal = new THREE.MeshStandardMaterial({ map: null, vertexColors: true, transparent: true, roughness: 0.35, metalness: 0.2, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, depthWrite: false, envMapIntensity: 1.2 });
   decal.map = decalAtlas();

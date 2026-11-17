@@ -13,7 +13,7 @@ const COMMON = `
   float linZ(vec2 uv) { float d = texture2D(tDepth, uv).r; float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
   vec3 viewPos(vec2 uv, float z) { vec2 n = uv * 2.0 - 1.0; return vec3(n.x * z * uTanY * uAspect, n.y * z * uTanY, -z); }
 `;
-const AO_FRAG = COMMON + `
+const AO_FRAG = (taps = 12) => COMMON + `
   uniform float uRadius, uGain;
   void main() {
     float zc = linZ(vUv);
@@ -31,14 +31,14 @@ const AO_FRAG = COMMON + `
     float focal = 0.5 * uRes.y / uTanY;                       // pixels per metre at a distance of one metre
     float rpix = min(uRadius * focal / zc, 48.0);
     float occ = 0.0;
-    for (int i = 0; i < 12; i++) {
-      float f = (float(i) + 0.5) / 12.0, a = ang0 + float(i) * 2.399963;
+    for (int i = 0; i < ${taps}; i++) {
+      float f = (float(i) + 0.5) / ${taps}.0, a = ang0 + float(i) * 2.399963;
       vec2 suv = vUv + vec2(cos(a), sin(a)) * (sqrt(f) * rpix) * tx;
       vec3 S = viewPos(suv, linZ(suv)), v = S - P;
       float d = length(v) + 1e-4;
       occ += max(0.0, dot(N, v) / d - 0.18) * clamp(1.0 - d / uRadius, 0.0, 1.0);
     }
-    float ao = 1.0 - clamp(occ / 12.0 * uGain, 0.0, 1.0);
+    float ao = 1.0 - clamp(occ / ${taps}.0 * uGain, 0.0, 1.0);
     ao = mix(ao, 1.0, smoothstep(70.0, 260.0, zc));           // fades out with distance
     gl_FragColor = vec4(vec3(ao), 1.0);
   }`;
@@ -61,7 +61,7 @@ export class AOPass extends Pass {
     const mk = () => new THREE.WebGLRenderTarget(4, 4, { type: THREE.UnsignedByteType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
     this.rtAO = mk(); this.rtBlur = mk(); this.texture = this.rtBlur.texture;
     const u = () => ({ tDepth: { value: null }, uRes: { value: new THREE.Vector2(4, 4) }, uNear: { value: camera.near }, uFar: { value: camera.far }, uTanY: { value: 1 }, uAspect: { value: 1 } });
-    this.aoMat = new THREE.ShaderMaterial({ uniforms: { ...u(), uRadius: { value: opts.radius ?? 1.8 }, uGain: { value: opts.gain ?? 2.4 } }, vertexShader: VERT, fragmentShader: AO_FRAG, depthTest: false, depthWrite: false });
+    this.aoMat = new THREE.ShaderMaterial({ uniforms: { ...u(), uRadius: { value: opts.radius ?? 1.8 }, uGain: { value: opts.gain ?? 2.4 } }, vertexShader: VERT, fragmentShader: AO_FRAG(opts.taps ?? 12), depthTest: false, depthWrite: false });
     this.blurMat = new THREE.ShaderMaterial({ uniforms: { ...u(), tAO: { value: this.rtAO.texture } }, vertexShader: VERT, fragmentShader: BLUR_FRAG, depthTest: false, depthWrite: false });
     this.quad = new FullScreenQuad(this.aoMat);
   }

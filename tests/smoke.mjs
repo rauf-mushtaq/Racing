@@ -76,7 +76,10 @@ try {
   await P.evaluate(() => { const g = window.__game; g.startWanted('gun'); });
   await P.evaluate(() => { const g = window.__game; g.officers.prepare && g.officers.prepare(); });
   await P.waitForFunction(() => !window.__game.officers.prepare || window.__game.officers.ready, null, { timeout: 120000 }).catch(() => {});
-  await step(P, 60 * 25);
+  // (The player stands still for these 25 seconds, and a patrol car that pulls up within a few metres of someone standing still arrests them after 3.4 s:
+  // on a slower machine one did, the chase ended and this and the next two checks failed. This check is about the police arriving, so the arrest and the
+  // damage are held off, as in the helicopter check below.)
+  await P.evaluate(() => { const g = window.__game, nr = window.__noRender; window.__noRender = true; for (let i = 0; i < 60 * 25; i++) { g.police.health = 100; g.police.bustT = 0; g.tick(1 / 60); } window.__noRender = nr; });
   const off = await P.evaluate(() => { const g = window.__game; return { chase: g.game.chaseOn, cops: g.police.cops.length, officers: g.officers.list.length, living: g.officers.living, ended: g.game.state }; });
   check('police arrive when wanted', off.chase && off.cops > 0, JSON.stringify(off));
   const cmb = await P.evaluate(async () => {
