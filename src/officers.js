@@ -207,6 +207,7 @@ export class Officers {
   }
   // updateCop asks: should this police car stay where it is?
   holds(c, dist) {
+    if (this.env.police.mode === 'stop') return !!c.held;                               // (a car pulling someone over: stop.js says when it waits)
     if (!this.enabled || c.spent || c.wreck) return false;
     if (c.officers > 0) return true;                                                   // its officers are out: wait for them
     if (!this.env.onFoot()) { c.held = false; return false; }
@@ -317,6 +318,7 @@ export class Officers {
     const P = this.env.police, foot = this.env.onFoot();
     if (!P.active) { if (this.list.length) this.clear(); return; }
     if (!this.ready) this.prepare();
+    if (P.mode === 'stop') return;                                                      // (one patrol car pulling you over: its officer is stop.js's)
     if (foot && P.result === 'running' && this.ready) this.deploy();
     this.sinceHit += dt; this.backupT = Math.max(0, this.backupT - dt);
     for (const o of this.list) o.update(dt);

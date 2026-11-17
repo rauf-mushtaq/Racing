@@ -13,7 +13,7 @@ try {
   const ev = (f, ...a) => P.evaluate(f, ...a);
 
   console.log('the places');
-  const info = await ev(() => { const g = window.__game, T = g.VENUE_TYPES; return Object.values(T).filter(t => !t.gym).map(t => ({ kind: t.kind, tier: t.tier, stars: t.stars, delay: t.delay, press: t.press, dmg: t.dmg, worth: t.worth })); });
+  const info = await ev(() => { const g = window.__game, T = g.VENUE_TYPES; return Object.values(T).filter(t => !t.gym && !t.station).map(t => ({ kind: t.kind, tier: t.tier, stars: t.stars, delay: t.delay, press: t.press, dmg: t.dmg, worth: t.worth })); });
   const order = ['petrol', 'shop', 'jeweller', 'bank', 'museum'];
   check('five kinds of place, from tier 1 to tier 5', info.length === 5 && order.every((k, i) => info.find(t => t.kind === k && t.tier === i + 1)), JSON.stringify(info.map(t => t.kind)));
   check('each is harder: more stars, quicker police, shorter time before the alarm, harder-shooting guards',

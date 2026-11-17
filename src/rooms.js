@@ -252,6 +252,83 @@ PLANS.gym = function (R, v, rnd) {
   R.light(-4.5, H - 1.2, 4, 1.25); R.light(4.5, H - 1.2, 4, 1.15); R.light(-4.5, H - 1.2, 12, 1.2); R.light(5.3, H - 1.2, 11.3, 1.3);
   R.gymRing = { x0: R.ox + rx0, x1: R.ox + rx1, z0: R.oz + rz0, z1: R.oz + rz1, h: rh };
 };
+// ---- A police station (jail.js runs it): the public lobby with the front desk behind glass, and behind a locked steel door the custody suite: a
+// corridor and four cells, each with a steel bunk and a thin mattress, a steel toilet and basin, a small barred window high in the back wall and a
+// caged light. You can walk into the lobby; you see the cells from the inside when you are arrested (stop.js), and the cell door and the custody door
+// open on the morning you are let out. The windows (R.jail.win) and the cell lights (R.jail.lamp) are materials of their own, so the day can pass.
+const moving = (R, x0, z0, x1, z1, y0, y1, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), mat); m.position.set(R.ox + (x0 + x1) / 2, R.oy + (y0 + y1) / 2, R.oz + (z0 + z1) / 2); m.castShadow = true; return m; };
+PLANS.police = function (R, v, rnd) {
+  const W = 16, D = 12.6, H = 3.2, CZ = 8.6, navy = C(0x1d2c4a), steel = C(0x8d949b), cream = C(0xe9e4d4), lower = C(0x7f93a8);
+  R.shell(W, D, H, { floor: C(0xffffff), floorS: 3, wall: cream, trim: C(0x2a3346), ceil: C(0xb9bbbd) });
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0x8d949b, metalness: 0.9, roughness: 0.35, envMapIntensity: 1.1 });
+  const J = R.jail = { win: new THREE.MeshBasicMaterial({ color: 0xcfe0ff }), lamp: new THREE.MeshBasicMaterial({ color: 0xffffff }), doors: {}, cell: null, tray: null };
+  // Two-tone paint: the lower metre and a bit of every wall a darker blue-grey (the walls' own texture under both).
+  R.box('wall', -W / 2, 0.01, -W / 2 + 0.012, D, 0, 1.25, lower); R.box('wall', W / 2 - 0.012, 0.01, W / 2, D, 0, 1.25, lower); R.box('wall', -W / 2, D - 0.012, W / 2, D, 0, 1.25, lower);
+  // ---- The lobby: the front desk behind glass, a bench, a notice board, posters.
+  R.slab('prop', -2.8, 3.3, 2.8, 4.1, 0, 1.08, navy, C(0xd8d4c8)); glassBox(R, -2.8, 3.62, 2.8, 3.7, 1.08, 2.35); R.box('metal', -2.85, 3.6, 2.85, 3.72, 2.35, 2.42, steel);
+  R.box('metal', -0.35, 3.58, 0.35, 3.74, 1.08, 1.12, steel);                                                                    // (the slot under the glass)
+  R.box('prop', -1.6, 3.95, -1.0, 4.05, 1.08, 1.45, C(0x1e2024)); R.box('emit', -1.58, 3.94, -1.02, 3.95, 1.12, 1.42, C(0x9fc8ff).multiplyScalar(1.2));      // a screen
+  R.item({ id: 'desk', type: 'desk', x: 0, z: 2.75, y: 1.1, r: 1.7, label: 'FRONT DESK', dur: 0 });
+  R.slab('prop', -7.65, 1.0, -7.05, 4.4, 0, 0.46, C(0x2b3a52), C(0x3a4a66));                                                       // the bench
+  R.box('prop', -7.99, 1.3, -7.96, 3.9, 1.25, 2.3, C(0x8a6a3a)); for (let k = 0; k < 7; k++) { const z = 1.45 + k * 0.34 + rnd() * 0.05, y = 1.4 + (k % 2) * 0.42; R.box('prop', -7.96, z, -7.95, z + 0.22, y, y + 0.3, C(k % 3 ? 0xf2f0e8 : 0xf4e27a)); }
+  for (let k = 0; k < 3; k++) { const z = 1.6 + k * 1.1; R.box('prop', 7.95, z, 7.99, z + 0.62, 1.35, 2.2, C(0xf4f1e6)); R.box('prop', 7.94, z + 0.08, 7.95, z + 0.54, 1.75, 2.1, C(0x3a3d44)); R.box('prop', 7.94, z + 0.06, 7.95, z + 0.56, 1.42, 1.52, C(0xb0121a)); }      // WANTED posters
+  R.box('prop', -0.75, 5.5, 0.75, 5.55, 2.0, 2.85, navy); R.box('emit', -0.6, 5.48, 0.6, 5.5, 2.1, 2.75, C(0x6f9cff).multiplyScalar(1.1));                 // the force's crest, lit
+  R.spot('sergeant', 0.6, 4.75, Math.PI); R.spot('visitor', -6.6, 3.0, -Math.PI / 2);
+  // ---- The partition, and the custody door in it (locked: it opens when you are let out).
+  R.box('wall', -W / 2, 5.6, 4.6, 5.85, 0, H, cream, true); R.box('wall', 5.8, 5.6, W / 2, 5.85, 0, H, cream, true); R.box('wall', 4.6, 5.6, 5.8, 5.85, 2.3, H, cream);
+  R.box('wall', -W / 2, 5.585, 4.6, 5.6, 0, 1.25, lower); R.box('wall', -W / 2, 5.85, 4.6, 5.865, 0, 1.25, lower);
+  { const g = new THREE.Group(); g.add(moving(R, 4.62, 5.66, 5.78, 5.8, 0, 2.28, steelMat)); const pane = moving(R, 5.0, 5.64, 5.4, 5.82, 1.4, 1.9, R.mats.glass); pane.castShadow = false; g.add(pane); R.loose.push(g);
+    const box = { x0: R.ox + 4.6, x1: R.ox + 5.8, z0: R.oz + 5.6, z1: R.oz + 5.85, y0: R.oy, y1: R.oy + 2.3 }; R.boxes.push(box); J.doors.custody = { g, box, slide: [1.15, 0], open: 0 }; }
+  R.box('prop', 6.0, 5.53, 6.18, 5.6, 1.2, 1.45, C(0x1e2024)); R.box('emit', 6.03, 5.52, 6.15, 5.53, 1.3, 1.4, C(0x5dff8a).multiplyScalar(1.6));         // the keypad
+  // ---- The custody corridor and the four cells.
+  for (const x of [-4, 0, 4]) { R.box('wall', x - 0.1, CZ, x + 0.1, D, 0, H, cream, true); for (const s of [-1, 1]) R.box('wall', x + s * 0.1 - (s < 0 ? 0.012 : 0), CZ, x + s * 0.1 + (s > 0 ? 0.012 : 0), D, 0, 1.25, lower); }
+  for (let i = 0; i < 4; i++) {
+    const x0 = -W / 2 + i * 4 + (i ? 0.1 : 0), x1 = -W / 2 + (i + 1) * 4 - (i < 3 ? 0.1 : 0), cx = (x0 + x1) / 2, mine = i === 1;
+    // The bars: uprights every 13 cm, three flat bands across, a concrete lintel over them. In your cell, the door is a panel of bars of its own that slides.
+    const dx0 = cx + 0.15, dx1 = cx + 1.25;
+    for (let x = x0 + 0.08; x < x1 - 0.04; x += 0.13) { if (mine && x > dx0 - 0.02 && x < dx1 + 0.02) continue; R.box('metal', x - 0.016, CZ - 0.02, x + 0.016, CZ + 0.02, 0, 2.45, steel); }
+    for (const y of [0.12, 1.1, 2.4]) { if (mine) { R.box('metal', x0, CZ - 0.04, dx0, CZ + 0.04, y - 0.03, y + 0.03, steel); R.box('metal', dx1, CZ - 0.04, x1, CZ + 0.04, y - 0.03, y + 0.03, steel); } else R.box('metal', x0, CZ - 0.04, x1, CZ + 0.04, y - 0.03, y + 0.03, steel); }
+    R.box('wall', x0, CZ - 0.1, x1, CZ + 0.1, 2.45, H, cream);
+    if (mine) {
+      R.boxes.push({ x0: R.ox + x0, x1: R.ox + dx0, z0: R.oz + CZ - 0.05, z1: R.oz + CZ + 0.05, y0: R.oy, y1: R.oy + H }, { x0: R.ox + dx1, x1: R.ox + x1, z0: R.oz + CZ - 0.05, z1: R.oz + CZ + 0.05, y0: R.oy, y1: R.oy + H });
+      const g = new THREE.Group(); for (let x = dx0 + 0.06; x < dx1 - 0.03; x += 0.13) g.add(moving(R, x - 0.016, CZ - 0.07, x + 0.016, CZ - 0.03, 0.02, 2.44, steelMat));
+      for (const y of [0.12, 1.1, 2.4]) g.add(moving(R, dx0, CZ - 0.09, dx1, CZ - 0.03, y - 0.035, y + 0.035, steelMat));
+      g.add(moving(R, dx1 - 0.16, CZ - 0.13, dx1 - 0.04, CZ - 0.07, 1.0, 1.2, steelMat));                                                                 // the lock
+      R.loose.push(g); const box = { x0: R.ox + dx0, x1: R.ox + dx1, z0: R.oz + CZ - 0.1, z1: R.oz + CZ + 0.05, y0: R.oy, y1: R.oy + H }; R.boxes.push(box); J.doors.cell = { g, box, slide: [-1.05, 0], open: 0 };
+      // The hatch in the bars where the food comes through, and the tray (put there at mealtimes).
+      R.box('metal', dx1 + 0.05, CZ - 0.02, dx1 + 0.55, CZ + 0.32, 0.92, 0.96, steel);
+      const tray = new THREE.Group(); tray.add(moving(R, dx1 + 0.08, CZ + 0.02, dx1 + 0.52, CZ + 0.3, 0.96, 0.985, new THREE.MeshStandardMaterial({ color: 0x6f7378, roughness: 0.5, metalness: 0.4 })));
+      for (const [ox, oz, c] of [[0.17, 0.1, 0xd9c48a], [0.36, 0.1, 0x8a5a2a], [0.27, 0.22, 0x4f8a3a]]) { const m = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 6).scale(1, 0.45, 1), new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 })); m.position.set(R.ox + dx1 + ox, R.oy + 1.0, R.oz + CZ + oz); tray.add(m); }
+      tray.visible = false; R.loose.push(tray); J.tray = tray;
+      // Tally marks scratched by whoever was here before: rows of four strokes and one across.
+      for (let gI = 0; gI < 7; gI++) { const z = 9.4 + (gI % 4) * 0.42, y = 1.55 + Math.floor(gI / 4) * 0.32; for (let k = 0; k < 4; k++) R.box('prop', x0 + 0.002, z + k * 0.05, x0 + 0.006, z + k * 0.05 + 0.012, y, y + 0.2, C(0x55534c)); R.box('prop', x0 + 0.003, z - 0.03, x0 + 0.007, z + 0.21, y + 0.09, y + 0.11, C(0x55534c)); }
+      J.cell = { x0: R.ox + x0, x1: R.ox + x1, z0: R.oz + CZ, z1: R.oz + D, cx: R.ox + cx, cz: R.oz + 10.6, door: { x: R.ox + (dx0 + dx1) / 2, z: R.oz + CZ } };
+    } else R.boxes.push({ x0: R.ox + x0, x1: R.ox + x1, z0: R.oz + CZ - 0.05, z1: R.oz + CZ + 0.05, y0: R.oy, y1: R.oy + H });
+    // The bunk: a steel shelf on the wall, a thin blue mattress, a grey blanket folded at the foot, a pillow.
+    const bx0 = x0 + 0.06, bx1 = x0 + 0.84;
+    R.slab('metal', bx0, 9.4, bx1, 11.5, 0.3, 0.44, steel, C(0x9aa0a8)); R.box('metal', bx0 + 0.05, 9.5, bx0 + 0.11, 11.4, 0, 0.3, steel);
+    R.boxes.push({ x0: R.ox + bx0, x1: R.ox + bx1, z0: R.oz + 9.4, z1: R.oz + 11.5, y0: R.oy, y1: R.oy + 0.44 });
+    R.box('prop', bx0 + 0.03, 9.45, bx1 - 0.03, 11.45, 0.44, 0.53, C(0x3d5a7a)); R.box('prop', bx0 + 0.05, 9.52, bx1 - 0.05, 9.92, 0.53, 0.6, C(0xe8e6de));
+    R.box('prop', bx0 + 0.06, 10.95, bx1 - 0.06, 11.4, 0.53, 0.63, C(0x6b6e74));
+    if (mine) R.item({ id: 'bunk', type: 'bunk', x: bx1 + 0.35, z: 10.45, y: 0.6, r: 1.2, label: 'SLEEP', dur: 0 });
+    // The steel toilet and basin in the back corner.
+    const tx = x1 - 0.42; R.box('metal', tx - 0.3, D - 0.42, tx + 0.3, D - 0.02, 0, 0.42, steel, true); R.drum('metal', tx, D - 0.62, 0.22, 0.22, 0.42, steel, false, 12);
+    R.box('metal', tx - 0.3, D - 0.3, tx + 0.3, D - 0.02, 0.42, 1.0, steel); R.box('metal', tx - 0.22, D - 0.46, tx + 0.22, D - 0.3, 0.86, 0.95, steel); R.box('prop', tx - 0.03, D - 0.36, tx + 0.03, D - 0.3, 0.98, 1.05, C(0x30343a));
+    // The window: a slot high in the back wall, three bars across it, the sky behind (its colour changes with the hour).
+    const wx = cx - 0.3; { const m = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.36), J.win); m.position.set(R.ox + wx, R.oy + 2.28, R.oz + D - 0.015); m.rotation.y = Math.PI; R.loose.push(m); }
+    R.box('wall', wx - 0.36, D - 0.2, wx + 0.36, D, 2.06, 2.1, cream); R.box('wall', wx - 0.36, D - 0.2, wx + 0.36, D, 2.46, 2.5, cream); R.box('wall', wx - 0.36, D - 0.2, wx - 0.32, D, 2.06, 2.5, cream); R.box('wall', wx + 0.32, D - 0.2, wx + 0.36, D, 2.06, 2.5, cream);
+    for (const k of [-0.16, 0, 0.16]) R.box('metal', wx + k - 0.012, D - 0.12, wx + k + 0.012, D - 0.09, 2.1, 2.46, steel);
+    // The caged light in the middle of the ceiling.
+    { const m = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.03, 0.22), J.lamp); m.position.set(R.ox + cx, R.oy + H - 0.06, R.oz + 10.6); R.loose.push(m); }
+    R.box('metal', cx - 0.25, 10.45, cx + 0.25, 10.75, H - 0.1, H - 0.08, steel); for (const k of [-0.2, 0, 0.2]) R.box('metal', cx + k - 0.006, 10.45, cx + k + 0.006, 10.75, H - 0.1, H, steel);
+  }
+  // The people: three others in the cells (pacing, shadow-boxing, standing at the bars), and a custody officer walking the corridor.
+  R.spot('inmate', -6, 10.4, Math.PI, { act: 'pace', key: 'ped_m2' }); R.spot('inmate', 2.4, 10.2, Math.PI, { act: 'box', key: 'hoodie' }); R.spot('inmate', 6.2, 9.05, Math.PI, { act: 'bars', key: 'ped_m4' });
+  R.spot('guard', -6.4, 7.25, Math.PI / 2, { patrol: [-6.4, 6.4] });
+  // Lights: the lobby, the corridor (two), and your cell.
+  for (const x of [-4.5, 0, 4.5]) R.panel(x, 2.4, 1.6, 0.3, H, C(0xfff6e8), 3); for (const x of [-5, 0, 5]) R.panel(x, 7.2, 1.2, 0.25, H, C(0xf2f6ff), 2.6);
+  R.light(0, 2.8, 2.4, 1.1); R.light(-4, 2.9, 7.2, 0.75); R.light(4, 2.9, 7.2, 0.75, 0xeef2ff); R.light(-2, 2.9, 10.6, 0.7);
+};
 export function planFor(kind) {
   const f = PLANS[kind];
   return (R, v) => { const s = (v.seed ?? 1) >>> 0; let a = s + 0x6D2B79F5; const rnd = () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; f(R, v, rnd); };

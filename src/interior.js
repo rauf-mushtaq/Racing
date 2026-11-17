@@ -82,6 +82,17 @@ const SURFACES = {
   }, 0.8),
   // Bare concrete overhead (the gym's high ceiling, painted dark).
   concrete: () => surfaceTex(256, (u, v) => { const n = fbm(u, v, 7), g = 0.85 + 0.15 * n; return [g * 200, g * 200, g * 198, n, 0.9]; }, 1.5),
+  // A police station's floor: concrete painted grey-green and sealed, worn paler where people walk, scuffed black by shoes, a saw cut every two metres.
+  epoxy: () => surfaceTex(512, (u, v, x, y) => {
+    const tu = (u * 2) % 1, tv = (v * 2) % 1, cut = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.004, wear = Math.pow(fbm(u * 0.6, v * 0.6, 3), 2) * 0.35, scuff = Math.pow(noise(u * 2 + 0.7, v * 7, 9), 8) * 0.5, spot = hash(x, y) > 0.995 ? 0.12 : 0;
+    const g = (0.86 + 0.08 * fbm(u, v, 14)) * (1 - scuff * 0.6) - spot; return [(0.5 + wear * 0.4) * 255 * g, (0.56 + wear * 0.35) * 255 * g, (0.53 + wear * 0.3) * 255 * g, cut ? 0.1 : 0.55 + 0.05 * fbm(u, v, 30), cut ? 0.9 : 0.35 + wear * 0.5 + scuff * 0.3];
+  }, 2),
+  // Painted concrete blocks (the cells and the corridor): big blocks in a running bond, the joints sunk, the paint thick and a little shiny, chipped here and there.
+  block: () => surfaceTex(512, (u, v, x, y) => {
+    const rows = 12, cols = 4, r = Math.floor(v * rows), lv = (v * rows) % 1, lu = (u * cols + (r & 1) * 0.5) % 1, c = Math.floor(u * cols + (r & 1) * 0.5);
+    const joint = lv < 0.05 || lu < 0.022, pits = hash(x * 3.1, y * 1.7) > 0.985 ? 0.25 : 0, round = Math.min(1, Math.min(lv - 0.05, 1 - lv, lu - 0.022, 1 - lu) * 25), chip = Math.pow(noise(u * 5 + c, v * 5, 11), 9) > 0.35 ? 0.1 : 0;
+    const g = (joint ? 0.86 : 0.95 + 0.04 * hash(c, r)) - chip; return [g * 240, g * 238, g * 230, joint ? 0.05 : 0.5 + 0.35 * Math.max(0, round) - pits + 0.05 * fbm(u, v, 40), joint ? 0.7 : 0.55 + pits];
+  }, 3),
 };
 export function surface(name) { return SURF[name] || (SURF[name] = SURFACES[name]()); }
 // Which surfaces a kind of place has: [floor, walls, ceiling], and how the floor shines.
@@ -89,6 +100,7 @@ const LOOK = {
   petrol: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }], shop: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }],
   jeweller: ['granite', 'plaster', 'ceiling', { clearcoat: 0.8, rough: 0.6 }], bank: ['marble', 'plaster', 'ceiling', { clearcoat: 0.85, rough: 0.6 }],
   museum: ['oak', 'plaster', 'ceiling', { clearcoat: 0.55, rough: 0.9 }], gym: ['rubber', 'brick', 'concrete', { clearcoat: 0, rough: 1 }],
+  police: ['epoxy', 'block', 'concrete', { clearcoat: 0.35, rough: 0.9 }],
 };
 export const TEX = {};
 function makeTextures() {
@@ -170,9 +182,9 @@ function decorate(R, venue) {
   const rnd = mulberry32((venue.seed | 0) * 131 + 7), W = R.W, D = R.D, H = R.H, dark = C(0x1c1d20), white = C(0xf2f0e8);
   R.box('prop', -0.95, 0.12, 0.95, 0.9, 0, 0.014, C(0x26272b));                                                                            // the doormat
   R.box('prop', -0.34, 0.0, 0.34, 0.07, H - 0.4, H - 0.2, dark); R.box('emit', -0.3, 0.07, 0.3, 0.09, H - 0.37, H - 0.23, C(0x5dff8a).multiplyScalar(2.2));   // the exit sign over the door
-  const cx = W * 0.22, cy = Math.min(H - 0.55, 2.3);
-  R.box('prop', cx - 0.23, D - 0.06, cx + 0.23, D, cy - 0.23, cy + 0.23, dark); R.box('prop', cx - 0.2, D - 0.075, cx + 0.2, D - 0.06, cy - 0.2, cy + 0.2, white);   // a wall clock,
-  R.box('metal', cx - 0.012, D - 0.085, cx + 0.012, D - 0.075, cy, cy + 0.15, dark); R.box('metal', cx, D - 0.085, cx + 0.1, D - 0.075, cy - 0.012, cy + 0.012, dark);   // with its hands
+  const cx = W * 0.22, cy = Math.min(H - 0.55, 2.3), CD = venue.kind === 'police' ? 5.6 : D;                                                  // (a police station's is on the lobby's back wall, not in a cell)
+  R.box('prop', cx - 0.23, CD - 0.06, cx + 0.23, CD, cy - 0.23, cy + 0.23, dark); R.box('prop', cx - 0.2, CD - 0.075, cx + 0.2, CD - 0.06, cy - 0.2, cy + 0.2, white);   // a wall clock,
+  R.box('metal', cx - 0.012, CD - 0.085, cx + 0.012, CD - 0.075, cy, cy + 0.15, dark); R.box('metal', cx, CD - 0.085, cx + 0.1, CD - 0.075, cy - 0.012, cy + 0.012, dark);   // with its hands
   for (const [x, z] of [[-W / 4, D * 0.3], [W / 4, D * 0.3], [-W / 4, D * 0.72], [W / 4, D * 0.72]]) R.box('prop', x - 0.08, z - 0.08, x + 0.08, z + 0.08, H - 0.05, H, white);    // smoke detectors
   for (const x of [-W / 2 + 1.0, W / 2 - 1.0]) R.box('prop', x - 0.3, D * 0.5 - 0.3, x + 0.3, D * 0.5 + 0.3, H - 0.03, H, C(0xcfd2d4));                                         // air vents
   // Plants in the front corners (a pot and a bush of leaves).

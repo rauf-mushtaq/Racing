@@ -439,7 +439,7 @@ export function signAtlas() {
   ];
   for (let n = 0; n < 32; n++) {
     const col = n % 4, row = (n / 4) | 0, x = col * 512, y = row * 256;
-    const special = n >= 24, s = special ? SPECIAL_SCHEMES[n - 24] : schemes[(n + row) % 4], name = special ? SPECIAL_NAMES[n - 24] : SIGN_NAMES[n % 16];
+    const special = n >= 24, police = n === 23, s = police ? { bg: '#0c1f4a', fg: '#ffffff', glow: '#7fb0ff' } : special ? SPECIAL_SCHEMES[n - 24] : schemes[(n + row) % 4], name = police ? 'POLICE' : special ? SPECIAL_NAMES[n - 24] : SIGN_NAMES[n % 16];      // (cell 23: a police station's)
     g.fillStyle = s.bg; g.fillRect(x + 8, y + 8, 496, 240);
     g.strokeStyle = s.glow; g.lineWidth = 10; g.strokeRect(x + 24, y + 24, 464, 208);
     g.font = `900 ${name.length > 7 ? 76 : 104}px "Barlow Condensed", "Arial Narrow", Arial, sans-serif`;

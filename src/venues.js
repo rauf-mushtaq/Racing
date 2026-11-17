@@ -17,7 +17,11 @@ export const VENUE_TYPES = {
   museum:   { kind: 'museum',   name: 'MUSEUM',           tier: 5, stars: 4, delay: 0, press: [3, 6], dmg: 7.5, aim: 1.2, blurb: 'Patrols, cameras, lasers', worth: '$315,000' },
   // Not a place to rob: a gym, to train in (gym.js).
   gym:      { kind: 'gym',      name: 'IRON CITY GYM',    gym: true, tier: 0, stars: 0, blurb: 'Train: hit harder, run faster' },
+  // Nor this: a police station, with its front desk and its cells (jail.js). Arrested, you are kept here.
+  police:   { kind: 'police',   name: 'POLICE STATION',   station: true, tier: 0, stars: 0, blurb: 'The front desk, and the cells' },
 };
+// The nearest police station that has been built so far (or null).
+export function stationNear(x, z) { let best = null, bd = 1e18; for (const v of VENUES.values()) { if (v.kind !== 'police') continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
 
 // ---- Where they are ------------------------------------------------------------------------------------------------------------------------------------
 // Built as the city streams in (a region's buildings are made when it is near); the list stays, and says where every door is.
@@ -42,21 +46,24 @@ export function venuesWithin(x, z, r) { const out = []; for (const v of VENUES.v
 export function venueKindFor(zone, lot, faces) {
   const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0, h = hash3(Math.round(lot.x0), Math.round(lot.z0), 73);
   if (!faces.length || Math.min(w, d) < 15) return null;
-  const gym = w >= 20 && d >= 18;                                                             // (a gym needs a lot big enough for its hall)
+  const gym = w >= 20 && d >= 18, station = w >= 20 && d >= 17;                              // (a gym needs a lot big enough for its hall; a police station for its cells)
   if (zone === 'down' || zone === 'mid') {
     if (h < 0.014 && w >= 34 && d >= 30) return 'museum';
     if (h < 0.05) return 'jeweller';
     if (h < 0.095) return 'shop';
     if (zone === 'mid' && h < 0.135 && w >= 27 && d >= 24) return 'petrol';
     if (h >= 0.135 && h < 0.175 && gym) return 'gym';
+    if (h >= 0.175 && h < 0.2 && station) return 'police';
   } else if (zone === 'low') {
     if (h < 0.07 && w >= 27 && d >= 24) return 'petrol';
     if (h < 0.13) return 'shop';
     if (h < 0.17 && gym) return 'gym';
+    if (h < 0.19 && station) return 'police';
   } else if (zone === 'sub') {
     if (h < 0.05 && w >= 27 && d >= 24) return 'petrol';
     if (h < 0.09) return 'shop';
     if (h < 0.12 && gym) return 'gym';
+    if (h < 0.135 && station) return 'police';
   }
   return null;
 }
@@ -136,6 +143,22 @@ export function buildVenue(city, ctx, lot, faces, zone, kind, rnd) {
     const door = frontDoor(city, ctx, b, f, 'gym', { h: 2.6, pane: col(0.3, 0.36, 0.42) });
     const [kx, kz] = city.facePt(b, f, W / 2 + 1.8, 0.9); for (let k = 0; k < 3; k++) { const o = k * 0.55 - 0.55, ax = f.dir[0] !== 0 ? 0 : o, az = f.dir[0] !== 0 ? o : 0; G.props.box(kx + ax - 0.03, kz + az - 0.03, kx + ax + 0.03, kz + az + 0.03, CURB, CURB + 0.8, 3, col(0.7, 0.72, 0.75)); }
     addCollider({ type: 'box', x0: kx - 0.7, x1: kx + 0.7, z0: kz - 0.7, z1: kz + 0.7 }, ctx.colliders);
+    return door;
+  }
+  if (kind === 'police') {
+    // A civic building in pale stone: a dark glass front, a navy band with a chequered strip along its foot and POLICE in white over the door, a lamp
+    // on a bracket each side of the door, steps up to it, and a bollard or two on the pavement.
+    city.buildMass(ctx, b, 'modern', 10.5 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: col(0.78, 0.76, 0.72) });
+    const W = Math.min(along - 3, 14), navy = col(0.05, 0.1, 0.26), white = col(0.93, 0.94, 0.96), pane = col(0.32, 0.4, 0.48);
+    city.faceBox(G.props, b, f, -W / 2, W / 2, -0.04, 0.2, CURB, CURB + 3.4, col(0.11, 0.13, 0.16));
+    for (const s of [-1, 1]) for (let k = 0; k < 2; k++) { const a0 = s * (1.7 + k * (W / 2 - 1.9) / 2), a1 = s * (1.7 + (k + 1) * (W / 2 - 1.9) / 2) - s * 0.15; city.faceBox(G.props, b, f, Math.min(a0, a1), Math.max(a0, a1), -0.06, 0.22, CURB + 0.6, CURB + 3.15, pane); }
+    city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.45, CURB + 3.4, CURB + 4.5, navy);
+    const n = Math.max(8, Math.round((W + 0.6) / 0.45)); for (let k = 0; k < n; k++) { const t0 = -W / 2 - 0.3 + k * (W + 0.6) / n, t1 = t0 + (W + 0.6) / n; city.faceBox(G.props, b, f, t0, t1, 0, 0.47, CURB + 3.4, CURB + 3.62, k % 2 ? white : navy); }
+    city.faceSign(ctx, b, f, -33, 0, 0.5, CURB + 3.66, Math.min(5.2, W * 0.42), 0.8);                                         // (cell 23 of the sign atlas: POLICE)
+    const door = frontDoor(city, ctx, b, f, 'police', { h: 2.6, pane: col(0.26, 0.33, 0.42) });
+    for (const s of [-1, 1]) { city.faceBox(G.props, b, f, s * 1.55 - 0.05, s * 1.55 + 0.05, 0, 0.35, CURB + 2.55, CURB + 2.62, col(0.1, 0.1, 0.12)); city.faceBox(G.props, b, f, s * 1.55 - 0.13, s * 1.55 + 0.13, 0.28, 0.54, CURB + 2.3, CURB + 2.62, col(0.25, 0.45, 0.95)); }      // the lamps
+    city.faceBox(G.props, b, f, -1.6, 1.6, 0, 0.9, CURB, CURB + 0.12, col(0.7, 0.69, 0.66));                                        // a step
+    for (const t of [-2.6, 2.6]) { const [px, pz] = city.facePt(b, f, t, 1.6); G.props.box(px - 0.12, pz - 0.12, px + 0.12, pz + 0.12, CURB, CURB + 0.9, 3, col(0.15, 0.16, 0.18)); addCollider({ type: 'circ', x: px, z: pz, r: 0.25 }, ctx.colliders); }
     return door;
   }
   return null;

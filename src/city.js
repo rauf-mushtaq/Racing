@@ -1271,7 +1271,7 @@ export class City {
   }
 
   signUV(ctx, special = -1) {
-    const n = special <= -10 ? -special - 10 : special >= 4 ? 20 + special : special >= 0 ? 28 + special : ctx.signN++ % 24, cc = n % 4, rr = (n / 4) | 0;     // (-10 - n: cell n itself)     // (cells 24 to 27: petrol, shop, jeweller, museum; 28 to 31: the bank, hotel, cinema and cash-machine signs)
+    const n = special <= -10 ? -special - 10 : special >= 4 ? 20 + special : special >= 0 ? 28 + special : ctx.signN++ % 23, cc = n % 4, rr = (n / 4) | 0;     // (-10 - n: cell n itself; the shops' signs are cells 0 to 22, and 23 is a police station's)     // (cells 24 to 27: petrol, shop, jeweller, museum; 28 to 31: the bank, hotel, cinema and cash-machine signs)
     return [cc / 4 + 0.004, 1 - (rr + 1) / 8 + 0.004, (cc + 1) / 4 - 0.004, 1 - rr / 8 - 0.004];
   }
   shopSign(ctx, b, f, h, rnd) {

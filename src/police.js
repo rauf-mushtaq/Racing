@@ -120,15 +120,27 @@ export class PoliceChase {
       ammoMissile: 6, ammoBomb: 4, kills: 0, officersDown: 0, shotAt: false, civilians: 0, maxStars: 2, spotted: true,
       blockT: 25, gunHeat: 0, cdOil: 0, cdSmoke: 0, cdShield: 0, shieldT: 0, gunOut: 0, jammed: false,
       lastSeenX: 0, lastSeenZ: 0, spawnT: 0, fireT: 1 / 16, regenMissile: 0, regenBomb: 0, endT: 0, spotCool: 0, wasSpotted: true, lastStars: 2, alt: 0, pulse: 0, shieldK: 0,
+      mode: 'chase', stopGoal: null, rammed: 0, sirenOn: true,
     });
     this.cops.length = this.missiles.length = this.bombs.length = this.oils.length = this.smokes.length = this.messages.length = 0;
   }
-  // opts.heat: the wanted level to start at; opts.near: how many cruisers are right behind you.
+  // opts.heat: the wanted level to start at; opts.near: how many cruisers are right behind you. opts.stop: not a chase at all, but one patrol car sent to
+  // pull you over for something small (stop.js drives it through stopGoal; escalate() turns it into the real thing).
   start(p, traffic, opts = {}) {
     this.reset(); if (this.officers) this.officers.clear(); if (this.heli) this.heli.reset(); this.active = true; this.lastSeenX = p.x; this.lastSeenZ = p.z; this.fx.clear();
+    if (opts.stop) { this.mode = 'stop'; this.heat = this.minHeat = 1; this.lastStars = this.maxStars = 1; return this.patrolCar(p); }
     this.heat = opts.heat ?? 2.0; this.minHeat = Math.floor(this.heat); this.lastStars = this.maxStars = this.stars;
     for (let i = 0; i < (opts.near ?? 5); i++) this.spawnCop(p, 0, 'near');
     this.messages.push('THE POLICE ARE ON YOU');
+  }
+  // The car sent to pull someone over: an ordinary cruiser, driven briskly but not as a pursuit (it is answering a call).
+  patrolCar(p) { const c = this.spawnCop(p, 0, false); c.follow = true; c.vmax = 30; this.stopCar = c; return c; }
+  // A stop gone wrong (you drove off, ran, hit the officer, fired a gun): the patrol car calls it in and the whole force comes.
+  escalate(p, heat = 1.3, near = 3) {
+    this.mode = 'chase'; this.stopGoal = null; this.sirenOn = true; this.heat = Math.max(this.heat, heat); this.minHeat = Math.floor(this.heat); this.lastStars = this.maxStars = this.stars;
+    this.time = 0; this.hidden = 0; this.spotted = this.wasSpotted = true; this.lastSeenX = p.x; this.lastSeenZ = p.z;
+    for (const c of this.cops) { c.follow = false; c.dark = false; if (!c.officers) c.held = false; }
+    for (let i = 0; i < near; i++) this.spawnCop(p, 0, 'near');
   }
   stop() {
     this.active = false; if (this.officers) this.officers.clear(); if (this.heli) this.heli.reset(); this.reset(); this.fx.clear(); this.render(0, null, 0);
@@ -278,15 +290,24 @@ export class PoliceChase {
       if (!t.active || !t.pts) continue; const ox = t.x - c.x, oz = t.z - c.z; if (ox * ox + oz * oz > 900) continue;
       const df = ox * fx + oz * fz, dl = ox * fz - oz * fx; if (df > 0 && df < 24 && Math.abs(dl) < 2.6) { speedT = Math.min(speedT, Math.max(5, df * 1.4)); desired -= (dl >= 0 ? -1 : 1) * 0.35; }
     }
+    if (c.follow && !p.onFoot) {                                                                   // (pulling someone over: don't drive into them)
+      const ox = p.x - c.x, oz = p.z - c.z, df = ox * fx + oz * fz, dl = ox * fz - oz * fx;
+      if (df > 0 && df < 18 && Math.abs(dl) < 2.9) { speedT = Math.min(speedT, Math.max(0, (df - 5.5) * 1.3)); desired -= (dl >= 0 ? -1 : 1) * 0.45; }
+    }
     for (const o of this.cops) {
       if (o === c) continue; const ox = o.x - c.x, oz = o.z - c.z; if (ox * ox + oz * oz > 196) continue;
       const dl = ox * fz - oz * fx, df = ox * fx + oz * fz; if (df > -3 && Math.abs(dl) < 3.2) desired += (dl >= 0 ? -1 : 1) * 0.25;
     }
     let err = wrapAngle(desired - c.h); speedT *= clamp(1.15 - Math.abs(err) / 1.5, 0.3, 1);
     if (chase && dist < 30 && p.speed > 3 && !p.onFoot) speedT = Math.max(speedT, p.speed * 1.08);   // close in on the player and ram
+    if (c.follow) {                                                                                     // a patrol car pulling someone over: up behind them, matching their speed, stopping where it is told (stop.js)
+      const G = this.stopGoal, v = G ? G.v || 0 : 0; speedT = Math.min(speedT, dist < 2.5 ? 0 : v + (dist - 2.5) * (G && G.park ? 0.7 : 1.1));
+      if (c.held || (G && G.hold)) speedT = 0;
+    }
     if (this.officers && this.officers.holds(c, dist)) speedT = 0;                                      // an officer's car: pulled up while its officers are out (see officers.js)
+    if (c.waitOff) speedT = 0;                                                                          // (its officer is running back to it: stop.js)
     else if (chase && p.onFoot && dist < 26) speedT = Math.min(speedT, Math.max(1.5, (dist - 3) * 0.5));   // a person on foot: slow right down beside them (and cut them off)
-    if (!chase && dist < 40) speedT = Math.min(speedT, 14);                                           // reached the last known position: ease off and look around
+    if (!chase && !c.follow && dist < 40) speedT = Math.min(speedT, 14);                              // reached the last known position: ease off and look around
     if (c.slip > 0) { c.slip -= dt; speedT = Math.min(speedT, 4); err += Math.sin(this.time * 14 + c.flash * 9) * 1.4; c.spin = 3.6 * (c.flash > 0.5 ? 1 : -1); } else c.spin = 0;
     const maxYaw = 2.3 / (1 + c.speed / 16), turn = clamp(err * 4.0, -maxYaw, maxYaw); c.h += turn * dt + c.spin * dt; c.roll += turn * c.speed * 0.0016 * dt * 20;
     c.speed += clamp(speedT - c.speed, -26 * dt, (c.kind ? 9 : 12) * dt); if (c.speed < 0) c.speed = 0;
@@ -323,8 +344,11 @@ export class PoliceChase {
   collidePlayer(car) {
     if (!this.active || this.result !== 'running') return;
     const f = car.fwd, RAD = 1.0;
+    const pv = this.mode === 'stop' ? car.worldVel() : null;
     for (const c of this.cops) {
       const dx0 = c.x - car.x, dz0 = c.z - car.z; if (dx0 * dx0 + dz0 * dz0 > 100) continue; const cf = [Math.sin(c.h), Math.cos(c.h)];
+      // (pulled over: whose fault is a knock? Whoever was closing on the other faster, before it.)
+      let yours = false; if (pv) { const dl = Math.hypot(dx0, dz0) || 1, mine = (pv[0] * dx0 + pv[1] * dz0) / dl, its = -(cf[0] * dx0 + cf[1] * dz0) * c.speed / dl; yours = mine > 4 && mine > its + 2; }
       for (const off of [-1.45, 0, 1.45]) for (const co of [-c.len * 0.3, 0, c.len * 0.3]) {
         const px = car.x + f[0] * off, pz = car.z + f[1] * off, ox = c.x + cf[0] * co, oz = c.z + cf[1] * co, dx = px - ox, dz = pz - oz, dist = Math.hypot(dx, dz), r = RAD + c.rad; if (dist >= r || dist < 1e-5) continue;
         const nx = dx / dist, nz = dz / dist, pen = r - dist, mt = c.wreck ? c.mass * 1.8 : c.mass, share = mt / (mt + car.s.mass);
@@ -335,6 +359,7 @@ export class PoliceChase {
           const dmg = Math.max(0, dv - 3) * 0.9 * (this.shieldT > 0 ? 0.2 : 1); this.health -= dmg; this.damageFlash = Math.min(1, this.damageFlash + dmg * 0.04); this.shake = Math.min(1, this.shake + dv * 0.025);
           c.hp -= Math.max(0, j / mt - 1.5) * 5 + Math.max(0, j / car.s.mass - 1.5);
           if (c.hp <= 0 && !c.wreck) this.damageCop(c, 1);
+          if (yours) this.rammed = Math.max(this.rammed, dv);                                         // (driving into the patrol car that is pulling you over: stop.js calls everyone)
           if (this.onCrash) this.onCrash(j);
         }
       }
@@ -401,6 +426,7 @@ export class PoliceChase {
     const rnd = () => this.rnd();
     if (!this.active) return;
     this.pulse += dt;
+    if (this.mode === 'stop') { this.updateStop(dt, p, traffic); return; }
     if (this.result !== 'running') {
       this.endT += dt; this.shake *= Math.exp(-3 * dt); this.damageFlash *= Math.exp(-2 * dt);
       for (const c of this.cops) { this.updateCop(c, dt, p, traffic, p.x, p.z, false); c.speed *= Math.exp(-2 * dt); }
@@ -516,6 +542,26 @@ export class PoliceChase {
     if (this.health < 15 && rnd() < dt * 14) this.fx.fire(p.x + fx * 1.7, y0 + 0.8, p.z + fz * 1.7, 0, 1.0, 0, 0.35, 0.4);
   }
 
+  // One patrol car pulling someone over: it sees, it drives to stopGoal (or straight to you), and nothing else happens: no heat, no guns, no backup.
+  updateStop(dt, p, traffic) {
+    const rnd = () => this.rnd();
+    this.time += dt; this.shake *= Math.exp(-4 * dt); this.damageFlash *= Math.exp(-2.5 * dt);
+    let any = false; this.nearest = 1e9;
+    for (const c of this.cops) {
+      c.seeT -= dt; if (c.seeT <= 0) { c.seeT = 0.1 + rnd() * 0.05; c.sees = !c.wreck && this.canSee(c.x, c.z, p.x, p.z, p.sight || 200); }
+      if (c.sees) any = true; if (!c.wreck) this.nearest = Math.min(this.nearest, Math.hypot(c.x - p.x, c.z - p.z));
+    }
+    this.spotted = any; if (any) { this.lastSeenX = p.x; this.lastSeenZ = p.z; }
+    const G = this.stopGoal;
+    for (let i = this.cops.length - 1; i >= 0; i--) if (this.cops[i].wreck && this.cops[i].burn > 24) this.cops.splice(i, 1);
+    for (const c of [...this.cops]) {
+      this.updateCop(c, dt, p, traffic, G ? G.x : p.x, G ? G.z : p.z, false);
+      if (c.wreck) { if (c === this.stopCar && !c.held) { c.follow = false; this.patrolCar(p); } continue; }       // (crashed on the way: another is sent)
+      // Lost (gone the wrong way, or stuck) before it has reached you: it comes round again from somewhere nearer, out of sight.
+      if (!c.held && (!G || G.respawn) && (c.stuck > 3 || Math.hypot(c.x - p.x, c.z - p.z) > 420)) { const n = this.spawnCop(p, 0, false); this.cops.pop(); c.x = n.x; c.z = n.z; c.y = n.y; c.h = n.h; c.speed = 10; c.vx = c.vz = 0; c.stuck = 0; }
+    }
+  }
+
   // --- Drawing ---------------------------------------------------------------------------------------------------------
   // Positions the meshes for this frame. `clock` drives the flashing; `p` is the player's car (for the armour bubble).
   render(clock, p, dt, gt) {
@@ -532,7 +578,7 @@ export class PoliceChase {
       // The light bar: red on one side, blue on the other, swapping about three times a second.
       const phase = ((clock * 3.4 + c.flash) % 1) < 0.5, bz = c.kind ? -0.55 : -0.2, by = c.kind ? 1.84 : 1.5, sn = Math.sin(c.h), cs = Math.cos(c.h);
       for (const s of [-1, 1]) {
-        const mesh = this.bars[c.kind][s < 0 ? 0 : 1], on = !c.wreck && (s < 0 ? phase : !phase);
+        const mesh = this.bars[c.kind][s < 0 ? 0 : 1], on = !c.wreck && !c.dark && (s < 0 ? phase : !phase);
         const lx = s * 0.26, wx = c.x + cs * lx + sn * bz, wz = c.z - sn * lx + cs * bz;
         v.set(wx, c.y + by, wz); e.set(-c.pitch, c.h, c.roll, 'YXZ'); q.setFromEuler(e); m4.compose(v, q, one); mesh.setMatrixAt(i, m4);
         const base = s < 0 ? [1, 0.06, 0.04] : [0.1, 0.25, 1], br = on ? 7 : 0.25; col.setRGB(base[0] * br, base[1] * br, base[2] * br);

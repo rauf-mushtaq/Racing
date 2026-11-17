@@ -66,7 +66,9 @@ import { Interior } from './interior.js';
 import { planFor } from './rooms.js';
 import { Heist } from './heist.js';
 import { Gym } from './gym.js';
-import { venueNear, VENUE_TYPES } from './venues.js';
+import { TrafficStop } from './stop.js';
+import { Jail } from './jail.js';
+import { venueNear, VENUE_TYPES, stationNear } from './venues.js';
 import { initMenus } from './menus.js';
 import { Profiler, PerfGuard } from './perf.js';
 import { SeatedDriver } from './seated.js';
@@ -254,7 +256,7 @@ addEventListener('resize', resize);
 // World
 // ---------------------------------------------------------------------------
 const extraMats = [];
-let gym = null, brawl = null, motes = null, birds = null, heist = null, interior = null, melee = null, bigmap = null, heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, towns, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
+let gym = null, stop = null, jail = null, brawl = null, motes = null, birds = null, heist = null, interior = null, melee = null, bigmap = null, heli = null, seated = null, grass = null, river = null, landmarks = null, buskers = null, structures, towns, sky, city, terrain, traffic, carMesh, heroMesh, gtMesh, police, fx, gates, hud, csm = null, probe = null, walker = null, arsenal = null, officers = null, footCam = null, debris = null, worldFx = null, peds = null, beams = null, rain = null;
 const car = new Vehicle();
 const input = new Input();
 const driver = new Driver();
@@ -312,26 +314,30 @@ async function build() {
   walker = new Walker(scene, settings.outfit); walker.onStep = (v, kind) => audio.step(v, kind); footCam = new FootCamera();
   melee = new Melee({
     walker, yaw: () => footCam.yaw, get peds() { return peds; }, get officers() { return officers; }, get brawl() { return brawl; }, audio, hud: { toast: (t, s) => hud.toast(t, s) }, fx: police.fx,
-    crime: (kind, n) => assault(n), heat: a => { if (game.chaseOn) police.addHeat(a); }, shake: v => { game.shake = Math.max(game.shake, v); },
-    walls: (x, z) => solidAt(x, z), targets: () => heistTargets(), active: () => !!game.onFoot && game.state === 'free', power: () => (gym ? gym.strength : 0),
+    crime: (kind, n) => assault(n, kind), heat: a => { if (game.chaseOn) police.addHeat(a); }, shake: v => { game.shake = Math.max(game.shake, v); },
+    walls: (x, z) => solidAt(x, z), targets: () => heistTargets() || (stop ? stop.targets() : null), active: () => !!game.onFoot && game.state === 'free', power: () => (gym ? gym.strength : 0),
   });
   arsenal = new Arsenal({
     scene, melee, fx: police.fx, police, traffic, city, peds, audio, camera, aimRay, get officers() { return officers; }, get brawl() { return brawl; }, get interior() { return interior && interior.active ? interior : null; }, get heist() { return heist; },
     hud: { toast: (t, s) => hud.toast(t, s) },
     crime: kind => gunCrime(kind), heat: a => { if (game.chaseOn) police.addHeat(a); },
     boom: (x, z, p) => police.onBoom && police.onBoom(x, z, p), shake: v => { game.shake = Math.max(game.shake, v); },
-    active: () => !!game.onFoot && game.state === 'free', get touch() { return input.lastDevice === 'touch'; },
+    active: () => !!game.onFoot && game.state === 'free' && !(jail && jail.locked) && !(stop && stop.state === 'cuff'), get touch() { return input.lastDevice === 'touch'; },
   });
   walker.placeWeapon = w => arsenal.place(w);
   interior = new Interior({ scene, camera, renderer, walker, audio, get hud() { return hud; }, shadows: Q.shadows ? (Q.shadow >= 2048 ? 2 : 1) : 0 });
   heist = new Heist({ scene, interior, walker, arsenal, audio, fx: police.fx, toast: (t, s) => hud.toast(t, s), startWanted: stars => startWanted('robbery', stars), hurt: d => hurtPlayer(d), shake: v => { game.shake = Math.max(game.shake, v); } });
   settings.cash = settings.cash || 0;
   gym = new Gym({ scene, interior, walker, audio, toast: (t, s) => hud.toast(t, s), settings, save });
+  // Small crimes: one patrol car pulls you over (stop.js); a ticket, or arrest and the cells of a police station (jail.js).
+  jail = new Jail({ scene, interior, walker, audio, toast: (t, s) => hud.toast(t, s), settings, save, fade: fn => fadeTo(fn), release: () => released() });
   // What is seen inside a building as well as in the street: the gun in hand, the grenades, the bullet holes, the sparks and tracers of a shot.
   lay1(arsenal.holder); arsenal.grenadeMeshes.forEach(lay1); arsenal.rocketMeshes.forEach(lay1); arsenal.marks.meshes.forEach(lay1); for (const f of [police.fx, worldFx]) { if (!f) continue; lay1(f.add.pts); lay1(f.smoke.pts); f.tracers.forEach(t => lay1(t.m)); }
   // Police officers on foot (officers.js): they step out of cruisers that pull up near you, and shoot back.
   officers = new Officers({ scene, police, walker, audio, quality: Q.name, blocked: (ox, oy, oz, tx, ty, tz) => arsenal.blockedBetween(ox, oy, oz, tx, ty, tz), drop: (x, y, z, k) => arsenal.pickups.drop(x, y, z, k), shadows: !!Q.shadows, hud: { toast: (t, s) => hud.toast(t, s) }, obstacles, onFoot: () => !!game.onFoot && game.state === 'free', shake: v => { game.shake = Math.max(game.shake, v); } });
   police.officers = officers; setTimeout(() => officers.prepare(), 12000);
+  stop = new TrafficStop({ scene, police, walker, car, audio, toast: (t, s) => hud.toast(t, s), settings, save, traffic, obstacles, onFoot: () => !!game.onFoot, carried: () => game.carried || 0,
+    escalate: kind => escalateStop(kind), arrest: v => arrest(v), getOut: () => { if (!game.onFoot) leaveCar(true); }, done: () => endStop() });
   // People who fight back (brawl.js): a few of the pedestrians are armed or big, and become fighters when you attack them.
   brawl = new Brawlers({
     scene, walker, police, audio, quality: Q.name, shadows: !!Q.shadows, hud: { toast: (t, s) => hud.toast(t, s) }, obstacles, onFoot: () => !!game.onFoot && game.state === 'free',
@@ -510,9 +516,9 @@ function enterCar() {
   camYaw = car.h; camInit = false; game.head = null; setState('free'); applyVolume();
   return true;
 }
-function leaveCar() {
+function leaveCar(force) {
   if (game.onFoot || game.state !== 'free') return false;
-  if (car.speed > 7) { hud.toast('SLOW DOWN FIRST', 1.1); return false; }
+  if (car.speed > 7 && !force) { hud.toast('SLOW DOWN FIRST', 1.1); return false; }
   const sp = exitSpot(); beginBlend();
   walker.place(sp.x, sp.z, car.h); footCam.reset(car.h); audio.door();
   game.onFoot = true; game.head = null; setState('free');
@@ -520,7 +526,9 @@ function leaveCar() {
 }
 input.on('use', () => {
   if (game.state !== 'free') return;
-  if (game.inside) { if (game.insideT > 0.5 && (gym && gym.active ? gym.use() : heist.use()) === 'exit') leaveVenue(); return; }                          // (in a building: the button does what the prompt says)
+  if (stop && stop.choosing) { stop.use(); return; }                                                                                                    // (at the window: pay the fine, or go quietly)
+  if (jail && jail.booking) { jail.use(); return; }
+  if (game.inside) { if (game.insideT > 0.5 && (gym && gym.active ? gym.use() : jail && jail.active ? jail.use() : heist.use()) === 'exit') leaveVenue(); return; }    // (in a building: the button does what the prompt says)
   if (game.onFoot) { const v = !nearCar() ? venueNear(walker.x, walker.z, 3.6) : null; if (v) enterVenue(v); else if (!enterCar()) hud.toast('GET CLOSER TO THE CAR', 1.0); } else leaveCar();
 });
 // Circles for the walker to bump into: your own car, the traffic and the parked cars near it.
@@ -554,7 +562,7 @@ function footUpdate(dt, raw) {
   footCamStep(dt, f, false); setAimRay(arsenal.cur >= 0 ? raw.arms.cursor : null);
   arsenal.update(dt, raw.arms, walker, camera, true); melee.update(dt);
   walker.sprintK = 1 + 0.02 * (gym ? gym.stamina : 0);                                  // (stamina from the gym: a quicker sprint)
-  if (walker.interior) { interior.update(dt); heist.update(dt); if (gym) gym.update(dt, f); return; }                // (in a building: nothing of the street reaches in)
+  if (walker.interior) { interior.update(dt); heist.update(dt); if (gym) gym.update(dt, f); if (jail) jail.update(dt, f); return; }                // (in a building: nothing of the street reaches in)
   // The boot of the car is an armoury: walk up to it and the guns are topped up.
   const near = nearCar(); if (near && !arsenal.nearCar && arsenal.needsStock()) arsenal.bootRestock(); arsenal.nearCar = near;
   walker.sight = walker.crouching ? 55 : walker.speed > 5 ? 150 : 100;
@@ -578,6 +586,7 @@ function startChase() {
   setState('free'); hud.toast('THE POLICE ARE ON YOU', 2.2); audio.beep(880, 0.12); setTimeout(() => audio.beep(660, 0.2), 140);
 }
 function endChase() {
+  endStop(); if (stop && stop.active) stop.end();
   if (!game.chaseOn && carMesh === heroMesh) return;
   game.chaseOn = false; game.gadgets = false; game.wanted = false; police.stop(); chaseMusic.stop(); audio.siren(0, 0); swapCar('hero'); hud.chase(null);
 }
@@ -599,6 +608,10 @@ function chaseResult() {
   if (game.wanted && won) {                                                    // got away from a free-roam wanted level: carry on
     hud.toast('YOU LOST THEM', 2.6); audio.beep(880, 0.2); setTimeout(() => audio.beep(1320, 0.3), 160); game.noWanted = (game.clock || 0) + 12; endChase(); setState('free'); return;
   }
+  if (game.wanted && P.result === 'busted') {                                  // caught at the end of a free-roam chase: the cells, longer the hotter it was
+    const stars = P.maxStars, list = [{ name: 'EVADING THE POLICE', n: 1 }].concat(P.kills ? [{ name: 'DESTROYING POLICE CARS', n: P.kills }] : [], P.officersDown ? [{ name: 'ASSAULTING POLICE OFFICERS', n: P.officersDown }] : [], game.carried ? [{ name: 'HANDLING STOLEN MONEY', n: 1 }] : []);
+    endChase(); arrest({ list, days: clamp(1 + stars, 2, 7), arrest: true }); return;
+  }
   document.querySelector('[data-ce="retry"]').textContent = game.wanted ? 'BACK TO THE STREETS' : 'PLAY AGAIN';
   let newBest = false;
   if (won && (settings.chaseBest == null || t < settings.chaseBest)) { settings.chaseBest = t; save(); newBest = true; }
@@ -619,6 +632,7 @@ function chaseUpdate(dt, raw) {
   police.clock = game.clock; police.hideout = !!walker.interior;
   const T = game.onFoot ? walker : car;                                      // who they are after
   police.update(dt, T, traffic, game.state === 'free' && game.gadgets && !game.onFoot ? inp : {});
+  if (stop.active) stop.update(dt);
   prof.mark('police');
   officers.update(dt);
   prof.mark('officers');
@@ -626,9 +640,9 @@ function chaseUpdate(dt, raw) {
   if (game.onFoot && walker.active && game.state === 'free') police.collideWalker(walker);
   for (const m of police.consumeMessages()) hud.toast(m, 1.9);
   game.shake = Math.max(game.shake, police.shake * 0.7);
-  const level = police.result === 'running' ? clamp(1 - police.nearest / 300, 0, 1) ** 1.4 : 0;
+  const level = police.active && police.result === 'running' && police.sirenOn ? clamp(1 - police.nearest / 300, 0, 1) ** 1.4 : 0;
   audio.siren(level, game.clock);
-  if (police.result !== 'running' && game.state === 'free' && police.endT > (police.result === 'escaped' ? 1.0 : 1.7)) chaseResult();
+  if (game.chaseOn && police.result !== 'running' && game.state === 'free' && police.endT > (police.result === 'escaped' ? 1.0 : 1.7)) chaseResult();
 }
 
 function resetCar(x, z, h) {
@@ -875,7 +889,11 @@ function onBreak(c, j, px, pz) {
   audio.thump(0.3 + Math.min(0.5, dv * 0.05)); game.shake = Math.max(game.shake, 0.15 + Math.min(0.3, dv * 0.03));
   crime(0.3, 'break'); return true;
 }
-function onCar(t, j) { if (j / car.s.mass > 2.0) crime(0.5, 'car'); }
+function onCar(t, j) {                                                        // (hitting a car is a crime when you drove into it, not when it drove into you)
+  if (j / car.s.mass <= 2.0 || car.speed < 4) return;
+  const f = car.fwd; if ((t.x - car.x) * f[0] + (t.z - car.z) * f[1] < 0) return;
+  crime(0.5, 'car');
+}
 
 function physics(dt, inp) {
   car.step(dt, inp, groundAt);
@@ -887,26 +905,72 @@ function physics(dt, inp) {
   collideTraffic(car, traffic, onHit, onCar);
   collideTraffic(car, traffic.parkedWorld(car), onHit, onCar);
   if (!game.onFoot) peds.hitByCar(car);
-  if (game.chaseOn && !game.onFoot) police.collidePlayer(car);
+  if ((game.chaseOn || game.stopOn) && !game.onFoot) police.collidePlayer(car);
 }
 
 // --- Trouble: hit a car or smash something and the police come -----------------------------------------------------------------
+// Small things (a car hit, something smashed, someone knocked down, a fight) send one patrol car to pull you over (stop.js); a gun, a robbery or a
+// killing, or running from that patrol car, sends the whole force.
+const MINOR = new Set(['car', 'break', 'ped', 'assault']);
 function crime(amount, kind) {
   if (game.state !== 'free' || game.route || (game.onFoot && kind !== 'gun' && kind !== 'robbery')) return;
   const at = game.onFoot ? walker : car; peds.scare(at.x, at.z, 40, 6);                                               // everyone nearby runs
   if (game.chaseOn) { police.addHeat(amount); return; }
-  if ((game.clock || 0) < (game.noWanted || 0)) return;                       // just got away: a few seconds of grace
-  startWanted(kind);
+  if (game.stopOn && MINOR.has(kind)) { stop.add(kind); return; }
+  if ((game.clock || 0) < (game.noWanted || 0) && !game.stopOn) return;       // just got away: a few seconds of grace
+  if (MINOR.has(kind)) report(kind); else startWanted(kind);
+}
+// A small crime: a patrol car is sent (or, if one is already coming, one more charge for it).
+function report(kind) {
+  if (game.stopOn) { stop.add(kind); return; }
+  if (game.chaseOn || jail.active) return;
+  const c = police.start(game.onFoot ? walker : car, traffic, { stop: true });
+  game.stopOn = true; stop.begin(kind, c); applyVolume();
+}
+function endStop() { if (!game.stopOn) return; game.stopOn = false; if (stop.active && stop.state !== 'fled') stop.end(); police.stop(); audio.siren(0, 0); }
+// The stop went wrong (stop.js): the patrol car calls everyone, and it is a chase.
+function escalateStop(kind) {
+  game.stopOn = false; game.chaseOn = true; game.wanted = true; game.gadgets = true; applyAids();
+  police.escalate(game.onFoot ? walker : car, kind === 'gun' || kind === 'kill' ? 1.9 : kind === 'officer' || kind === 'ram' ? 1.6 : 1.3);
+  driver.gprev = {}; game.gprev = {}; applyVolume(); if (settings.music) chaseMusic.start(); setState('free');
+  audio.beep(880, 0.12); setTimeout(() => audio.beep(660, 0.2), 140);
+}
+// Arrested: the patrol car takes you to the nearest police station (or, if none has been built yet, a station's cells all the same) and you are booked.
+function arrest(V) {
+  const loot = game.carried || 0; game.carried = 0;
+  const rec = settings.record || (settings.record = { arrests: 0, fines: 0, days: 0 }); rec.arrests = (rec.arrests || 0) + 1; save();
+  endStop(); if (game.chaseOn) endChase();
+  if (interior.active) forceLeave();
+  hud.toast('ARRESTED', 1.6); audio.beep(330, 0.25, 0.25);
+  fadeTo(() => {
+    walker.hold = false; walker.hands = 0; arsenal.holster(); arsenal.clear(); if (brawl) brawl.clear(); game.hp = 100;
+    if (!game.onFoot) { game.onFoot = true; game.head = null; }
+    const at = { x: walker.active ? walker.x : car.x, z: walker.active ? walker.z : car.z };
+    const v = stationNear(at.x, at.z) || { kind: 'police', x: at.x, z: at.z, seed: 4242, id: 'cells' };
+    game.venueRet = v.dx !== undefined ? { x: v.x + v.dx * 0.6, z: v.z + v.dz * 0.6, h: Math.atan2(v.dx, v.dz), v } : { x: at.x, z: at.z, h: walker.h, v };
+    walker.x = v.x; walker.z = v.z; walker.show(true);
+    interior.build(v, planFor('police')); interior.enter(); footCam.reset(Math.PI); footCam.dist = 2.4; game.inside = v; game.insideT = 0;
+    jail.begin(v, V, { loot }); setState('free');
+    renderer.compile(scene, camera);
+  });
+}
+// Let out: your things back, and your car brought round to the street outside.
+function released() {
+  if (arsenal) arsenal.restock(true);
+  const r = game.venueRet; if (!r) return;
+  const sp = snapToRoad(r.x + Math.sin(r.h) * 6, r.z + Math.cos(r.h) * 6); if (sp) { resetCar(sp.x, sp.z, sp.h); swapCar('hero'); }
 }
 // Walking into a building: the room is built, the camera is put on its layer, and the walker is set down inside the door. (Out again: beside the door.)
 function enterVenue(v, instant) {
   if (!game.onFoot || game.state !== 'free' || interior.active) return false;
+  if (VENUE_TYPES[v.kind] && VENUE_TYPES[v.kind].station && game.chaseOn) { hud.toast('NOT WITH THE POLICE AFTER YOU', 1.4); return false; }
   const go = () => {
     game.venueRet = { x: walker.x, z: walker.z, h: v.dx !== undefined ? Math.atan2(v.dx, v.dz) : walker.h, v };
     if (v.dx !== undefined) { walker.x = v.x; walker.z = v.z; }
     interior.build(v, planFor(v.kind)); interior.enter(); footCam.reset(0); footCam.dist = 2.7; game.inside = v; game.insideT = 0;
     if (arsenal) arsenal.aimToggle = false;
     if (VENUE_TYPES[v.kind] && VENUE_TYPES[v.kind].gym) gym.begin(v);                    // (a gym: training, not a robbery)
+    else if (VENUE_TYPES[v.kind] && VENUE_TYPES[v.kind].station) jail.visit(v);          // (a police station: the lobby)
     else { heist.begin(v, VENUE_TYPES[v.kind] || VENUE_TYPES.shop); hud.toast(VENUE_TYPES[v.kind] ? VENUE_TYPES[v.kind].name + ': ' + VENUE_TYPES[v.kind].blurb.toUpperCase() : '', 2.4); }
     renderer.compile(scene, camera);                                                     // (the first time, the room's shaders are made now, under the fade)
   };
@@ -916,7 +980,7 @@ function enterVenue(v, instant) {
 function leaveVenue(instant) {
   if (!interior.active) return false;
   const go = () => {
-    const r = game.venueRet, loot = heist.loot; heist.end(); if (gym) gym.end(); interior.exit(); game.inside = null; footCam.dist = 3.5;
+    const r = game.venueRet, loot = heist.loot; heist.end(); if (gym) gym.end(); if (jail) jail.end(); interior.exit(); game.inside = null; footCam.dist = 3.5;
     walker.place(r.x, r.z, r.h); footCam.reset(r.h);
     if (loot > 0) { settings.heists = (settings.heists || 0) + 1; game.carried = (game.carried || 0) + loot; if (!game.chaseOn) bankCarried(); else hud.toast('BAG $' + game.carried.toLocaleString('en-US') + ': SAFE WHEN YOU LOSE THE POLICE', 3); }
   };
@@ -924,7 +988,7 @@ function leaveVenue(instant) {
   return true;
 }
 // Out of a building at once (a chase ended, or back to the menu): whatever was in the bag is lost, unless it was banked.
-function forceLeave() { if (!interior.active) return; heist.end(); if (gym) gym.end(); interior.exit(); game.inside = null; footCam.dist = 3.5; const r = game.venueRet; if (r) { walker.place(r.x, r.z, r.h); footCam.reset(r.h); } }
+function forceLeave() { if (!interior.active) return; heist.end(); if (gym) gym.end(); if (jail) jail.end(); interior.exit(); game.inside = null; footCam.dist = 3.5; const r = game.venueRet; if (r) { walker.place(r.x, r.z, r.h); footCam.reset(r.h); } }
 function bankCarried() {
   const n = game.carried || 0; if (!n) return; game.carried = 0; settings.cash = (settings.cash || 0) + n; save();
   hud.toast('+ $' + n.toLocaleString('en-US') + ' BANKED', 2.6); audio.beep(1500, 0.08, 0.2); setTimeout(() => audio.beep(2100, 0.12, 0.2), 90);
@@ -947,11 +1011,12 @@ function heistHud() {
   $('hz-sus').classList.toggle('hidden', !(heist.suspect > 0.02)); $('hz-sus').firstElementChild.style.width = Math.min(1, heist.suspect) * 100 + '%';
 }
 // Fists, boots and knives: one punch on a stranger is a scuffle nobody reports; a second within half a minute, or a blade, is assault and the police come.
-function assault(n) {
-  if (game.state !== 'free' || game.route) return;
+function assault(n, kind = 'assault') {
+  if (game.state !== 'free' || game.route || (jail && jail.active)) return;
   const now = game.clock || 0; if (now - (game.assaultT || -99) > 30) game.assaultN = 0; game.assaultT = now; game.assaultN = (game.assaultN || 0) + n;
-  if (game.chaseOn) { police.addHeat(0.04 * n); return; }
-  if (game.assaultN >= 2.0 && now >= (game.noWanted || 0)) { game.assaultN = 0; startWanted('assault'); }
+  if (game.chaseOn) { police.addHeat(0.04 * n * (kind === 'kill' ? 5 : 1)); return; }
+  if (kind === 'kill') { game.assaultN = 0; if (game.stopOn || now >= (game.noWanted || 0)) startWanted('kill', 2); return; }       // (a killing: the whole force)
+  if (game.assaultN >= 2.0 && (game.stopOn || now >= (game.noWanted || 0))) { game.assaultN = 0; report('assault'); }
 }
 const _wl = [];
 function solidAt(x, z) { queryColliders(x, z, 0.4, _wl); for (const c of _wl) if (c.type === 'box' && x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) return true; return false; }
@@ -988,16 +1053,19 @@ function brawlHud(dt) {
 function gunCrime() {
   if (game.inside && heist && heist.active) { heist.gunshot(); heist.alarmNow('SHOTS FIRED', heist.type.delay); return; }                // (in a shop: the alarm, and the police a little after)
   if (game.state !== 'free' || game.route || game.chaseOn) return;
+  if (game.stopOn) { startWanted('gun'); return; }
   if ((game.clock || 0) < (game.noWanted || 0)) return;
   startWanted('gun');
 }
 function startWanted(kind, stars) {
+  if (game.stopOn) { stop.escalate(kind); return; }                            // (a patrol car is already here: it calls everyone)
+  if (jail && jail.active && jail.locked) return;
   game.chaseOn = true; game.wanted = true; game.gadgets = true; applyAids();      // (the car's hidden guns, missiles, bombs, oil, smoke and armour are live while the police are after you)
-  police.start(game.onFoot ? walker : car, traffic, { heat: kind === 'robbery' ? (stars || 1) + 0.2 : kind === 'gun' ? 1.6 : 1.2, near: kind === 'robbery' ? 2 + (stars || 1) : 4 });
+  police.start(game.onFoot ? walker : car, traffic, { heat: kind === 'robbery' ? (stars || 1) + 0.2 : kind === 'gun' ? 1.6 : kind === 'kill' ? 2.2 : 1.2, near: kind === 'robbery' ? 2 + (stars || 1) : 4 });
   driver.gprev = {}; game.gprev = {};
   applyVolume(); if (settings.music) chaseMusic.start();
   setState('free');
-  hud.toast((kind === 'assault' ? 'ASSAULT' : kind === 'robbery' ? 'ROBBERY IN PROGRESS' : kind === 'break' ? 'YOU SMASHED SOMETHING' : kind === 'ped' ? 'YOU KNOCKED SOMEONE DOWN' : kind === 'gun' ? 'SHOTS FIRED' : 'YOU HIT A CAR') + ': POLICE ON THE WAY', 2.6); audio.beep(880, 0.12); setTimeout(() => audio.beep(660, 0.2), 140);
+  hud.toast((kind === 'kill' ? 'SOMEONE IS DEAD' : kind === 'assault' ? 'ASSAULT' : kind === 'robbery' ? 'ROBBERY IN PROGRESS' : kind === 'break' ? 'YOU SMASHED SOMETHING' : kind === 'ped' ? 'YOU KNOCKED SOMEONE DOWN' : kind === 'gun' ? 'SHOTS FIRED' : 'YOU HIT A CAR') + ': POLICE ON THE WAY', 2.6); audio.beep(880, 0.12); setTimeout(() => audio.beep(660, 0.2), 140);
   setTimeout(() => { if (game.chaseOn && game.wanted && !game.onFoot) hud.toast(input.lastDevice === 'touch' || LOW_POWER ? 'THE CAR HAS GUNS, MISSILES AND MORE: USE THE BUTTONS' : 'GADGETS: J GUNS  K MISSILE  L BOMB  O OIL  I SMOKE  H ARMOUR', 3.4); }, 2800);
 }
 
@@ -1175,7 +1243,10 @@ function checkDiscoveries() {
 function updatePrompt() {
   let txt = '';
   if (game.state === 'free') {
-    if (game.inside && gym && gym.active) txt = gym.prompt;
+    if (stop && stop.choosing) txt = stop.prompt;
+    else if (jail && jail.booking) txt = 'CONTINUE';
+    else if (game.inside && gym && gym.active) txt = gym.prompt;
+    else if (game.inside && jail && jail.active) txt = jail.prompt;
     else if (game.inside && heist && heist.active) txt = heist.prompt === 'LEAVE' ? 'LEAVE' : heist.prompt;
     else if (game.onFoot) { if (nearCar()) txt = 'GET IN'; else { const v = venueNear(walker.x, walker.z, 3.6); if (v && VENUE_TYPES[v.kind]) txt = 'ENTER ' + VENUE_TYPES[v.kind].name; } }
     else if (car.speed < 6.5) txt = 'GET OUT';
@@ -1303,7 +1374,7 @@ function tickBody(dt) {
     if (buskers) buskers.update(dt, F, camera);
     prof.mark('peds');
     if (!foot && car.speed > 13 && (game.scareT = (game.scareT || 0) - dt) <= 0) { game.scareT = 0.35; peds.scare(car.x + Math.sin(car.h) * 9, car.z + Math.cos(car.h) * 9, 9, 3); }
-    if (game.chaseOn) chaseUpdate(dt, raw);
+    if (game.chaseOn || game.stopOn || (stop && stop.active)) chaseUpdate(dt, raw);
     prof.mark('chase');
     if (st === 'race' || st === 'countdown') raceUpdate(dt);
     else if (st === 'free' && !game.chaseOn) waypointUpdate();
@@ -1330,7 +1401,7 @@ function tickBody(dt) {
   if (!game.onFoot) { aimRay.pos.copy(camera.position); camera.getWorldDirection(aimRay.dir); }
   if (DEBUG && window.__cam) { const c = typeof window.__cam === 'function' ? window.__cam() : window.__cam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); if (c[6]) { camera.fov = c[6]; camera.updateProjectionMatrix(); } }   // (a test hook: put the camera anywhere)
   if (st !== 'menu' || game.garage) peds.render(camera, st === 'paused' || st === 'map' ? 0 : dt);
-  if (game.chaseOn && st !== 'paused' && st !== 'map') police.draw(game.clock || 0, car, dt, carMesh, camera, renderer);
+  if ((game.chaseOn || game.stopOn) && st !== 'paused' && st !== 'map') police.draw(game.clock || 0, car, dt, carMesh, camera, renderer);
   else if (st !== 'paused' && st !== 'map') police.fx.update(dt, camera, renderer);        // (gunfire and explosions outside a chase)
   prof.mark('view');
   if (arsenal) { if (!foot) arsenal.update(dt, NO_ARMS, walker, camera, false); weaponHud(); }
@@ -1361,7 +1432,7 @@ function tickBody(dt) {
   audio.update(car, (st === 'free' && !foot) || st === 'race' || st === 'countdown' || st === 'finish' || st === 'chaseEnd');
   if (st === 'free' || st === 'race' || st === 'countdown') {
     if (!foot) hud.drawDial(car, settings.units, { abs: car.abs, esp: car.esp, tcs: car.tcs });
-    hud.drawMap(mapFocus(), traffic, game.route, game.next, game.waypoint, game.chaseOn ? police : null);
+    hud.drawMap(mapFocus(), traffic, game.route, game.next, game.waypoint, game.chaseOn || game.stopOn ? police : null);
   }
   if (game.chaseOn) hud.chase(st === 'paused' || st === 'map' ? null : police, game.clock || 0);
   if (settings.fps && (game.fpsT = (game.fpsT || 0) + dt) > 0.5) { game.fpsT = 0; $('fps').textContent = `${Math.round(1000 / frameAvg)} FPS · ${renderer.domElement.width}×${renderer.domElement.height} · ${quality}${guard.level ? ' · eased ' + guard.gpu + '/' + guard.cpu : ''}\nJS ${prof.js.toFixed(1)} ms: ${prof.report()}\n${lastInfo.calls} draws · ${(lastInfo.tris / 1000).toFixed(0)}k tris · ${lastInfo.geo} geo · ${lastInfo.tex} tex\nray tracing ${Q.rtMode}${Q.gi ? '' : ', no bounce'}${Q.ssr ? '' : ', no reflections'}${SSR.enabled ? '' : ' (eased off)'} · ${Q.msaa}× MSAA`; }
@@ -1422,4 +1493,4 @@ function simulate(secs, inp, shaped = false) {
   }
   car.px = car.x; car.pz = car.z; car.ph = car.h;
 }
-if (DEBUG) window.__game = { get gym() { return gym; }, get brawl() { return brawl; }, knockedOut, get dof() { return dofPass; }, get motes() { return motes; }, get birds() { return birds; }, get composer() { return composer; }, get heist() { return heist; }, hurtPlayer, bankCarried, venueNear, VENUE_TYPES, get interior() { return interior; }, enterVenue, leaveVenue, get melee() { return melee; }, assault, bench, startBench, get bigmap() { return bigmap; }, toggleMap, teleportTo, snapToRoad, spotClear, teleportWhy, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get towns() { return towns; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
+if (DEBUG) window.__game = { get stop() { return stop; }, get jail() { return jail; }, arrest, report, released, get gym() { return gym; }, get brawl() { return brawl; }, knockedOut, get dof() { return dofPass; }, get motes() { return motes; }, get birds() { return birds; }, get composer() { return composer; }, get heist() { return heist; }, hurtPlayer, bankCarried, venueNear, VENUE_TYPES, get interior() { return interior; }, enterVenue, leaveVenue, get melee() { return melee; }, assault, bench, startBench, get bigmap() { return bigmap; }, toggleMap, teleportTo, snapToRoad, spotClear, teleportWhy, get heli() { return heli; }, get seated() { return seated; }, prof, guard, applyGuard, GPU_LADDER, CPU_LADDER, get arsenal() { return arsenal; }, get officers() { return officers; }, simulate, driver, input, tick, game, get walker() { return walker; }, get footCam() { return footCam; }, enterCar, leaveCar, setState, toMenu, get hud() { return hud; }, crime, startWanted, resumeFreeRoam, get debris() { return debris; }, get peds() { return peds; }, get worldFx() { return worldFx; }, startChase, endChase, swapCar, get police() { return police; }, get carMesh() { return carMesh; }, get gtMesh() { return gtMesh; }, get heroMesh() { return heroMesh; }, car, Q, get grade() { return grade; }, get ao() { return aoPass; }, get gi() { return giPass; }, SSR, applyWeather, get grass() { return grass; }, get structures() { return structures; }, get towns() { return towns; }, get river() { return river; }, get landmarks() { return landmarks; }, get buskers() { return buskers; }, get city() { return city; }, get terrain() { return terrain; }, get traffic() { return traffic; }, camera, scene, renderer, startEvent, startFree, EVENTS, settings };
