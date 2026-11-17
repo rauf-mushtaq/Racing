@@ -243,33 +243,78 @@ function puddles(mat, cover = 0.6, kind = '') {
 //    where the paint or plaster has aged differently (the facade meshes are in world coordinates).
 // kind: 0 office tower, 1 apartment block, 2 shop, 3 house. grid: the texture's cells (bays across, storeys up); room: a room's width, height and depth
 // in metres; sill: the height of the window sills in a storey (0..1) and the span of the window across the bay (for the streaks), or null.
+//  - Depth: every facade has a height map (textures.js) and the walls are drawn with parallax occlusion mapping: the line of sight is stepped down into
+//    the height field, so a window sits back in its opening with the reveal showing on the far side, a sill or a mullion stands proud, the mortar is
+//    a little back from the bricks; the sun's light is stepped back up towards the sun, so the head of each opening throws a shadow into it; and the
+//    recesses get less of the sky. Out to about 55 m (beyond, it is too small to see), on Medium and up, and the performance guard can turn it off.
+// kind: 0 office tower, 1 apartment block, 2 shop, 3 house. grid: the texture's cells (bays across, storeys up); room: a room's width, height and depth
+// in metres; sill: the height of the window sills in a storey (0..1) and the span of the window across the bay (for the streaks), or null; fac: the
+// facade (its height map and the metres one copy of it covers).
 const ROOM_LIGHT = TOD.night ? 0.01 : TOD.lampsOn ? 0.045 : TOD.hemiI * 0.07;           // (how bright a room looks from the street by daylight: dim)
-function facadeFx(mat, kind, grid, room, sill, clear) {
-  const f = v => v.toFixed(3);
+export const FACADE = { pom: { value: Q.name === 'low' ? 0 : 1 } };                    // (the depth: on, or off on Low and when the performance guard needs it)
+const DEPTH = 0.3;                                                                        // metres from the outermost face (height 1) to the deepest (0)
+function facadeFx(mat, kind, grid, room, sill, clear, fac) {
+  const f = v => v.toFixed(3), TEXM = `vec2(${f(fac.w)}, ${f(fac.h)})`, grad = (chunk, from) => THREE.ShaderChunk[chunk].split(from).join(from.replace('texture2D(', 'textureGrad(').replace(/v\w+Uv \)/, 'pUv, fGx, fGy )'));     // (a chunk with its texture lookup moved to the parallax coordinates, sampled with the true gradients)
   mat.onBeforeCompile = sh => {
+    sh.uniforms.tHeight = { value: fac.heightMap }; sh.uniforms.uPom = FACADE.pom;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = transformed;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      varying vec3 vWP;
+      varying vec3 vWP; uniform sampler2D tHeight; uniform float uPom;
+      vec2 pUv, fGx, fGy; vec3 fT, fB, fN; float fH = 1.0, fDepth = 0.0;
       float gmH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float gmN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(gmH(i), gmH(i + vec2(1.0, 0.0)), f.x), mix(gmH(i + vec2(0.0, 1.0)), gmH(i + vec2(1.0, 1.0)), f.x), f.y); }`)
-      .replace('#include <map_fragment>', `#include <map_fragment>
+      .replace('void main() {', `void main() {
+        // Parallax occlusion: the wall's own frame (along it, up it, out of it) from how the position and the texture coordinates change across the pixel.
+        pUv = vMapUv; fGx = dFdx(vMapUv); fGy = dFdy(vMapUv);
+        fN = inverseTransformDirection(vNormal, viewMatrix);
+        { vec3 dp1 = dFdx(vWP), dp2 = dFdy(vWP), dp2p = cross(dp2, fN), dp1p = cross(fN, dp1);
+          fT = normalize(dp2p * fGx.x + dp1p * fGy.x + 1e-7); fB = normalize(dp2p * fGx.y + dp1p * fGy.y + 1e-7); }
+        fDepth = ${f(DEPTH)} * uPom * (1.0 - smoothstep(32.0, 55.0, length(vViewPosition)));
+        if (fDepth > 0.001) {
+          vec3 Vw = normalize(cameraPosition - vWP), Vt = vec3(dot(Vw, fT), dot(Vw, fB), dot(Vw, fN));
+          vec2 duv = -Vt.xy / max(Vt.z, 0.2) * fDepth / ${TEXM} / 12.0, cuv = vMapUv;
+          float ls = 1.0 / 12.0, cur = 1.0, hh = textureGrad(tHeight, cuv, fGx, fGy).r;
+          for (int i = 0; i < 12; i++) { if (hh >= cur) break; cur -= ls; cuv += duv; hh = textureGrad(tHeight, cuv, fGx, fGy).r; }
+          vec2 puv = cuv - duv; float ph = textureGrad(tHeight, puv, fGx, fGy).r;
+          float d1 = max(hh - cur, 0.0), d0 = max(cur + ls - ph, 0.0), t = d0 / max(d0 + d1, 1e-4);
+          pUv = mix(puv, cuv, t); fH = clamp(mix(cur + ls, cur, t), 0.0, 1.0);
+        }`)
+      .replace('#include <roughnessmap_fragment>', grad('roughnessmap_fragment', 'texture2D( roughnessMap, vRoughnessMapUv )'))
+      .replace('#include <metalnessmap_fragment>', grad('metalnessmap_fragment', 'texture2D( metalnessMap, vMetalnessMapUv )'))
+      .replace('#include <normal_fragment_maps>', grad('normal_fragment_maps', 'texture2D( normalMap, vNormalMapUv )'))
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+        if (fDepth > 0.001) {
+          // In a recess: less of the sky (it is shut in on four sides), and the sun only where the head and sides of the opening let it in.
+          reflectedLight.indirectDiffuse *= mix(0.5, 1.0, smoothstep(0.25, 0.85, fH)); reflectedLight.indirectSpecular *= mix(0.6, 1.0, smoothstep(0.25, 0.85, fH));
+          #if NUM_DIR_LIGHTS > 0
+          if (fH < 0.97) {
+            vec3 Lw = normalize((vec4(directionalLights[0].direction, 0.0) * viewMatrix).xyz), Lt = vec3(dot(Lw, fT), dot(Lw, fB), dot(Lw, fN));
+            if (Lt.z > 0.02) {
+              vec2 dl = Lt.xy / max(Lt.z, 0.12) * fDepth / ${TEXM}; float shd = 1.0;
+              for (int i = 1; i <= 6; i++) { float sx = float(i) / 6.0 * (1.0 - fH); if (textureGrad(tHeight, pUv + dl * sx, fGx, fGy).r > fH + sx + 0.015) { shd = 0.15; break; } }
+              reflectedLight.directDiffuse *= shd; reflectedLight.directSpecular *= shd;
+            }
+          }
+          #endif
+        }`)
+      .replace('#include <map_fragment>', grad('map_fragment', 'texture2D( map, vMapUv )') + `
         diffuseColor.rgb *= mix(0.55, 1.0, smoothstep(0.0, 4.5, vWP.y));
         { float along = vWP.x * 1.7 + vWP.z * 2.3;                                   // (which way a wall runs does not matter: the streaks are cut from the position along it)
           float st = gmN(vec2(along * 3.1, vWP.y * 0.11)) * 0.65 + gmN(vec2(along * 9.0 + 3.0, vWP.y * 0.23)) * 0.35;
           float streak = smoothstep(0.56, 0.9, st) * smoothstep(2.0, 12.0, vWP.y) * 0.22;
           float tonal = gmN(vec2(along * 0.45, vWP.y * 0.05 + 7.0)) * 0.6 + gmN(vec2(along * 0.12 + 3.0, vWP.y * 0.02)) * 0.4;
           diffuseColor.rgb *= (1.0 - streak) * (0.88 + 0.2 * tonal);
-          ${sill ? `{ vec2 sc = vMapUv * vec2(${f(grid[0])}, ${f(grid[1])}); vec2 sf = fract(sc), si = floor(sc);          // (a dark streak under each sill)
+          ${sill ? `{ vec2 sc = pUv * vec2(${f(grid[0])}, ${f(grid[1])}); vec2 sf = fract(sc), si = floor(sc);          // (a dark streak under each sill)
             float under = ${f(sill[0])} - sf.y, wx = smoothstep(${f(sill[1])}, ${f(sill[1] + 0.03)}, sf.x) * (1.0 - smoothstep(${f(sill[2] - 0.03)}, ${f(sill[2])}, sf.x));
             float drip = gmN(vec2(sf.x * 26.0 + si.x * 7.0, si.y * 3.1)) * gmN(vec2(sf.x * 9.0 + si.y, si.x));
             float len = 0.15 + 0.5 * gmH(si + 0.5);
             diffuseColor.rgb *= 1.0 - step(0.0, under) * (1.0 - smoothstep(0.0, len, under)) * wx * drip * 0.5; }` : ''}
         }`)
-      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      .replace('#include <emissivemap_fragment>', grad('emissivemap_fragment', 'texture2D( emissiveMap, vEmissiveMapUv )') + `
         {
           float gk = smoothstep(0.3, 0.55, metalnessFactor);
           if (gk > 0.001) {
-            vec2 cell = vMapUv * vec2(${f(grid[0])}, ${f(grid[1])}), cid = floor(cell), cf = fract(cell);
+            vec2 cell = pUv * vec2(${f(grid[0])}, ${f(grid[1])}), cid = floor(cell), cf = fract(cell);
             vec3 D = normalize(-vViewPosition), Tn = normalize(tbn[0]), Bn = normalize(tbn[1]), Nn = normalize(tbn[2]);
             vec3 rd = vec3(dot(D, Tn) / ${f(room[0])}, dot(D, Bn) / ${f(room[1])}, max(-dot(D, Nn), 0.02) / ${f(room[2])});
             vec3 ro = vec3(cf, 0.0);
@@ -313,7 +358,7 @@ function facadeFx(mat, kind, grid, room, sill, clear) {
           }
         }`);
   };
-  mat.customProgramCacheKey = () => 'facade3-' + kind + grid + room + sill + clear;
+  mat.customProgramCacheKey = () => 'facade4-' + kind + grid + room + sill + clear + fac.w + fac.h;
   return mat;
 }
 
@@ -346,7 +391,7 @@ export class City {
     const fac = (f, ei, env, fx) => facadeFx(std({
       map: f.map, emissiveMap: f.emissiveMap, roughnessMap: f.ormMap, metalnessMap: f.ormMap, normalMap: f.normalMap, normalScale: new THREE.Vector2(1, 1),
       emissive: 0xffffff, emissiveIntensity: ei, vertexColors: true, metalness: 1, roughness: 1, envMapIntensity: env,
-    }), ...fx);
+    }), ...fx, f);
     // Road and pavement materials come from these so that the bridges (which must not be cut by the river) can have their own copies.
     const makeWalk = () => { const w = macro(std({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: TOD.wet ? 0.62 : 0.92, envMapIntensity: TOD.wet ? 1.5 : 1 }), 0.06, 0.3); attachSSR(w, { range: 70, rough: 0.7 }); puddles(w, 0.35, 'walk'); return w; };
     const makeAsphalt = () => { const a = macro(std({ color: new THREE.Color(TOD.road).multiplyScalar(TOD.wet ? 1 : 0.78), map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: TOD.wet ? new THREE.Vector2(0.4, 0.4) : new THREE.Vector2(0.55, 0.55), roughness: TOD.wet ? 0.4 : 0.79, metalness: 0, envMapIntensity: TOD.wet ? 2.0 : 0.85 }), 0.045, 0.35); attachSSR(a, { range: 90, rough: 0.64 }); puddles(a, 0.6, 'road'); return a; };

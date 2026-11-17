@@ -15,7 +15,7 @@ import { buildSky, placeSun, SUN_DIR, LIGHT_DIR, applyHDRI } from './sky.js';
 import { Motes } from './motes.js';
 import { Birds } from './birds.js';
 import { DOFPass } from './dof.js';
-import { City, SP, N, EDGE, laneOffset, queryColliders, signalState, breakProp, WETNESS } from './city.js';
+import { City, SP, N, EDGE, laneOffset, queryColliders, signalState, breakProp, WETNESS, FACADE } from './city.js';
 import { groundAt, ROADS, BUNKERS, AIRFIELD, WORLD_LIM, isWater } from './world.js';
 import { inWater } from './rivercourse.js';
 import { nearestAvenue } from './avenues.js';
@@ -212,6 +212,7 @@ const GPU_LADDER = [
   { name: 'RAY-TRACED LIGHT BOUNCE', on(v) { if (giPass) { giPass.enabled = v; grade.uniforms.uGI.value = v ? 0.75 : 0; } }, has: () => !!giPass },
   { name: 'RAY-TRACED REFLECTIONS', on(v) { const e = v && !!Q.ssr; SSR.enabled = e; if (!e) SSR.amt.value = 0; if (histPass) histPass.enabled = e; }, has: () => !!Q.ssr },
   { name: 'AMBIENT OCCLUSION', on(v) { if (aoPass) { aoPass.enabled = v; grade.uniforms.uAO.value = v ? 0.9 : 0; } }, has: () => !!aoPass },
+  { name: 'WINDOW DEPTH', on(v) { FACADE.pom.value = v ? 1 : 0; }, has: () => FACADE.pom.value > 0 },          // (the parallax in the facades, city.js)
   { name: 'DISTANT DETAIL', on(v) { const k = v ? 1 : 0.62; Q.detailR = DIST0.detailR * k; Q.treeR = DIST0.treeR * k; Q.scatR = DIST0.scatR * k; }, has: () => true },   // (the city and terrain read these every update)
 ].filter(st => st.has());
 const CPU_LADDER = [

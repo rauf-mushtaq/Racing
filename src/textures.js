@@ -205,28 +205,51 @@ const litColors = ['#ffd49a', '#ffe2b8', '#ffc67a', '#fff1d6', '#d8e6ff'];
 const rr = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
 const vgrad = (g, y0, y1, stops) => { const gr = g.createLinearGradient(0, y0, 0, y1); for (const [t, c] of stops) gr.addColorStop(t, c); return gr; };
 
-function facadeBase(cols, rows, cw, ch, seed, drawCell, normalStrength = 2.6) {
+function facadeBase(cols, rows, cw, ch, seed, drawCell, normalStrength = 2.6, o = {}) {
+  // Four canvases are drawn cell by cell: the colour, the glow of lit rooms (emissive), the roughness (from which the ORM map is made: dark = smooth
+  // glass) and, for the facades that draw one (o.height), the height of the surface: 1 is the outermost face (a sill, a mullion), the wall a little
+  // below it, a window set back in its opening near 0. The height drives the parallax in the facade shader (city.js), so windows sit back in the wall
+  // with their reveals showing, and it makes the normal map. Without one the height is taken from the roughness, as before.
   const W = Math.round(cols * cw * TS), H = Math.round(rows * ch * TS);
-  const [c, g] = mk(W, H), [ce, ge] = mk(W, H), [cr, gr] = mk(W, H);
-  for (const x of [g, ge, gr]) x.scale(TS, TS);
+  const [c, g] = mk(W, H), [ce, ge] = mk(W, H), [cr, gr] = mk(W, H), [, gh] = mk(W, H);
+  for (const x of [g, ge, gr, gh]) x.scale(TS, TS);
   ge.fillStyle = '#000'; ge.fillRect(0, 0, cols * cw, rows * ch);
+  gh.fillStyle = 'rgb(235,235,235)'; gh.fillRect(0, 0, cols * cw, rows * ch);
   const rnd = mulberry32(seed);
-  for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) drawCell(g, ge, gr, k * cw, r * ch, cw, ch, rnd, r, k);
-  // The roughness canvas becomes a glTF-style ORM map (G = roughness, B =
-  // metalness: shiny dark glass is metallic) and, as a height field, a normal map.
-  const R = gr.getImageData(0, 0, W, H).data;
+  for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) drawCell(g, ge, gr, k * cw, r * ch, cw, ch, rnd, r, k, gh);
+  // The roughness canvas becomes a glTF-style ORM map (G = roughness, B = metalness: shiny dark glass is metallic; a little darker than glass, 50 to
+  // 70, is spandrel glass: shiny, but no room behind it).
+  const R = gr.getImageData(0, 0, W, H).data, HD = o.height ? gh.getImageData(0, 0, W, H).data : null;
   const [co, go] = mk(W, H), oi = go.createImageData(W, H), od = oi.data;
   const Hf = new Float32Array(W * H), hr = mulberry32(seed + 7);
+  // The colour is given the grain of a real surface where it is wall (not glass, not set back): fine speckle, blotches a hand across, and big patches
+  // where the paint or render has aged differently, so no wall is one flat colour.
+  const CI = g.getImageData(0, 0, W, H), cd = CI.data, grain = o.grain ?? 0;
+  const mid = grain ? lowField(128, 40, 3, seed + 12) : null, big = grain ? lowField(64, 5, 3, seed + 13) : null;
   for (let i = 0; i < W * H; i++) {
-    let gray = R[i * 4];
+    let gray = R[i * 4]; const glass = gray < 70;
     if (gray > 120) gray = clamp(gray + (hr() - 0.5) * 14, 0, 255);          // plaster grain
-    od[i * 4] = 255; od[i * 4 + 1] = gray; od[i * 4 + 2] = gray < 70 ? 176 : 0; od[i * 4 + 3] = 255;
-    Hf[i] = gray / 255;
+    od[i * 4] = 255; od[i * 4 + 1] = gray; od[i * 4 + 2] = gray < 50 ? 176 : gray < 70 ? 70 : 0; od[i * 4 + 3] = 255;
+    let h = HD ? HD[i * 4] / 255 : gray / 255;
+    if (grain && !glass && h > 0.8) {
+      const x = i % W, y = (i / W) | 0, u = x / W, v = y / H, m = bil(mid, 128, u, v), b = bil(big, 64, u, v), f = hr();
+      const k = 1 + ((f - 0.5) * 0.07 + (m - 0.5) * 0.12 + (b - 0.5) * 0.16) * grain;
+      cd[i * 4] = clamp(cd[i * 4] * k, 0, 255); cd[i * 4 + 1] = clamp(cd[i * 4 + 1] * k, 0, 255); cd[i * 4 + 2] = clamp(cd[i * 4 + 2] * k * 0.99, 0, 255);
+      h += ((f - 0.5) * 0.012 + (m - 0.5) * 0.02) * grain;                       // (and a little bump, for the normal map)
+    }
+    Hf[i] = h;
   }
+  if (grain) g.putImageData(CI, 0, 0);
   go.putImageData(oi, 0, 0);
   const normalMap = normalFromHeight(Hf, W, H, normalStrength);
-  return { map: tex(c), emissiveMap: tex(ce), ormMap: tex(co, false), normalMap };
+  // The height as a one-channel texture (rows flipped: a canvas texture is drawn top row last, a data texture first).
+  const hd = new Uint8Array(W * H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) hd[(H - 1 - y) * W + x] = clamp(Hf[y * W + x], 0, 1) * 255;
+  const heightMap = new THREE.DataTexture(hd, W, H, THREE.RedFormat, THREE.UnsignedByteType);
+  heightMap.wrapS = heightMap.wrapT = THREE.RepeatWrapping; heightMap.magFilter = THREE.LinearFilter; heightMap.minFilter = THREE.LinearMipmapLinearFilter; heightMap.generateMipmaps = true; heightMap.needsUpdate = true;
+  return { map: tex(c), emissiveMap: tex(ce), ormMap: tex(co, false), normalMap, heightMap };
 }
+const hrect = (gh, x, y, w, h, v) => { if (!gh) return; gh.fillStyle = `rgb(${v},${v},${v})`; gh.fillRect(x, y, w, h); };
+const shadeHex = (hex, k) => { const n = parseInt(hex.slice(1), 16); return `rgb(${clamp((n >> 16) * k, 0, 255) | 0},${clamp(((n >> 8) & 255) * k, 0, 255) | 0},${clamp((n & 255) * k, 0, 255) | 0})`; };
 
 // The glow of a lit room behind a window: warm light, a ceiling strip and the
 // dark shapes of furniture; sometimes a curtain.
@@ -240,89 +263,106 @@ function interiorGlow(ge, x, y, w, h, rnd) {
   if (rnd() < 0.35) { ge.globalAlpha = 0.75; ge.fillRect(x + (rnd() < 0.5 ? 0 : w * 0.5), y, w * (0.3 + rnd() * 0.2), h); ge.globalAlpha = 1; }
 }
 
-function glassCell(g, ge, gr, x, y, w, h, rnd) {
-  const sp = 64;
-  g.fillStyle = vgrad(g, y, y + sp, [[0, '#6b7885'], [1, '#4b5763']]); g.fillRect(x, y, w, sp);
-  g.fillStyle = 'rgba(255,255,255,0.2)'; g.fillRect(x, y + 1, w, 2);
-  g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x, y + sp - 3, w, 3);
-  gr.fillStyle = '#a4a4a4'; gr.fillRect(x, y, w, sp);
-  const gy = y + sp, gh = h - sp, t = rnd();
-  g.fillStyle = vgrad(g, gy, gy + gh, [[0, t < 0.5 ? '#7d8a94' : '#76838d'], [0.5, '#56636d'], [1, '#38424b']]);
-  g.fillRect(x, gy, w, gh);
-  g.fillStyle = 'rgba(20,40,60,0.28)'; g.fillRect(x, gy + gh * 0.72, w, gh * 0.28);
-  gr.fillStyle = '#141414'; gr.fillRect(x, gy, w, gh);
-  for (const mx of [x, x + w / 2 - 3, x + w - 6]) {
-    g.fillStyle = '#cfd4d9'; g.fillRect(mx, gy, 6, gh); g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(mx + 5, gy, 1.5, gh);
-    gr.fillStyle = '#8c8c8c'; gr.fillRect(mx, gy, 6, gh);
+function glassCell(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
+  // A unitised curtain wall, 4 m by one storey: three panels across between thin aluminium mullions, an opaque spandrel panel in front of the floor
+  // slab (dark glass, shiny, with no room behind it) and the vision glass below it. No two panels are quite the same: each is a shade lighter or darker
+  // (a slight tilt per panel, drawn as a gradient in the height map, came out as ripples: an 8-bit gradient is a staircase).
+  const sp = 54, pw = w / 3;
+  for (let p = 0; p < 3; p++) {
+    const px = x + p * pw, b = 0.92 + rnd() * 0.16;
+    g.fillStyle = vgrad(g, y, y + sp, [[0, shadeHex('#4a545b', b)], [1, shadeHex('#363e44', b)]]); g.fillRect(px, y, pw, sp);
+    g.fillStyle = vgrad(g, y + sp, y + h, [[0, shadeHex('#66737b', b)], [0.45, shadeHex('#4c5860', b)], [1, shadeHex('#2c343a', b)]]); g.fillRect(px, y + sp, pw, h - sp);
+    gr.fillStyle = '#3c3c3c'; gr.fillRect(px, y, pw, sp); gr.fillStyle = '#161616'; gr.fillRect(px, y + sp, pw, h - sp);
+    hrect(gh, px, y, pw, h, 230);                                                         // (the glass a little back from the face of the frame; the blinds are behind it, in the room: city.js)
+    if (rnd() < 0.22) interiorGlow(ge, px + 3, y + sp + 3, pw - 6, h - sp - 3, rnd);
   }
-  g.fillStyle = '#bfc5cb'; g.fillRect(x, gy, w, 5); gr.fillStyle = '#8c8c8c'; gr.fillRect(x, gy, w, 5);
-  if (rnd() < 0.2) {
-    if (rnd() < 0.7) interiorGlow(ge, x + 6, gy + 5, w / 2 - 9, gh - 5, rnd);
-    if (rnd() < 0.7) interiorGlow(ge, x + w / 2 + 3, gy + 5, w / 2 - 9, gh - 5, rnd);
-  }
+  // The frame: mullions between the panels, a transom at the floor line and at the foot of the spandrel; brushed aluminium standing a little proud.
+  const bar = (bx, by, bw, bh) => { g.fillStyle = '#8f989e'; g.fillRect(bx, by, bw, bh); g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(bx, by, Math.min(bw, 1.2), bh); g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(bx + bw - 1, by, 1, bh); gr.fillStyle = '#8a8a8a'; gr.fillRect(bx, by, bw, bh); hrect(gh, bx, by, bw, bh, 252); };
+  for (let p = 0; p < 3; p++) bar(x + p * pw - 2, y, 4, h);
+  bar(x, y, w, 3); bar(x, y + sp - 2, w, 4);
 }
 
-function modernCell(g, ge, gr, x, y, w, h, rnd) {
-  const band = 56;
-  g.fillStyle = vgrad(g, y, y + band, [[0, '#f5f4ef'], [1, '#e1e0da']]); g.fillRect(x, y, w, band);
-  g.fillStyle = 'rgba(0,0,0,0.2)'; g.fillRect(x, y + band, w, 7);
-  g.fillStyle = 'rgba(255,255,255,0.7)'; g.fillRect(x, y, w, 2);
-  gr.fillStyle = '#dcdcdc'; gr.fillRect(x, y, w, band + 7);
-  const gy = y + band + 7, gh = h - band - 7;
-  g.fillStyle = vgrad(g, gy, gy + gh, [[0, '#7d8a94'], [0.5, '#5c6973'], [1, '#3a454e']]); g.fillRect(x, gy, w, gh);
-  gr.fillStyle = '#151515'; gr.fillRect(x, gy, w, gh);
-  for (let m = 0; m < 4; m++) { g.fillStyle = '#4b535b'; g.fillRect(x + m * w / 4, gy, 2.5, gh); gr.fillStyle = '#8c8c8c'; gr.fillRect(x + m * w / 4, gy, 2.5, gh); }
-  if (rnd() < 0.3) { g.fillStyle = 'rgba(40,50,60,0.8)'; for (let f = 0; f < 3; f++) g.fillRect(x, gy + 6 + f * 9, w, 2); }
-  if (rnd() < 0.25) interiorGlow(ge, x + 3, gy + 2, w - 6, gh - 2, rnd);
+function modernCell(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
+  // An office block: a band of board-marked concrete across the floor slab, and below it a ribbon of glass set well back (its top in the band's shadow)
+  // between dark aluminium mullions a metre apart.
+  const band = 60, gy = y + band, gh2 = h - band;
+  g.fillStyle = '#dad5cc'; g.fillRect(x, y, w, band);
+  g.fillStyle = 'rgba(80,70,60,0.07)'; for (let l = 1; l < 3; l++) g.fillRect(x, y + l * band / 3, w, 1);                     // (the joints of the formwork)
+  g.fillStyle = 'rgba(255,255,255,0.45)'; g.fillRect(x, y, w, 1.5); g.fillStyle = 'rgba(40,36,30,0.35)'; g.fillRect(x, y + band - 2, w, 2);   // (the arris on top; the drip edge under)
+  for (let s = 0; s < 4; s++) { const sx = x + rnd() * w, len = 20 + rnd() * 30, sg = g.createLinearGradient(0, y + band * 0.4, 0, y + band * 0.4 + len); sg.addColorStop(0, 'rgba(70,64,56,0.16)'); sg.addColorStop(1, 'rgba(70,64,56,0)'); g.fillStyle = sg; g.fillRect(sx, y + band * 0.4, 3 + rnd() * 6, Math.min(len, band * 0.6)); }
+  gr.fillStyle = '#d4d4d4'; gr.fillRect(x, y, w, band); hrect(gh, x, y, w, band, 250);
+  g.fillStyle = vgrad(g, gy, gy + gh2, [[0, '#4a555d'], [0.5, '#5f6c74'], [1, '#353e45']]); g.fillRect(x, gy, w, gh2);
+  gr.fillStyle = '#151515'; gr.fillRect(x, gy, w, gh2); hrect(gh, x, gy, w, gh2, 105);
+  for (let m = 0; m < 4; m++) { const mx = x + m * w / 4 - 1.5; g.fillStyle = '#3a4045'; g.fillRect(mx, gy, 3, gh2); g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(mx, gy, 1, gh2); gr.fillStyle = '#8c8c8c'; gr.fillRect(mx, gy, 3, gh2); hrect(gh, mx, gy, 3, gh2, 130); }
+  g.fillStyle = '#3a4045'; g.fillRect(x, gy + gh2 - 4, w, 4); hrect(gh, x, gy + gh2 - 4, w, 4, 130);
+  if (rnd() < 0.25) interiorGlow(ge, x + 3, gy + 2, w - 6, gh2 - 6, rnd);
 }
 
-function aptCell(g, ge, gr, x, y, w, h, rnd) {
-  g.fillStyle = '#f0ebe3'; g.fillRect(x, y, w, h);
-  g.fillStyle = 'rgba(0,0,0,0.06)'; g.fillRect(x, y + h - 10, w, 10);
-  g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(x, y + h - 12, w, 2);
-  gr.fillStyle = '#e2e2e2'; gr.fillRect(x, y, w, h);
-  const ww = 104, wh = 118, wx = x + (w - ww) / 2, wy = y + 30;
-  if (rnd() < 0.3) {                                       // shutters
-    const sc = ['#4e6b5a', '#6b4e3f', '#3f5875', '#7a6a4a'][(rnd() * 4) | 0];
-    for (const sx of [wx - 34, wx + ww + 6]) {
-      g.fillStyle = sc; g.fillRect(sx, wy - 4, 28, wh + 8);
-      g.fillStyle = 'rgba(0,0,0,0.25)'; for (let l = 0; l < wh; l += 7) g.fillRect(sx + 2, wy + l, 24, 2);
-      gr.fillStyle = '#b0b0b0'; gr.fillRect(sx, wy - 4, 28, wh + 8);
+function aptCell(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
+  // 4 m by one storey of a rendered apartment block: an aluminium window (two sliding panes) set back in its opening, a concrete sill with rain streaks
+  // running down from it; now and then a window air conditioner, rarely a pair of louvred shutters.
+  g.fillStyle = '#ece5d9'; g.fillRect(x, y, w, h); gr.fillStyle = '#e2e2e2'; gr.fillRect(x, y, w, h);
+  g.fillStyle = 'rgba(80,70,60,0.08)'; g.fillRect(x, y + h - 2, w, 2); hrect(gh, x, y + h - 2, w, 2, 226);          // (the line of the floor slab)
+  const ww = 112, wh = 98, wx = x + (w - ww) / 2, wy = y + 52;
+  // Rain streaks from the ends of the sill and below it.
+  for (let s = 0; s < 7; s++) {
+    const sx = wx - 8 + rnd() * (ww + 16), len = 18 + rnd() * 70, sw = 2 + rnd() * 6, sg = g.createLinearGradient(0, wy + wh + 10, 0, wy + wh + 10 + len);
+    sg.addColorStop(0, `rgba(70,62,52,${0.1 + rnd() * 0.16})`); sg.addColorStop(1, 'rgba(70,62,52,0)'); g.fillStyle = sg; g.fillRect(sx, wy + wh + 10, sw, len);
+  }
+  // Shutters, rarely: louvred, in muted colours, standing off the wall.
+  if (rnd() < 0.08) {
+    const sc = ['#56615b', '#6a635a', '#4b5661', '#6e6a62'][(rnd() * 4) | 0];
+    for (const sx of [wx - 40, wx + ww + 6]) {
+      g.fillStyle = sc; g.fillRect(sx, wy - 2, 34, wh + 4); g.fillStyle = 'rgba(0,0,0,0.28)'; for (let l = 2; l < wh; l += 6) g.fillRect(sx + 3, wy + l, 28, 2);
+      g.fillStyle = 'rgba(255,255,255,0.12)'; for (let l = 4; l < wh; l += 6) g.fillRect(sx + 3, wy + l, 28, 1);
+      g.fillStyle = 'rgba(30,25,20,0.18)'; g.fillRect(sx + 34, wy, 3, wh + 4);
+      gr.fillStyle = '#b4b4b4'; gr.fillRect(sx, wy - 2, 34, wh + 4); hrect(gh, sx, wy - 2, 34, wh + 4, 244);
     }
   }
-  g.fillStyle = '#e8e2d8'; g.fillRect(wx - 8, wy - 8, ww + 16, wh + 16);
-  g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(wx - 8, wy - 8, ww + 16, 3); g.fillRect(wx - 8, wy - 8, 3, wh + 16);
-  gr.fillStyle = '#c8c8c8'; gr.fillRect(wx - 8, wy - 8, ww + 16, wh + 16);
-  g.fillStyle = vgrad(g, wy, wy + wh, [[0, '#6b7882'], [0.5, '#47525b'], [1, '#252d34']]); g.fillRect(wx, wy, ww, wh);
-  gr.fillStyle = '#1c1c1c'; gr.fillRect(wx, wy, ww, wh);
-  g.fillStyle = '#f3efe7'; g.fillRect(wx + ww / 2 - 2.5, wy, 5, wh); g.fillRect(wx, wy + wh * 0.38, ww, 5);
-  gr.fillStyle = '#b8b8b8'; gr.fillRect(wx + ww / 2 - 2.5, wy, 5, wh); gr.fillRect(wx, wy + wh * 0.38, ww, 5);
-  g.fillStyle = '#dcd5c9'; g.fillRect(wx - 14, wy + wh + 8, ww + 28, 9);
-  g.fillStyle = 'rgba(0,0,0,0.32)'; g.fillRect(wx - 14, wy + wh + 17, ww + 28, 5);
-  gr.fillStyle = '#d0d0d0'; gr.fillRect(wx - 14, wy + wh + 8, ww + 28, 9);
-  if (rnd() < 0.12) { g.fillStyle = '#c9ccce'; g.fillRect(wx + ww + 14, wy + wh + 30, 26, 18); g.fillStyle = '#9aa0a4'; for (let l = 0; l < 4; l++) g.fillRect(wx + ww + 16, wy + wh + 33 + l * 4, 22, 1.5); }
-  if (rnd() < 0.25) interiorGlow(ge, wx + 2, wy + 2, ww - 4, wh - 4, rnd);
+  // The opening: its reveal (render), the frame, two panes and the meeting rail between them.
+  g.fillStyle = '#d6cec1'; g.fillRect(wx, wy, ww, wh); gr.fillStyle = '#d0d0d0'; gr.fillRect(wx, wy, ww, wh); hrect(gh, wx, wy, ww, wh, 100);
+  g.fillStyle = '#c6c9cb'; g.fillRect(wx + 4, wy + 4, ww - 8, wh - 8); gr.fillStyle = '#a8a8a8'; gr.fillRect(wx + 4, wy + 4, ww - 8, wh - 8);
+  const px = wx + 9, py = wy + 9, pw = ww - 18, ph = wh - 18;
+  g.fillStyle = vgrad(g, py, py + ph, [[0, '#59646d'], [0.55, '#3c464e'], [1, '#232a30']]); g.fillRect(px, py, pw, ph);
+  gr.fillStyle = '#1a1a1a'; gr.fillRect(px, py, pw, ph); hrect(gh, px, py, pw, ph, 80);
+  g.fillStyle = '#c6c9cb'; g.fillRect(wx + ww / 2 - 3, wy + 4, 6, wh - 8); gr.fillStyle = '#a8a8a8'; gr.fillRect(wx + ww / 2 - 3, wy + 4, 6, wh - 8); hrect(gh, wx + ww / 2 - 3, wy + 4, 6, wh - 8, 104);
+  g.fillStyle = 'rgba(0,0,0,0.32)'; g.fillRect(px, py, pw, 3); g.fillRect(px, py, 2, ph);                                              // (the frame's shadow on the glass)
+  g.fillStyle = 'rgba(255,255,255,0.4)'; g.fillRect(wx + 4, wy + 4, ww - 8, 1.5);
+  if (rnd() < 0.25) interiorGlow(ge, px + 2, py + 2, pw - 4, ph - 4, rnd);
+  // The sill: precast concrete, standing proud, lit on top, with a drip shadow under it.
+  g.fillStyle = '#cdc6b9'; g.fillRect(wx - 10, wy + wh, ww + 20, 9); g.fillStyle = 'rgba(255,255,255,0.4)'; g.fillRect(wx - 10, wy + wh, ww + 20, 2);
+  const dg = g.createLinearGradient(0, wy + wh + 9, 0, wy + wh + 19); dg.addColorStop(0, 'rgba(40,34,28,0.38)'); dg.addColorStop(1, 'rgba(40,34,28,0)'); g.fillStyle = dg; g.fillRect(wx - 10, wy + wh + 9, ww + 20, 10);
+  gr.fillStyle = '#c8c8c8'; gr.fillRect(wx - 10, wy + wh, ww + 20, 9); hrect(gh, wx - 10, wy + wh, ww + 20, 9, 255);
+  // A window air conditioner in the bottom of the opening, now and then, with a rusty streak under it.
+  if (rnd() < 0.16) {
+    const ax = wx + (rnd() < 0.5 ? 14 : ww - 62), ay = wy + wh - 40, aw = 48, ah = 34;
+    g.fillStyle = '#bdb7aa'; g.fillRect(ax, ay, aw, ah); g.fillStyle = 'rgba(0,0,0,0.3)'; for (let l = ay + 5; l < ay + ah - 4; l += 4) g.fillRect(ax + 4, l, aw - 8, 1.5);
+    g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(ax, ay, aw, 2); g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(ax, ay + ah, aw, 3);
+    const rg = g.createLinearGradient(0, wy + wh + 9, 0, wy + wh + 60); rg.addColorStop(0, 'rgba(110,70,40,0.3)'); rg.addColorStop(1, 'rgba(110,70,40,0)'); g.fillStyle = rg; g.fillRect(ax + aw * 0.4, wy + wh + 9, 5, 50);
+    gr.fillStyle = '#b0b0b0'; gr.fillRect(ax, ay, aw, ah); hrect(gh, ax, ay, aw, ah, 255);
+  }
 }
 
-function brickCell(g, ge, gr, x, y, w, h, rnd) {
+function brickCell(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
   const rowsN = 46, colsN = 18, bh = h / rowsN, bw = w / colsN;
   g.fillStyle = '#b8b0a2'; g.fillRect(x, y, w, h);
-  gr.fillStyle = '#8c8c8c'; gr.fillRect(x, y, w, h);
+  gr.fillStyle = '#8c8c8c'; gr.fillRect(x, y, w, h); hrect(gh, x, y, w, h, 228);          // (the mortar a few millimetres back from the face of the bricks)
   for (let r = 0; r < rowsN; r++) for (let k = 0; k < colsN + 1; k++) {
     const v = 0.78 + rnd() * 0.42, bx = x + (k - (r % 2) * 0.5) * bw;
     const x0 = Math.max(x, bx + 0.7), x1 = Math.min(x + w, bx + bw - 0.7);
     if (x1 <= x0) continue;
     g.fillStyle = `rgb(${158 * v | 0},${88 * v | 0},${66 * v | 0})`; g.fillRect(x0, y + r * bh + 0.7, x1 - x0, bh - 1.4);
-    gr.fillStyle = '#e4e4e4'; gr.fillRect(x0, y + r * bh + 0.7, x1 - x0, bh - 1.4);
+    gr.fillStyle = '#e4e4e4'; gr.fillRect(x0, y + r * bh + 0.7, x1 - x0, bh - 1.4); hrect(gh, x0, y + r * bh + 0.7, x1 - x0, bh - 1.4, 240);
   }
   const ww = 96, wh = 126, wx = x + (w - ww) / 2, wy = y + 28;
+  hrect(gh, wx - 12, wy - 16, ww + 24, 14, 248); hrect(gh, wx - 4, wy - 4, ww + 8, wh + 8, 110); hrect(gh, wx, wy, ww, wh, 78); hrect(gh, wx - 14, wy + wh + 4, ww + 28, 10, 255);
   g.fillStyle = '#ece6da'; g.fillRect(wx - 12, wy - 16, ww + 24, 14);                  // lintel
   g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(wx - 12, wy - 3, ww + 24, 3);
   g.fillStyle = '#ece6da'; g.fillRect(wx - 4, wy - 4, ww + 8, wh + 8);
   gr.fillStyle = '#c4c4c4'; gr.fillRect(wx - 12, wy - 16, ww + 24, wh + 20);
   g.fillStyle = vgrad(g, wy, wy + wh, [[0, '#5e6a74'], [1, '#20282e']]); g.fillRect(wx, wy, ww, wh);
   gr.fillStyle = '#1c1c1c'; gr.fillRect(wx, wy, ww, wh);
-  g.fillStyle = '#ece6da'; g.fillRect(wx, wy + wh / 2 - 2.5, ww, 5); g.fillRect(wx + ww / 2 - 2.5, wy, 5, wh);
+  g.fillStyle = '#ece6da'; g.fillRect(wx, wy + wh / 2 - 2.5, ww, 5); g.fillRect(wx + ww / 2 - 2.5, wy, 5, wh); hrect(gh, wx, wy + wh / 2 - 2.5, ww, 5, 100); hrect(gh, wx + ww / 2 - 2.5, wy, 5, wh, 100);
   g.fillStyle = '#d8d1c4'; g.fillRect(wx - 14, wy + wh + 4, ww + 28, 10);            // sill
   g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(wx - 14, wy + wh + 14, ww + 28, 4);
   if (rnd() < 0.24) interiorGlow(ge, wx + 2, wy + 2, ww - 4, wh - 4, rnd);
@@ -378,11 +418,11 @@ function shopBay(g, ge, gr, x, y, w, h, rnd, r, k) {
   g.fillStyle = '#3a3a3e'; g.fillRect(x, y + h - 30, w, 30); gr.fillStyle = '#707070'; gr.fillRect(x, y + h - 30, w, 30);
 }
 
-export function facadeGlass() { return { ...facadeBase(4, 4, 256, 224, 17, glassCell, 2.2), w: 16, h: 14 }; }
-export function facadeModern() { return { ...facadeBase(4, 4, 256, 224, 53, modernCell, 2.6), w: 16, h: 14 }; }
-export function facadeApartment() { return { ...facadeBase(4, 4, 256, 224, 29, aptCell, 3), w: 16, h: 14 }; }
-export function facadeBrick() { return { ...facadeBase(4, 4, 256, 224, 43, brickCell, 3.4), w: 16, h: 14 }; }
-export function facadeHouse() { return { ...facadeBase(1, 1, 512, 384, 61, houseCell, 3), w: 8, h: 6 }; }
+export function facadeGlass() { return { ...facadeBase(4, 4, 256, 224, 17, glassCell, 2.2, { height: true }), w: 16, h: 14 }; }
+export function facadeModern() { return { ...facadeBase(4, 4, 256, 224, 53, modernCell, 2.6, { height: true, grain: 0.8 }), w: 16, h: 14 }; }
+export function facadeApartment() { return { ...facadeBase(4, 4, 256, 224, 29, aptCell, 3, { height: true, grain: 1 }), w: 16, h: 14 }; }
+export function facadeBrick() { return { ...facadeBase(4, 4, 256, 224, 43, brickCell, 3.4, { height: true, grain: 0.5 }), w: 16, h: 14 }; }
+export function facadeHouse() { return { ...facadeBase(1, 1, 512, 384, 61, houseCell, 3, { grain: 0.8 }), w: 8, h: 6 }; }
 export function facadeShop() { return { ...facadeBase(3, 1, 341, 448, 37, shopBay, 2.4), w: 12, h: 5.25 }; }
 
 // ---------------------------------------------------------------------------
