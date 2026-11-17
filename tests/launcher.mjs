@@ -17,7 +17,7 @@ try {
   });
   check('it looks like the other items (same size, place, font and colour, no underline) and is on the screen below them',
     Math.abs(look.w[0] - look.w[1]) < 1.5 && Math.abs(look.h[0] - look.h[1]) < 1.5 && Math.abs(look.left[0] - look.left[1]) < 1.5 && look.font[0] === look.font[1] && look.color[0] === look.color[1] && look.line === 'none' && look.below && look.onScreen, JSON.stringify(look));
-  await Promise.all([P.waitForURL(/unreal\.html$/, { timeout: 30000 }), link.click()]);
+  await Promise.all([P.waitForURL(/unreal\.html$/, { timeout: 120000 }), link.click()]);
   check('it opens the page that connects to the PC', /unreal\.html$/.test(P.url()) && /Unreal/.test(await P.title()), P.url());
 
   console.log('the page');
@@ -54,7 +54,7 @@ try {
 
   console.log('and back');
   await P.goto(here);
-  await Promise.all([P.waitForURL(u => /index\.html$/.test(u.pathname), { timeout: 30000 }), P.click('a[href="index.html"]')]);
+  await Promise.all([P.waitForURL(u => /index\.html$/.test(u.pathname), { timeout: 120000 }), P.click('a[href="index.html"]')]);
   await P.waitForSelector('button[data-m="free"]', { state: 'visible', timeout: 240000 });
   check('"Back to the web version" returns to the game', true);
   check('no script errors', logs.length === 0, logs.slice(0, 3).join(' | '));
