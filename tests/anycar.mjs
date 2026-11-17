@@ -21,6 +21,7 @@ try {
   await P.evaluate(() => { window.__freeze = true; const g = window.__game; g.officers.prepare(); });
   await P.waitForFunction(() => window.__game.officers.ready, null, { timeout: 90000 }).catch(() => {});
 
+  const S0 = await P.evaluate(() => ({ x: window.__game.walker.x, z: window.__game.walker.z }));            // (where you start: there are car parks near it)
   console.log('a car in the traffic');
   const t1 = await P.evaluate(() => {
     const g = window.__game, w = g.walker; let best = null, bd = 1e9;
@@ -66,6 +67,7 @@ try {
   console.log('a police car');
   const pc0 = await P.evaluate(() => { const g = window.__game; g.endChase(); g.game.noWanted = 0; g.car.vx = g.car.vy = 0; g.crime(0.5, 'car'); return !!g.game.stopOn; });
   r = await until(P, "g.stop.state === 'talk'", 100);
+  if (!r.ok) r.diag = await P.evaluate(() => { const g = window.__game, o = g.stop.off, c = g.car, R = v => Math.round(v * 10) / 10; return { off: [R(o.x - c.x), R(o.z - c.z)], noClip: !!o.noClip, cop: g.police.cops.map(k => [R(k.x - c.x), R(k.z - c.z)]), left: g.left.map(l => [R(l.x - c.x), R(l.z - c.z)]), h: R(c.h) }; });
   const pc = await P.evaluate(() => {
     const g = window.__game; g.leaveCar(true); g.tick(1 / 60);
     const c = g.police.cops.find(c => !c.wreck), w = g.walker; if (!c) return { none: true };
@@ -90,13 +92,14 @@ try {
   check('out of the cells: the stolen cars have gone back, your own car is parked outside', !out.inside && out.home && out.hero && out.left === 0 && out.fleet === 0 && out.dist < 30, JSON.stringify(out));
 
   console.log('a parked car');
-  const pk = await P.evaluate(() => {
+  const pk = await P.evaluate(S0 => {
     const g = window.__game, w = g.walker; let best = null, bd = 1e9;
+    w.place(S0.x, S0.z, 0); g.city.loadNow(S0.x, S0.z, 1); for (let i = 0; i < 10; i++) g.tick(1 / 60);       // (back near the start, out of the station)
     for (const p of g.city.parkedList()) { if (p.police !== undefined || !p.cols) continue; const d = Math.hypot(p.x - w.x, p.z - w.z); if (d < bd) { bd = d; best = p; } }
     const p = best, cols = p.cols.slice(); w.place(p.x + Math.cos(p.h) * 2.0, p.z - Math.sin(p.h) * 2.0, p.h); for (let i = 0; i < 10; i++) g.tick(1 / 60);
     const T = g.carToTake(), ok = g.enterCar();
     return { what: T && T.what, ok, gone: !g.city.parkedList().includes(p), cols: p.cols, model: g.car.s.model, home: g.isHome(), stolen: g.stolen(), at: [p.x, p.z], c0: cols.length };
-  });
+  }, S0);
   check('a parked car: walk up and get in, and it is gone from the car park (its kerb space is clear)', pk.what === 'parked' && pk.ok && pk.gone && pk.cols === null && !pk.home && pk.stolen, JSON.stringify(pk));
 
   console.log('police stations');

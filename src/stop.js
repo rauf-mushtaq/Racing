@@ -173,6 +173,10 @@ export class TrafficStop {
   // Walks (or runs) the officer toward a point; returns the distance left.
   walkTo(dt, x, z, run, face = null) {
     const o = this.off, ax = x - o.x, az = z - o.z, d = Math.hypot(ax, az), move = d > 0.3 ? 1 : 0;
+    // Stuck (a car or a corner in the way, and going round the other side has not helped): rather than stand there for good, he slips past it.
+    if (this.wState !== this.state) { this.wState = this.state; this.wBest = 1e9; this.wT = 0; }
+    if (!move || d < this.wBest - 0.3) { this.wBest = Math.min(this.wBest, d); this.wT = 0; } else if ((this.wT += dt) > 6 && !o.noClip) { o.noClip = true; this.clipT = 2.5; this.wT = 0; }
+    if (o.noClip && (this.clipT -= dt) <= 0) { o.noClip = false; this.wBest = 1e9; }
     if (!move && face != null) o.h += wrapAngle(face - o.h) * Math.min(1, dt * 6);
     o.update(dt, move ? { mx: -ax / d, my: az / d, sprint: !!run && d > 2, jump: false, crouch: false } : NOINP, 0, this.env.obstacles);
     return d;
@@ -281,7 +285,7 @@ export class TrafficStop {
   giveUp() { this.toast('THE POLICE GAVE UP LOOKING FOR YOU', 2.2); this.end('gave up'); this.env.done(); }
   end(why = 'ended') {
     if (this.state !== 'idle') this.ended = why;                                       // (why the last one ended: for the tests)
-    if (this.off) { this.off.show(false); this.off.hands = 0; }
+    if (this.off) { this.off.show(false); this.off.hands = 0; this.off.noClip = false; }
     const P = this.env.walker; if (this.state === 'cuff' || this.state === 'talk' || this.state === 'approach') { P.hold = false; }
     this.offOut = false; this.state = 'idle'; this.verdict = null; this.charges = {}; this._prompt = ''; this.spot = null; this.warned = false;
     if (this.env.police) { this.env.police.stopGoal = null; this.env.police.rammed = 0; }
