@@ -23,6 +23,8 @@ export const OFFENCES = {
   assault: { name: 'ASSAULT', why: 'You were seen beating someone up.', fine: 900, pts: 2 },
   loot:    { name: 'HANDLING STOLEN MONEY', why: 'And what is this bag of cash?', fine: 0, pts: 4 },
   refuse:  { name: 'REFUSING TO PAY A FINE', why: '', fine: 0, pts: 1 },
+  jack:    { name: 'TAKING A CAR BY FORCE', why: 'You pulled someone out of their car and drove off in it.', fine: 0, pts: 5 },
+  theft:   { name: 'TAKING A CAR WITHOUT CONSENT', why: 'You were seen getting into a car that is not yours.', fine: 0, pts: 4 },
 };
 const ARREST_AT = 4;                                // the points (what you did, and your record) at which it is an arrest instead of a ticket
 const TOO_MUCH = 7;                                 // and at which the patrol car stops being enough: everyone is called
@@ -194,8 +196,11 @@ export class TrafficStop {
       if (this.t < 2.4) this.say(foot ? 'OFFICER: Stay right there. Hands where I can see them.' : 'OFFICER: Engine off, please. Licence and registration.');
       else if (this.t < 4.6) this.say('OFFICER: ' + (O ? O.why : 'You know why I stopped you.'));
       else if (!this.verdict) {
+        const hot = !foot && !this.charges.jack && !this.charges.theft && this.env.stolen && this.env.stolen();        // (the plate is checked: the car is not yours)
+        if (hot) this.charges.theft = 1;
         this.verdict = this.decide(); const V = this.verdict;
-        if (V.list.some(c => c.kind === 'loot')) this.say('OFFICER: And what is in this bag? That is stolen money. You are under arrest.');
+        if (hot) this.say('OFFICER: This car is not yours. It has been reported stolen. You are under arrest.');
+        else if (V.list.some(c => c.kind === 'loot')) this.say('OFFICER: And what is in this bag? That is stolen money. You are under arrest.');
         else if (V.arrest) this.say(V.broke ? `OFFICER: That is a $${V.fine.toLocaleString('en-US')} fine and you cannot pay it. You are under arrest.` : 'OFFICER: That is too much for a ticket. You are under arrest.');
         else this.say(`OFFICER: That is a fixed penalty: $${V.fine.toLocaleString('en-US')}. Pay it now and you can go.`);
         this.choice(true);
@@ -255,7 +260,7 @@ export class TrafficStop {
     const was = this.state; if (was === 'fled' || was === 'idle') return;
     const T = this.T(); this.why = { kind, was, speed: +(T.speed || 0).toFixed(2), moved: this.spot ? +Math.hypot(T.x - this.spot.x, T.z - this.spot.z).toFixed(2) : null, rammed: +(this.env.police.rammed || 0).toFixed(2) };      // (what set it off: for the tests)
     const P = this.env.walker; P.hold = false; P.hands = 0; this.choice(false); this.say('');
-    const why = { flee: 'FAILING TO STOP', run: 'RUNNING FROM THE POLICE', ram: 'RAMMING A POLICE CAR', officer: 'ASSAULTING AN OFFICER', kill: 'OFFICER DOWN', gun: 'SHOTS FIRED', hide: 'RUNNING FROM THE POLICE', more: 'ONE CRIME TOO MANY', robbery: 'A ROBBERY' }[kind] || 'TROUBLE';
+    const why = { flee: 'FAILING TO STOP', run: 'RUNNING FROM THE POLICE', ram: 'RAMMING A POLICE CAR', officer: 'ASSAULTING AN OFFICER', kill: 'OFFICER DOWN', gun: 'SHOTS FIRED', hide: 'RUNNING FROM THE POLICE', copcar: 'TAKING A POLICE CAR', more: 'ONE CRIME TOO MANY', robbery: 'A ROBBERY' }[kind] || 'TROUBLE';
     this.toast(why + ': ALL UNITS', 2.2);
     const c = this.c;
     if (this.offOut && c && !c.wreck && !this.dead) { this.state = 'fled'; this.t = 0; c.waitOff = true; c.deployed = true; c.held = true; }        // (the officer runs back to his car, which then gives chase)

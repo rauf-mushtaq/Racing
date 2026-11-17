@@ -87,7 +87,8 @@ export function detailParts(o, P, police) {
   // What you see through the glass: two seats with headrests, the dashboard with a screen, a steering wheel, the rear bench; (and in a police car, a laptop and a shotgun rack).
   const small = o.len < 6.5, sy = o.clear + 0.36, sz = (wsZ + doorZ) / 2 - 0.1, dark = C(0.03, 0.03, 0.035), seat = C(0.07, 0.07, 0.075);
   if (small) for (const s of [-0.38, 0.38]) inside.push(box(0.5, 0.12, 0.5, s * w * 0.9, sy, sz - 0.1, seat), box(0.46, 0.5, 0.1, s * w * 0.9, sy + 0.3, sz - 0.36, seat, -0.18), box(0.2, 0.2, 0.08, s * w * 0.9, sy + 0.66, sz - 0.4, seat));
-  if (small) inside.push(box(w * 1.7, 0.3, 0.35, 0, sy + 0.24, wsZ - 0.3, dark), box(0.34, 0.03, 0.34, w * 0.4, sy + 0.38, wsZ - 0.62, dark, 1.1), box(w * 1.7, 0.4, 0.5, 0, sy + 0.12, doorZ + 0.4, seat), box(w * 1.7, 0.5, 0.1, 0, sy + 0.34, doorZ + 0.1, seat, -0.15));
+  const rear = small ? [box(w * 1.7, 0.4, 0.5, 0, sy + 0.12, doorZ + 0.4, seat), box(w * 1.7, 0.5, 0.1, 0, sy + 0.34, doorZ + 0.1, seat, -0.15)] : [];     // (the rear bench: kept when you drive the car, see fleetcar.js)
+  if (small) inside.push(box(w * 1.7, 0.3, 0.35, 0, sy + 0.24, wsZ - 0.3, dark), box(0.34, 0.03, 0.34, w * 0.4, sy + 0.38, wsZ - 0.62, dark, 1.1), ...rear);
   if (police && small) { inside.push(box(0.3, 0.2, 0.04, 0, sy + 0.5, sz + 0.5, C(0.3, 0.6, 1.2), -0.3), box(0.04, 0.5, 0.04, 0.0, sy + 0.5, sz + 0.55, dark), box(0.1, 0.1, 0.9, -0.0, sy + 0.34, sz + 0.2, dark)); }
   if (police) {
     // The push bar (two uprights and cross bars on the nose), the spotlights on the door pillars, the aerial, and the strips of colour along the doors.
@@ -97,7 +98,7 @@ export function detailParts(o, P, police) {
     trim.push(cyl(0.006, 0.01, 0.55, 5, w * 0.6, top(zr + 0.6) + 0.27, zr + 0.7, black));
     trim.push(box(1.12, 0.07, 0.3, 0, (o.barY ?? 1.5) - 0.06, o.barZ ?? -0.2, black));                                    // the housing of the light bar (its lights are drawn by police.js)
   }
-  return { trim, lamps, inside };
+  return { trim, lamps, inside, rear };
 }
 
 // ---- The decals (police) ----------------------------------------------------------------------------------------------------------------------------------------------

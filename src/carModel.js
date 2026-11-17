@@ -384,7 +384,14 @@ function trafficType(o) {
     wheel: wheelGeometry(o.wr, 0.24, !!o.livery), decal: o.livery ? policeDecals(o, P) : null,
   };
   const wheelAt = [P.wzf, P.wzr].flatMap((wz, i) => [-1, 1].map(s => [s * (o.w - 0.14), wz, i === 0]));
-  return { geo, lights: mergeGeoms(lp), near, wheelAt, wr: o.wr, wb: P.wzf - P.wzr, len: o.len, width: o.w * 2, mass: o.mass || 1400, rad: o.rad || 0.95 };
+  // For driving one yourself (fleetcar.js): where the driver's eyes are (the steering wheel is about half a metre in front of them,
+  // on the left: these cars drive on the right), the roof above them, the tail lamps and the light bar; and the body's details
+  // without the simple seats, dashboard and wheel (the real cockpit replaces them).
+  const small = o.len < 6.5, ez = small ? o.ws[0] - 1.15 : o.ws[0] - 0.85;
+  const eye = [small ? 0.342 * o.w : 0.5 * o.w, small ? Math.min(o.clear + 1.19, P.top(ez) - 0.28) : Math.min(P.shoulder(ez) + 0.62, P.top(ez) - 0.32), ez];      // (with room for the head under the roof)
+  const driver = { eye, roof: P.top(ez), small, tail: [o.w - 0.3, o.tlY, P.zr], head: [o.w - 0.27, o.hlY, P.zf], bar: o.livery ? [o.barY ?? 1.5, o.barZ ?? -0.2] : null, w: o.w, clear: o.clear, zf: P.zf, zr: P.zr };
+  const own = () => mergeGeoms([...det.trim, ...det.rear]);
+  return { geo, lights: mergeGeoms(lp), near, wheelAt, wr: o.wr, wb: P.wzf - P.wzr, len: o.len, width: o.w * 2, mass: o.mass || 1400, rad: o.rad || 0.95, name: o.name || 'car', driver, own };
 }
 function colorize(g, c) { g = g.toNonIndexed(); g.deleteAttribute('uv'); const a = []; for (let i = 0; i < g.attributes.position.count; i++) a.push(c.r, c.g, c.b); g.setAttribute('color', new THREE.Float32BufferAttribute(a, 3)); return g; }
 
@@ -404,31 +411,31 @@ const SUV = {
 };
 export function trafficModels() {
   return [
-    trafficType(SALOON),
-    trafficType(SUV),
+    trafficType({ ...SALOON, name: 'saloon' }),
+    trafficType({ ...SUV, name: 'suv' }),
     trafficType({ // hatchback
-      len: 4.1, w: 0.87, wr: 0.31, fo: 0.82, ro: 0.72, clear: 0.18, noseR: 0.22, tailR: 0.1, tlY: 0.95, hlY: 0.72,
+      name: 'hatch', len: 4.1, w: 0.87, wr: 0.31, fo: 0.82, ro: 0.72, clear: 0.18, noseR: 0.22, tailR: 0.1, tlY: 0.95, hlY: 0.72,
       top: [[-2.05, 1.2], [-1.85, 1.42], [0.3, 1.48], [0.9, 1.02], [1.7, 0.9], [2.05, 0.74]],
       topHalf: [[-2.05, 0.74], [0.3, 0.66], [0.9, 0.8], [2.05, 0.78]],
       shoulder: [[-2.05, 0.98], [0, 0.98], [2.05, 0.7]],
       gz: [-1.75, 0.85], ws: [0.3, 0.92], rw: [-2.05, -1.8],
     }),
     trafficType({ // pickup / van
-      len: 5.2, w: 1.0, wr: 0.4, fo: 0.95, ro: 1.15, clear: 0.32, noseR: 0.2, tailR: 0.06, tlY: 1.0, hlY: 0.95,
+      name: 'van', len: 5.2, w: 1.0, wr: 0.4, fo: 0.95, ro: 1.15, clear: 0.32, noseR: 0.2, tailR: 0.06, tlY: 1.0, hlY: 0.95,
       top: [[-2.6, 1.95], [-2.4, 2.1], [1.2, 2.1], [1.6, 1.35], [2.3, 1.2], [2.6, 1.0]],
       topHalf: [[-2.6, 0.9], [1.2, 0.86], [1.6, 0.9], [2.6, 0.9]],
       shoulder: [[-2.6, 1.2], [1.3, 1.2], [2.6, 0.95]],
       gz: [-0.2, 1.4], ws: [1.2, 1.62], rw: [-9, -9],
     }),
     trafficType({ // box truck
-      len: 8.2, w: 1.28, wr: 0.5, fo: 1.15, ro: 1.5, clear: 0.5, noseR: 0.3, tailR: 0.05, tlY: 1.0, hlY: 1.0, mass: 7000, rad: 1.35,
+      name: 'truck', len: 8.2, w: 1.28, wr: 0.5, fo: 1.15, ro: 1.5, clear: 0.5, noseR: 0.3, tailR: 0.05, tlY: 1.0, hlY: 1.0, mass: 7000, rad: 1.35,
       top: [[-4.1, 3.5], [-3.9, 3.72], [1.05, 3.74], [1.3, 2.95], [3.3, 2.9], [3.9, 2.2], [4.1, 1.8]],
       topHalf: [[-4.1, 1.24], [1.05, 1.24], [1.3, 1.1], [4.1, 0.98]],
       shoulder: [[-4.1, 3.4], [1.0, 3.4], [1.4, 1.55], [3.4, 1.55], [4.1, 1.15]],
       gz: [1.6, 3.5], ws: [3.2, 3.95], rw: [-9, -9],
     }),
     trafficType({ // bus
-      len: 11.6, w: 1.3, wr: 0.5, fo: 1.6, ro: 2.6, clear: 0.45, noseR: 0.35, tailR: 0.15, tlY: 1.0, hlY: 0.9, mass: 11000, rad: 1.35,
+      name: 'bus', len: 11.6, w: 1.3, wr: 0.5, fo: 1.6, ro: 2.6, clear: 0.45, noseR: 0.35, tailR: 0.15, tlY: 1.0, hlY: 0.9, mass: 11000, rad: 1.35,
       top: [[-5.8, 3.2], [-5.5, 3.35], [5.3, 3.35], [5.8, 3.0]],
       topHalf: [[-5.8, 1.2], [5.8, 1.2]],
       shoulder: [[-5.8, 1.2], [5.8, 1.2]],
@@ -438,6 +445,6 @@ export function trafficModels() {
 }
 
 // Police vehicles: the saloon and the SUV in black and white, with their light bars added in police.js.
-export function policeModels() { return { cruiser: trafficType({ ...SALOON, livery: true, barZ: -0.2, barY: 1.5 }), truck: trafficType({ ...SUV, livery: true, mass: 2600, barZ: -0.55, barY: 1.84 }) }; }
+export function policeModels() { return { cruiser: trafficType({ ...SALOON, name: 'cruiser', livery: true, barZ: -0.2, barY: 1.5 }), truck: trafficType({ ...SUV, name: 'police4x4', livery: true, mass: 2600, barZ: -0.55, barY: 1.84 }) }; }
 export { loft, stationsFor, archBottom, mergeByMaterial };
 

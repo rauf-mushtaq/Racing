@@ -7,6 +7,7 @@ import { figureMaterials } from './figure.js';
 import { N, SP, blockRect } from './city.js';
 import { groundAt } from './world.js';
 import { inWater } from './rivercourse.js';
+import { carCircles } from './collide.js';
 import { mulberry32, clamp, damp, wrapAngle } from './util.js';
 import { PEDS, loadPerson } from './people.js';
 import { Mocap } from './mocap.js';
@@ -194,6 +195,16 @@ export class Peds {
     }
   }
 
+  // Someone pulled out of a car (main.js, when you take one that is not empty): a new person, put down on the road at x, z and pushed
+  // (vx, vz), who gets up and runs off; one of the big ones or the armed ones comes back at you instead (provoke, as when a car knocks them over).
+  eject(x, z, h, vx, vz, focus) {
+    let p = this.list.find(q => q.state === 'away' && !q.real), far = -1;
+    if (!p) for (const q of this.list) { if (q.real || q.state === 'watch') continue; const d = (q.x - focus.x) ** 2 + (q.z - focus.z) ** 2; if (d > far) { far = d; p = q; } }
+    if (!p) return null;
+    this.spawn(p, { x, z }, null, true);
+    Object.assign(p, { x, z, y: groundAt(x, z).y, h, state: 'down', downT: 1.5, vx, vz, vy: 1.4, lie: 0, rag: false, dead: false, panic: 0, speed: 0, grudge: p.kind !== 'civ' });
+    return p;
+  }
   // Calls add(x, z, r) for each person near a point (for the walker to bump into).
   near(x, z, add) {
     for (const p of this.list) { if (p.state === 'away' || p.state === 'down') continue; const dx = p.x - x, dz = p.z - z; if (dx * dx + dz * dz < 6) add(p.x, p.z, 0.3); }
@@ -201,11 +212,11 @@ export class Peds {
 
   // A car hitting people. Returns how many were hit this call.
   hitByCar(car) {
-    let n = 0; const f = [Math.sin(car.h), Math.cos(car.h)], sp = car.speed;
+    let n = 0; const f = [Math.sin(car.h), Math.cos(car.h)], sp = car.speed, { offs, r: R } = carCircles(car), reach = (Math.max(4.6, car.s.len || 4.6) / 2 + 2.7) ** 2;
     for (const p of this.list) {
-      if (p.state === 'down' || p.state === 'away') continue; const dx = p.x - car.x, dz = p.z - car.z; if (dx * dx + dz * dz > 25) continue;
-      for (const off of [-1.45, 0, 1.45]) {
-        const cx = car.x + f[0] * off, cz = car.z + f[1] * off; if (Math.hypot(p.x - cx, p.z - cz) > 1.0 + 0.3) continue;
+      if (p.state === 'down' || p.state === 'away') continue; const dx = p.x - car.x, dz = p.z - car.z; if (dx * dx + dz * dz > reach) continue;
+      for (const off of offs) {
+        const cx = car.x + f[0] * off, cz = car.z + f[1] * off; if (Math.hypot(p.x - cx, p.z - cz) > R + 0.3) continue;
         if (sp < 1.5) break;
         const v = car.worldVel(), nx = p.x - cx, nz = p.z - cz, l = Math.hypot(nx, nz) || 1;
         p.state = 'down'; p.downT = 2.8; p.vx = v[0] * 0.85 + nx / l * 2.5; p.vz = v[1] * 0.85 + nz / l * 2.5; p.vy = 3.2 + Math.min(4, sp * 0.15); p.lie = 0; n++; if (p.kind !== 'civ') p.grudge = true; if (this.onHit) this.onHit(p, sp); break;

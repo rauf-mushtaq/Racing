@@ -107,8 +107,10 @@ function drawCluster(c, W, H, st) {
       c.fillStyle = '#d8d8d2'; c.font = `500 ${R * 0.09}px Barlow, sans-serif`; c.textAlign = 'center'; c.fillText(t, x, cy + H * 0.04 + R * 0.2);
     }
   } else {
-    dial(W * 0.23, cy, R, 9, 1, 1, st.rpm / 1000, { text: 'x1000 rpm' }, 7.8, 2);
-    dial(W * 0.77, cy, R, 360, 20, 2, st.units === 'mph' ? st.kmh / 1.609 * (360 / 220) : st.kmh, { text: st.units === 'mph' ? 'mph' : 'km/h', mul: st.units === 'mph' ? 220 / 360 : 1 }, 0, 2);
+    // (sized to the car: the game's own car reads to 9,000 rpm and 360 km/h; a car taken from the street to its own red line and top speed, fleetcar.js)
+    const RL = st.redline || 8000, M = st.dialKmh || 360, MM = M === 360 ? 220 : Math.round(M / 1.609);
+    dial(W * 0.23, cy, R, Math.ceil(RL / 1000) + 1, 1, 1, st.rpm / 1000, { text: 'x1000 rpm' }, RL / 1000 - 0.2, 2);
+    dial(W * 0.77, cy, R, M, 20, 2, st.units === 'mph' ? st.kmh / 1.609 * (M / MM) : st.kmh, { text: st.units === 'mph' ? 'mph' : 'km/h', mul: st.units === 'mph' ? MM / M : 1 }, 0, 2);
     // The centre display: gear, speed, trip.
     const mx = W * 0.5, g = c.createLinearGradient(mx - 130, 0, mx + 130, 0); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(120,150,190,0.12)'); g.addColorStop(1, 'rgba(255,255,255,0)');
     c.fillStyle = g; c.fillRect(mx - 130, H * 0.12, 260, H * 0.76);
@@ -288,7 +290,7 @@ export function buildCockpit(body, bodyGeo, style = 'modern') {
       spin.rotation.z = st.wheelAngle;
       g.updateMatrixWorld(true);
       arms.forEach((a, i) => { hands[i].getWorldPosition(tmp); g.worldToLocal(tmp); a.m.position.copy(a.shoulder); a.m.lookAt(tmp); a.m.scale.set(1, 1, a.shoulder.distanceTo(tmp)); });
-      if (ledMats.length) { const lit = clamp((st.rpm - 5800) / (st.redline - 5800) * 9.4, 0, 9); ledMats.forEach((m, i) => { m.emissiveIntensity = i < lit ? (lit > 8.6 && (performance.now() / 70 | 0) % 2 ? 0.4 : 3.2) : 0; }); }
+      if (ledMats.length) { const lit = clamp((st.rpm - st.redline + 2200) / 2200 * 9.4, 0, 9); ledMats.forEach((m, i) => { m.emissiveIntensity = i < lit ? (lit > 8.6 && (performance.now() / 70 | 0) % 2 ? 0.4 : 3.2) : 0; }); }
       acc += dt; if (acc < 1 / 30) return; acc = 0;
       drawCluster(cv.getContext('2d'), CW, CH, { ...st, style }); tex.needsUpdate = true;
     },

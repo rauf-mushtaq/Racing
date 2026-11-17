@@ -223,7 +223,7 @@ export function initMenus(C) {
   }));
   document.querySelectorAll('[data-ce]').forEach(b => b.addEventListener('click', () => { if (b.dataset.ce === 'retry') { if (game.wanted) resumeFreeRoam(); else startChase(); } else toMenu(); }));
   function toMenu() {
-    bench.stop(); endChase(); game.route = null; C.gates.clear(); game.onFoot = false; if (C.walker) C.walker.show(false); if (C.arsenal) C.arsenal.clear();
+    bench.stop(); endChase(); if (C.swapCar) C.swapCar('hero'); game.route = null; C.gates.clear(); game.onFoot = false; if (C.walker) C.walker.show(false); if (C.arsenal) C.arsenal.clear();
     resetCar(START.x, START.z, START.h);
     setState('menu'); hidePanel();
     document.querySelectorAll('[data-m]').forEach(x => x.classList.remove('sel'));

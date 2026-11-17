@@ -15,7 +15,7 @@ import { mulberry32, clamp, wrapAngle } from './util.js';
 
 const COLORS = ['#e8e8e8', '#111214', '#9aa0a6', '#5b6066', '#1e2f55', '#8a1c1c', '#c8b89a', '#2f4a3a', '#d7d3cc', '#30343a', '#6b1f2e', '#2a5d8f'].map(c => new THREE.Color(c));
 const COUNTS = { off: 0, light: 30, normal: 56, heavy: 96 };
-const WRECK_COLOR = new THREE.Color(0.035, 0.033, 0.032), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+const WRECK_COLOR = new THREE.Color(0.035, 0.033, 0.032), WHITE = new THREE.Color(1, 1, 1), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 const CAP = 140;
 
 export class Traffic {
@@ -41,7 +41,11 @@ export class Traffic {
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1); this.up = new THREE.Vector3(0, 1, 0);
   }
 
-  makeSet(md) { return { set: new CarSet(this.scene, md, CAP, this.mats), list: [] }; }
+  makeSet(md, cap = CAP) { return { set: new CarSet(this.scene, md, cap, this.mats), list: [] }; }
+  // Police cars parked outside the police stations (city.js marks them with `police`: 0 a cruiser, 1 a 4x4); drawn with the police's own models.
+  setPolice(models) { this.policeModels = [models.cruiser, models.truck]; this.policeSets = this.policeModels.map(md => this.makeSet(md, 24)); }
+  modelOf(c) { return c.police !== undefined && this.policeModels ? this.policeModels[c.police] : this.models[c.type]; }
+  colorOf(c) { return c.police !== undefined ? WHITE : c.color || (c.color = COLORS[(c.ci || 0) % COLORS.length]); }
   // A further kind of car (the detailed sports car), picked for about one car in ten.
   addModel(md) { this.models.push(md); this.meshes.push(this.makeSet(md)); this.sports = this.models.length - 1; }
   pickType() { const r = this.rnd(); return r < 0.07 ? 4 : r < 0.1 ? 5 : r < 0.2 ? 3 : this.sports && r < 0.3 ? this.sports : (this.rnd() * 3) | 0; }
@@ -218,9 +222,10 @@ export class Traffic {
       this.nearParked.length = 0;
       for (const p of this.city.parkedList()) {
         if (Math.abs(p.x - player.x) > 20 || Math.abs(p.z - player.z) > 20) continue;
-        if (p.len === undefined) { const md = this.models[p.type]; Object.assign(p, { len: md.len, mass: md.mass, rad: md.rad, active: true, parked: true, mode: 'parked', speed: 0, burn: 0, knockT: 0 }); p.hp = p.maxHp = this.hpOf(p); }
+        if (p.len === undefined) { const md = this.modelOf(p); Object.assign(p, { len: md.len, mass: md.mass, rad: md.rad, active: true, parked: true, mode: 'parked', speed: 0, burn: 0, knockT: 0 }); p.hp = p.maxHp = this.hpOf(p); }
         this.nearParked.push(p);
       }
+      if (this.mine) for (const p of this.mine) if (Math.abs(p.x - player.x) < 20 && Math.abs(p.z - player.z) < 20) this.nearParked.push(p);     // (the cars you got out of: main.js)
     }
     return this.parkedWrap;
   }
@@ -334,14 +339,15 @@ export class Traffic {
       const f = c.len * 0.5 + 0.2; this.beams.add(c.x + Math.sin(c.h) * f, (c.y ?? 0) + 0.05, c.z + Math.cos(c.h) * f, c.h, 15, 5.5);
     }
     // Parked cars never move; they live in the city regions and use the same meshes.
-    for (const p of this.city.parkedList()) { if (!near(p, 200)) continue; if (!p.color) p.color = COLORS[p.ci % COLORS.length]; this.meshes[p.type].list.push(p); }
+    if (this.policeSets) for (const m of this.policeSets) m.list.length = 0;
+    for (const p of this.city.parkedList()) { if (!near(p, 200)) continue; this.colorOf(p); if (p.police !== undefined && this.policeSets) this.policeSets[p.police].list.push(p); else this.meshes[p.type].list.push(p); }
     const { m4, q, v, one, up } = this;
     let nb = 0;
-    for (const m of this.meshes) {
+    for (const m of this.policeSets ? this.meshes.concat(this.policeSets) : this.meshes) {
       let i = 0; m.set.begin();
       for (const c of m.list) {
         this.eul.set(-(c.pitch || 0), c.h, c.roll || 0, 'YXZ'); q.setFromEuler(this.eul); v.set(c.x, c.y ?? 0, c.z); m4.compose(v, q, one);
-        const wr = c.mode === 'wreck'; m.set.add(m4, wr ? WRECK_COLOR : c.color, (c.x - player.x) ** 2 + (c.z - player.z) ** 2, c, c.speed || 0, c.h, this.dt, wr);
+        const wr = c.mode === 'wreck'; m.set.add(m4, wr ? WRECK_COLOR : c.police !== undefined ? WHITE : c.color, (c.x - player.x) ** 2 + (c.z - player.z) ** 2, c, c.speed || 0, c.h, this.dt, wr);
         v.y += 0.03; m4.compose(v, q, one); if (nb < CAP * 2) this.blobs.setMatrixAt(nb++, m4);
         if (++i >= CAP) break;
       }

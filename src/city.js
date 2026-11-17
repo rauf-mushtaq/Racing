@@ -52,7 +52,7 @@ export { addCollider, removeColliders };
 export const colliderCount = () => { let n = 0; for (const a of grid.values()) n += a.length; return n; };       // (for the tests: nothing may be left in the street by a region that is gone)
 // Street furniture that can be smashed. Each such collider carries `brk` (what it is and which instance of its instanced mesh);
 // breaking one hides that instance, removes the collider and remembers it, so it stays broken when the region streams back in.
-const BROKEN = new Set();
+const BROKEN = new Set(), TAKEN = new Set();
 const brkKey = (x, z) => Math.round(x * 10) + ',' + Math.round(z * 10);
 const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
 export function breakProp(c) {
@@ -1358,6 +1358,18 @@ export class City {
     }
   }
 
+  // A parked car, with the colliders that keep you out of it; one that has been driven away (takeParked) stays gone when its region comes back.
+  parkCar(ctx, p, cols) {
+    if (TAKEN.has(brkKey(p.x, p.z))) return;
+    p.cols = cols; p.colList = ctx.colliders; for (const c of cols) addCollider(c, ctx.colliders); ctx.L.parked.push(p);
+  }
+  takeParked(p) {
+    TAKEN.add(brkKey(p.x, p.z)); if (p.cols) { removeColliders(p.cols); for (const c of p.cols) { const k = p.colList.indexOf(c); if (k >= 0) p.colList.splice(k, 1); } p.cols = null; }
+    for (const r of this.regions.values()) { const k = r.parked.indexOf(p); if (k >= 0) r.parked.splice(k, 1); }
+    for (const st of this.sites) { const k = st.parked.indexOf(p); if (k >= 0) st.parked.splice(k, 1); }
+    this.parkVersion = -1;
+  }
+
   parkingLot(ctx, lot, rnd) {
     ctx.gb.lot.flat(lot.x0 + 0.5, lot.z0 + 0.5, lot.x1 - 0.5, lot.z1 - 0.5, CURB + 0.01, 10);
     const alongX = lot.x1 - lot.x0 > lot.z1 - lot.z0, white = new THREE.Color(0.85, 0.85, 0.8);
@@ -1369,9 +1381,8 @@ export class City {
         if (alongX) ctx.gb.mark.flat(t - 0.06, a, t + 0.06, a + 5, CURB + 0.02, 10, white); else ctx.gb.mark.flat(a, t - 0.06, a + 5, t + 0.06, CURB + 0.02, 10, white);
         if (k < n && rnd() < 0.3) {
           const c = t + 1.5, m = a + 2.5, yaw = alongX ? (side ? Math.PI : 0) : (side ? -Math.PI / 2 : Math.PI / 2);
-          const px = alongX ? c : m, pz = alongX ? m : c;
-          ctx.L.parked.push({ x: px, z: pz, h: yaw, y: CURB + ctx.H(px, pz), type: (rnd() * 3) | 0, ci: (rnd() * 12) | 0 });
-          addCollider({ type: 'circ', x: px, z: pz, r: 1.3 }, ctx.colliders);
+          const px = alongX ? c : m, pz = alongX ? m : c, type = (rnd() * 3) | 0, ci = (rnd() * 12) | 0;
+          this.parkCar(ctx, { x: px, z: pz, h: yaw, y: CURB + ctx.H(px, pz), type, ci }, [{ type: 'circ', x: px, z: pz, r: 1.3 }]);
         }
       }
     }

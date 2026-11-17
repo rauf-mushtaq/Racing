@@ -8,6 +8,14 @@ import { pushFromWater } from './rivercourse.js';
 
 const CIRCLES = [-1.45, 0, 1.45], RAD = 1.0;
 const found = [];
+// The circles for the car being driven: the game's own cars use the three above; a car taken from the street (fleetcar.js: its spec has
+// `model`, `len`, `wid` and `cgOff`) gets as many as its length needs, as wide as it is, centred on its body (not its centre of mass).
+export function carCircles(car) {
+  const s = car.s; if (s._circ) return s._circ;
+  if (!s.model) return (s._circ = { offs: CIRCLES, r: RAD });
+  const r = s.wid / 2 + 0.02, span = Math.max(0, s.len / 2 - r), n = Math.max(3, Math.ceil(2 * span / (r * 1.4)) + 1), c0 = s.cgOff || 0;
+  return (s._circ = { offs: Array.from({ length: n }, (_, i) => c0 - span + 2 * span * i / (n - 1)), r });
+}
 
 export function applyImpulse(car, px, pz, nx, nz, e, mu, hit, otherMassInv = 0, otherVel = null) {
   const m = car.s.mass, I = car.I;
@@ -40,8 +48,8 @@ export function peekImpulse(car, px, pz, nx, nz) {
 
 // onBreak(collider, impulse, x, z) is told when the car hits something breakable; it returns true if it broke (the car then ploughs on).
 export function collideStatic(car, onHit, onBreak) {
-  const f = car.fwd;
-  for (let pass = 0; pass < 2; pass++) for (const off of CIRCLES) {
+  const f = car.fwd, { offs, r: RAD } = carCircles(car);
+  for (let pass = 0; pass < 2; pass++) for (const off of offs) {
     const cx = car.x + f[0] * off, cz = car.z + f[1] * off;
     queryColliders(cx, cz, RAD + 0.5, found);
     for (const c of found) {
@@ -82,8 +90,8 @@ export function collideStatic(car, onHit, onBreak) {
 
 // The river and the lakes are walls: the car is held back at the quay (its railing), but can cross on the bridges.
 export function collideRiver(car, onHit) {
-  const f = car.fwd;
-  for (const off of CIRCLES) {
+  const f = car.fwd, { offs, r: RAD } = carCircles(car);
+  for (const off of offs) {
     const cx = car.x + f[0] * off, cz = car.z + f[1] * off, n = pushFromWater(car, RAD + 0.45, cx, cz);
     if (n) applyImpulse(car, cx - n[0] * RAD, cz - n[1] * RAD, n[0], n[1], 0.2, 0.3, onHit);
   }
@@ -118,13 +126,13 @@ export function collideTerrain(car, onHit) {
 
 // Traffic cars are pairs of circles; they get knocked aside when hit.
 export function collideTraffic(car, traffic, onHit, onCar) {
-  const f = car.fwd;
+  const f = car.fwd, { offs, r: RAD } = carCircles(car), reach = 100 + Math.max(0, (car.s.len || 4.6) - 4.6) * 12;
   for (const t of traffic.cars) {
     if (!t.active) continue;
     const dx0 = t.x - car.x, dz0 = t.z - car.z;
-    if (dx0 * dx0 + dz0 * dz0 > 100) continue;
+    if (dx0 * dx0 + dz0 * dz0 > reach) continue;
     const tf = [Math.sin(t.h), Math.cos(t.h)];
-    for (const off of CIRCLES) {
+    for (const off of offs) {
       const cx = car.x + f[0] * off, cz = car.z + f[1] * off;
       // Long vehicles are three circles; heavy ones barely move when you hit them.
       const mt = t.mass || 1400, tr = t.rad || 0.95, offs = t.len > 6.5 ? [-t.len * 0.34, 0, t.len * 0.34] : [-t.len * 0.28, t.len * 0.28];

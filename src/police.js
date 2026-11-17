@@ -12,7 +12,7 @@ import { wideSdf } from './avenues.js';
 import { policeModels } from './carModel.js';
 import { CarSet } from './fleet.js';
 import { carMaterials } from './cardetail.js';
-import { applyImpulse } from './collide.js';
+import { applyImpulse, carCircles } from './collide.js';
 import { Particles } from './particles.js';
 import { clamp, wrapAngle } from './util.js';
 
@@ -343,13 +343,13 @@ export class PoliceChase {
   // --- The cops against the player --------------------------------------------------------------------------------------
   collidePlayer(car) {
     if (!this.active || this.result !== 'running') return;
-    const f = car.fwd, RAD = 1.0;
+    const f = car.fwd, { offs, r: RAD } = carCircles(car);
     const pv = this.mode === 'stop' ? car.worldVel() : null;
     for (const c of this.cops) {
       const dx0 = c.x - car.x, dz0 = c.z - car.z; if (dx0 * dx0 + dz0 * dz0 > 100) continue; const cf = [Math.sin(c.h), Math.cos(c.h)];
       // (pulled over: whose fault is a knock? Whoever was closing on the other faster, before it.)
       let yours = false; if (pv) { const dl = Math.hypot(dx0, dz0) || 1, mine = (pv[0] * dx0 + pv[1] * dz0) / dl, its = -(cf[0] * dx0 + cf[1] * dz0) * c.speed / dl; yours = mine > 4 && mine > its + 2; }
-      for (const off of [-1.45, 0, 1.45]) for (const co of [-c.len * 0.3, 0, c.len * 0.3]) {
+      for (const off of offs) for (const co of [-c.len * 0.3, 0, c.len * 0.3]) {
         const px = car.x + f[0] * off, pz = car.z + f[1] * off, ox = c.x + cf[0] * co, oz = c.z + cf[1] * co, dx = px - ox, dz = pz - oz, dist = Math.hypot(dx, dz), r = RAD + c.rad; if (dist >= r || dist < 1e-5) continue;
         const nx = dx / dist, nz = dz / dist, pen = r - dist, mt = c.wreck ? c.mass * 1.8 : c.mass, share = mt / (mt + car.s.mass);
         car.x += nx * pen * share; car.z += nz * pen * share; c.x -= nx * pen * (1 - share); c.z -= nz * pen * (1 - share);

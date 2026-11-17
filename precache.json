@@ -69,6 +69,7 @@
   "src/ferrari.js",
   "src/figure.js",
   "src/fleet.js",
+  "src/fleetcar.js",
   "src/fx.js",
   "src/gadgets.js",
   "src/geom.js",

@@ -158,6 +158,14 @@ export function buildVenue(city, ctx, lot, faces, zone, kind, rnd) {
     const door = frontDoor(city, ctx, b, f, 'police', { h: 2.6, pane: col(0.26, 0.33, 0.42) });
     for (const s of [-1, 1]) { city.faceBox(G.props, b, f, s * 1.55 - 0.05, s * 1.55 + 0.05, 0, 0.35, CURB + 2.55, CURB + 2.62, col(0.1, 0.1, 0.12)); city.faceBox(G.props, b, f, s * 1.55 - 0.13, s * 1.55 + 0.13, 0.28, 0.54, CURB + 2.3, CURB + 2.62, col(0.25, 0.45, 0.95)); }      // the lamps
     city.faceBox(G.props, b, f, -1.6, 1.6, 0, 0.9, CURB, CURB + 0.12, col(0.7, 0.69, 0.66));                                        // a step
+    // Police cars parked on the pavement out front, against the building and either side of the door: clear of the bollards, and of the people
+    // walking along the pavement (peds.js keeps them 1.8 to 3 m from the kerb). traffic.js draws them; you can take one (main.js).
+    const nCars = along >= 17 ? 2 : along >= 15.5 ? 1 : 0, yaw = f.dir[0] !== 0 ? 0 : Math.PI / 2;
+    for (let k = 0; k < nCars; k++) {
+      const t = nCars === 2 ? (k ? 1 : -1) * Math.min(along / 2 - 2.7, 6.2) : along / 2 - 2.6, [px, pz] = city.facePt(b, f, t, 1.2), ax = Math.sin(yaw), az = Math.cos(yaw);
+      const hh = hash3(Math.round(px), Math.round(pz), 31);                                    // (not rnd: the rest of the street is built from the same sequence)
+      city.parkCar(ctx, { x: px, z: pz, h: yaw + (k ? Math.PI : 0), y: CURB + ctx.H(px, pz), type: 0, ci: 0, police: hh < 0.7 ? 0 : 1 }, [-1.25, 1.25].map(o => ({ type: 'circ', x: px + ax * o, z: pz + az * o, r: 1.05 })));
+    }
     for (const t of [-2.6, 2.6]) { const [px, pz] = city.facePt(b, f, t, 1.6); G.props.box(px - 0.12, pz - 0.12, px + 0.12, pz + 0.12, CURB, CURB + 0.9, 3, col(0.15, 0.16, 0.18)); addCollider({ type: 'circ', x: px, z: pz, r: 0.25 }, ctx.colliders); }
     return door;
   }
