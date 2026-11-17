@@ -59,8 +59,8 @@ export function initScatter(terrain, props) {
     inst(P.geo.pine, P.mat.pine, L.pine, null, true); inst(P.geo.snowPine, P.mat.pine, L.snowPine, null, true);
     inst(P.geo.cactus, P.mat.cactus, L.cactus, null, true);
     inst(P.geo.rock, P.mat.rock, L.rock, (cc, it) => (cc.setRGB(1.1 - it[4] * 0.2, 0.95 - it[4] * 0.1, 0.8 - it[4] * 0.2)), true);
-    inst(P.geo.bushCore, P.mat.treeCore, L.shrub, null, false);
-    inst(P.geo.bushCards, P.mat.treeCards, L.shrub, (cc, it) => cl2(cc, it, tile), false);
+    inst(P.geo.bushCore, P.mat.bushCore, L.shrub, (cc, it) => cl2(cc, it, tile), false);          // (the core is tinted with the leaves: dry scrub is dry inside too)
+    inst(P.geo.bushCards, P.mat.bushCards, L.shrub, (cc, it) => cl2(cc, it, tile), false);
     inst(P.geo.treeCore, P.mat.treeCore, L.tree, null, true); inst(P.geo.treeCards, P.mat.treeCards, L.tree, leaf, true);
     inst(P.geo.palmTrunk, P.mat.palmTrunk, L.palm, null, true); inst(P.geo.palmFronds, P.mat.palmFronds, L.palm, leaf, true);
     tile.group.add(veg);

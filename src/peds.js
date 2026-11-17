@@ -27,7 +27,7 @@ const SHOW_R = 125;
 const _pv = new THREE.Vector3(), _pk = new THREE.Vector3();
 // The people close to the camera are real people (Rocketbox models with recorded walking, see people.js and mocap.js): a small pool of them is
 // handed to whoever is nearest, and given back as they walk away (the rest of the crowd is the instanced figures below).
-const REAL = { ultra: 10, high: 8, medium: 5, low: 3 }[Q.name] ?? 4, REAL_IN = 36, REAL_OUT = 46;
+const REAL = { ultra: 16, high: 13, medium: 10, low: 4 }[Q.name] ?? 6, REAL_IN = 56, REAL_OUT = 68;          // (most people you can make out are real ones; the jointed figures are the crowd further off)
 
 // Walking loops round a block's pavement (corners cut), cached per block and distance from the kerb.
 const rings = new Map();
@@ -100,9 +100,17 @@ export class Peds {
     if (!cand.length) return;
     cand.sort((a, b) => ((a.x - cx) ** 2 + (a.z - cz) ** 2) - ((b.x - cx) ** 2 + (b.z - cz) ** 2));
     for (const p of cand) {
-      const big = p.kind !== 'civ', free = R.slots.find(sl => !sl.ped && sl.idx < n && (!big || /^ped_m/.test(sl.key)));              // (the armed and the big are men, so they are given a man's model)
+      const big = p.kind !== 'civ', fits = sl => sl.idx < n && (!big || /^ped_m/.test(sl.key));              // (the armed and the big are men, so they are given a man's model)
+      let free = R.slots.find(sl => !sl.ped && fits(sl));
+      if (!free) {
+        // All in use: take the real body from whoever has one and is well further off than this person (and is only walking about), so the people
+        // nearest you are always the real ones, never the jointed figures.
+        const dp = (p.x - cx) ** 2 + (p.z - cz) ** 2; let worst = null, wd = (Math.sqrt(dp) + 6) ** 2;
+        for (const sl of R.slots) { const q = sl.ped; if (!q || !fits(sl) || q.rag || q.state === 'down' || q.state === 'getup' || q.state === 'cower' || (sl.body && sl.body.act)) continue; const d2 = (q.x - cx) ** 2 + (q.z - cz) ** 2; if (d2 > wd) { wd = d2; worst = sl; } }
+        if (worst) { worst.ped.real = null; worst.ped = null; free = worst; if (worst.body) { worst.body.ragOn = false; worst.body.act = null; worst.body.old = null; worst.body.snapW = 0; } }
+      }
       if (!free) { if (big) continue; break; }
-      free.ped = p; p.real = free; free.rig.root.visible = true; p.hs = p.hs || 0.95 + this.rnd() * 0.1;
+      free.ped = p; p.real = free; free.rig.root.visible = true; p.hs = p.hs || 0.95 + (((this.list.indexOf(p) + 1) * 0.618034) % 1) * 0.1;          // (not this.rnd(): more real people must not change the crowd's random numbers)
       const bk = p.kind === 'bruiser' ? 1 : 0; free.person.setBulk(bk); free.person.root.scale.set(0.01 * p.hs, 0.01 * p.hs * (1 + (BRUISER.h - 1) * bk), 0.01 * p.hs);
     }
   }

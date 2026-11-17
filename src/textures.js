@@ -546,19 +546,109 @@ export function flowerTex() {
 }
 
 export function frondTex() {
-  // A palm frond: a pale midrib and, along it, many broad pointed leaflets that touch their neighbours (so the leaf stays solid when the texture is shrunk
-  // for a frond far away, instead of thinning into dots), the leaflets in two alternating greens with a darker fold down the middle of each.
-  const [c, g] = mk(128, 512);
-  g.clearRect(0, 0, 128, 512);
-  g.strokeStyle = '#a2a35a'; g.lineWidth = 6; g.beginPath(); g.moveTo(64, 0); g.lineTo(64, 512); g.stroke();
-  for (let y = 4; y < 506; y += 8) {
-    const len = 60 * Math.sin(Math.PI * (y / 512)) + 10;
-    for (const s of [-1, 1]) {
-      const t = (y / 8) % 2, tipx = 64 + s * len, tipy = y + 28, w = 5.2;
-      g.fillStyle = t ? '#4f8030' : '#6a9a3a';
-      g.beginPath(); g.moveTo(64, y - w * 0.5); g.quadraticCurveTo(64 + s * len * 0.55, y - w * 0.9, tipx, tipy); g.quadraticCurveTo(64 + s * len * 0.5, y + w * 1.3, 64, y + w * 0.7); g.closePath(); g.fill();
-      g.strokeStyle = 'rgba(28,56,16,0.5)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(64, y); g.quadraticCurveTo(64 + s * len * 0.55, y + 4, tipx, tipy); g.stroke();
+  // Palm fronds, two in one texture: on the left a living frond, on the right a dead one (the dry brown skirt that hangs under the crown). Each is a pale
+  // midrib with many narrow pointed leaflets along it, each leaflet folded (lighter on one half, darker on the other), its tip a little yellow or torn,
+  // in greens that vary from leaflet to leaflet. The leaflets overlap near the rib (so the frond stays solid when shrunk for a palm far away) and part
+  // towards their tips (so a near palm shows the sky between them).
+  const [c, g] = mk(256, 512), rnd = mulberry32(73);
+  g.clearRect(0, 0, 256, 512);
+  const frond = (x0, dead) => {
+    for (let y = 2; y < 508; y += 5.2) {
+      const t = y / 512, len = 58 * Math.sin(Math.PI * (0.06 + 0.94 * t)) + 8;
+      for (const s of [-1, 1]) {
+        const l = len * (0.82 + rnd() * 0.3), droop = 18 + rnd() * 16, tipx = x0 + s * l, tipy = y + droop, w = 3.4 + rnd() * 1.2;
+        const v = 0.82 + rnd() * 0.36, torn = !dead && rnd() < 0.05;
+        const base = dead ? [150 * v, 112 * v, 66 * v] : [58 * v + rnd() * 18, 98 * v + rnd() * 16, 38 * v], tip = dead ? [128 * v, 92 * v, 52 * v] : [118 * v, 128 * v, 52 * v];
+        const gr = g.createLinearGradient(x0, y, tipx, tipy);
+        gr.addColorStop(0, `rgb(${base[0] * 0.8 | 0},${base[1] * 0.8 | 0},${base[2] * 0.8 | 0})`); gr.addColorStop(0.55, `rgb(${base[0] | 0},${base[1] | 0},${base[2] | 0})`); gr.addColorStop(1, `rgb(${tip[0] | 0},${tip[1] | 0},${tip[2] | 0})`);
+        g.fillStyle = gr; g.beginPath(); g.moveTo(x0, y - w * 0.6);
+        g.quadraticCurveTo(x0 + s * l * 0.5, y - w * 0.8 + droop * 0.15, torn ? x0 + s * l * 0.7 : tipx, torn ? y + droop * 0.6 : tipy);
+        g.quadraticCurveTo(x0 + s * l * 0.48, y + w * 1.1 + droop * 0.3, x0, y + w * 0.8); g.closePath(); g.fill();
+        g.strokeStyle = dead ? 'rgba(70,45,22,0.55)' : 'rgba(20,46,12,0.55)'; g.lineWidth = 0.9;                // (the fold down the middle)
+        g.beginPath(); g.moveTo(x0, y); g.quadraticCurveTo(x0 + s * l * 0.5, y + droop * 0.2, torn ? x0 + s * l * 0.7 : tipx, torn ? y + droop * 0.6 : tipy); g.stroke();
+      }
     }
-  }
+    const rib = g.createLinearGradient(x0 - 4, 0, x0 + 4, 0); rib.addColorStop(0, dead ? '#6a5030' : '#7d8a44'); rib.addColorStop(0.5, dead ? '#b89a68' : '#c4c483'); rib.addColorStop(1, dead ? '#5a4228' : '#68743a');
+    g.fillStyle = rib; g.beginPath(); g.moveTo(x0 - 4.5, 512); g.lineTo(x0 - 1.2, 0); g.lineTo(x0 + 1.2, 0); g.lineTo(x0 + 4.5, 512); g.closePath(); g.fill();
+  };
+  frond(64, false); frond(192, true);
   return tex(c, true, false);
+}
+
+// A spray of small, glossy shrub leaves (pittosporum, box, ficus): ovate leaves of 3 to 6 cm on a card of about 40 cm, a darker layer behind for depth,
+// each leaf with its own green, a lighter upper half where it catches the light and a pale midrib. The spray thins out towards the edge of the card, so the
+// card's outline never shows.
+export function bushLeafTex() {
+  const S = 512, [c, g] = mk(S); const rnd = mulberry32(64);
+  g.clearRect(0, 0, S, S);
+  const leaf = (x, y, len, ang, l, warm) => {
+    const hue = warm < 0.06 ? [132, 128, 44] : warm < 0.4 ? [64, 112, 36] : warm < 0.8 ? [46, 96, 36] : [38, 84, 44], w = len * (0.36 + rnd() * 0.12);
+    g.save(); g.translate(x, y); g.rotate(ang);
+    const grd = g.createLinearGradient(0, -w, 0, w);
+    grd.addColorStop(0, `rgb(${hue[0] * l * 1.25 | 0},${hue[1] * l * 1.22 | 0},${hue[2] * l * 1.1 | 0})`); grd.addColorStop(0.5, `rgb(${hue[0] * l | 0},${hue[1] * l | 0},${hue[2] * l | 0})`); grd.addColorStop(1, `rgb(${hue[0] * l * 0.7 | 0},${hue[1] * l * 0.72 | 0},${hue[2] * l * 0.72 | 0})`);
+    g.fillStyle = grd; g.beginPath(); g.moveTo(-len / 2, 0); g.bezierCurveTo(-len * 0.2, -w * 1.25, len * 0.3, -w * 0.9, len / 2, 0); g.bezierCurveTo(len * 0.3, w * 0.9, -len * 0.2, w * 1.25, -len / 2, 0); g.fill();
+    g.strokeStyle = `rgba(${170 * l | 0},${190 * l | 0},${110 * l | 0},0.5)`; g.lineWidth = 1; g.beginPath(); g.moveTo(-len / 2, 0); g.lineTo(len * 0.42, 0); g.stroke();
+    g.fillStyle = `rgba(255,255,240,${0.08 + rnd() * 0.1})`; g.beginPath(); g.ellipse(-len * 0.05, -w * 0.35, len * 0.22, w * 0.22, 0, 0, 7); g.fill();       // (a glint on the waxy upper half)
+    g.restore();
+  };
+  // A few twigs first, then the dark leaves behind, then the leaves in front, densest in the middle.
+  g.strokeStyle = 'rgba(52,40,28,0.9)'; g.lineWidth = 2.2;
+  for (let i = 0; i < 9; i++) { const a = rnd() * 6.28, r = S * (0.25 + rnd() * 0.2); g.beginPath(); g.moveTo(S / 2, S / 2); g.quadraticCurveTo(S / 2 + Math.cos(a + 0.3) * r * 0.5, S / 2 + Math.sin(a + 0.3) * r * 0.5, S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r); g.stroke(); }
+  const at = (k) => { const r = Math.pow(rnd(), 0.62) * S * 0.44 * k, a = rnd() * 6.28; return [S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r]; };
+  for (let i = 0; i < 230; i++) { const [x, y] = at(0.95); leaf(x, y, 30 + rnd() * 26, rnd() * 6.28, 0.34 + rnd() * 0.16, rnd()); }
+  for (let i = 0; i < 300; i++) { const [x, y] = at(1); leaf(x, y, 30 + rnd() * 30, rnd() * 6.28, 0.62 + rnd() * 0.42, rnd()); }
+  return tex(c, true, false);
+}
+
+// A clipped hedge seen close: a dense wall of small leaves over the dark of the twigs inside, tiling seamlessly (one copy is a metre square), with a
+// normal map so the leaves stand out from the gaps between them.
+export function hedgeTex() {
+  const S = sz(512), K = S / 512, rnd = mulberry32(65);
+  const [c, g] = mk(S), [ch, gh] = mk(S);
+  g.fillStyle = '#0c1608'; g.fillRect(0, 0, S, S); gh.fillStyle = '#000'; gh.fillRect(0, 0, S, S);
+  const leaf = (x, y, len, ang, l, layer) => {
+    const hue = rnd() < 0.06 ? [120, 122, 46] : rnd() < 0.5 ? [58, 104, 34] : [44, 92, 36], w = len * 0.42;
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) {                     // (drawn again across each edge, so the texture tiles)
+      if (x + ox < -len || x + ox > S + len || y + oy < -len || y + oy > S + len) continue;
+      for (const [gg, hh] of [[g, false], [gh, true]]) {
+        gg.save(); gg.translate(x + ox, y + oy); gg.rotate(ang);
+        if (hh) { const v = 60 + layer * 60 + l * 40; gg.fillStyle = `rgb(${v | 0},${v | 0},${v | 0})`; }
+        else { const grd = gg.createLinearGradient(0, -w, 0, w); grd.addColorStop(0, `rgb(${hue[0] * l * 1.2 | 0},${hue[1] * l * 1.2 | 0},${hue[2] * l * 1.1 | 0})`); grd.addColorStop(1, `rgb(${hue[0] * l * 0.72 | 0},${hue[1] * l * 0.74 | 0},${hue[2] * l * 0.74 | 0})`); gg.fillStyle = grd; }
+        gg.beginPath(); gg.moveTo(-len / 2, 0); gg.bezierCurveTo(-len * 0.2, -w * 1.2, len * 0.3, -w * 0.9, len / 2, 0); gg.bezierCurveTo(len * 0.3, w * 0.9, -len * 0.2, w * 1.2, -len / 2, 0); gg.fill();
+        gg.restore();
+      }
+    }
+  };
+  for (let i = 0; i < 1500; i++) leaf(rnd() * S, rnd() * S, (12 + rnd() * 10) * K, rnd() * 6.28, 0.32 + rnd() * 0.2, 0);
+  for (let i = 0; i < 2400; i++) leaf(rnd() * S, rnd() * S, (13 + rnd() * 11) * K, rnd() * 6.28, 0.6 + rnd() * 0.45, 1 + rnd());
+  const hd = gh.getImageData(0, 0, S, S).data, Hf = new Float32Array(S * S); for (let i = 0; i < S * S; i++) Hf[i] = hd[i * 4] / 255;
+  return { map: tex(c), normalMap: normalFromHeight(Hf, S, S, 3.2) };
+}
+
+// Palm bark: the rings of old leaf scars, a little wavy and uneven, about 12 cm apart, with fibres running up between them; one copy covers 1.5 m of
+// trunk and once round it. Tree bark: grey-brown, split into long furrows and ridges.
+export function palmBarkTex() {
+  const W = 128, H = 256, rnd = mulberry32(66), [c, g] = mk(W, H), img = g.createImageData(W, H), Hf = new Float32Array(W * H), f = lowField(64, 6, 3, 67);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const u = x / W, v = y / H, n = bil(f, 64, u, v * 4), wav = Math.sin(u * 6.283 * 2 + v * 40) * 0.012 + (n - 0.5) * 0.03;
+    const ring = (v * 12 + wav) % 1, scar = Math.exp(-Math.pow((ring - 0.15) / 0.05, 2)), lip = Math.exp(-Math.pow((ring - 0.25) / 0.06, 2));
+    const fib = Math.sin(u * 6.283 * 34 + n * 9) * 0.5 + 0.5, grain = rnd();
+    const h = 0.55 - scar * 0.45 + lip * 0.2 + fib * 0.06 + (grain - 0.5) * 0.06; Hf[y * W + x] = h;
+    const k = 0.78 + (n - 0.5) * 0.3 + fib * 0.07 - scar * 0.38 + lip * 0.1 + (grain - 0.5) * 0.08;
+    const o = (y * W + x) * 4; img.data[o] = clamp(146 * k, 0, 255); img.data[o + 1] = clamp(128 * k, 0, 255); img.data[o + 2] = clamp(106 * k, 0, 255); img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return { map: tex(c), normalMap: normalFromHeight(Hf, W, H, 2.2) };
+}
+export function barkTex() {
+  const W = 128, H = 256, rnd = mulberry32(68), [c, g] = mk(W, H), img = g.createImageData(W, H), Hf = new Float32Array(W * H), f = lowField(64, 8, 3, 69), f2 = lowField(64, 3, 2, 70);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const u = x / W, v = y / H, n = bil(f, 64, u * 1, v * 0.25), m = bil(f2, 64, u, v);
+    const furrow = Math.pow(Math.abs(Math.sin((u * 9 + n * 1.6) * Math.PI)), 0.45), grain = rnd();
+    const h = furrow * 0.8 + (grain - 0.5) * 0.1; Hf[y * W + x] = h;
+    const k = 0.35 + furrow * 0.6 + (m - 0.5) * 0.3 + (grain - 0.5) * 0.1, moss = clamp((m - 0.62) * 3, 0, 1) * (1 - furrow) * 0.6;
+    const o = (y * W + x) * 4; img.data[o] = clamp(118 * k * (1 - moss) + 70 * moss, 0, 255); img.data[o + 1] = clamp(104 * k * (1 - moss) + 88 * moss, 0, 255); img.data[o + 2] = clamp(90 * k * (1 - moss) + 40 * moss, 0, 255); img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return { map: tex(c), normalMap: normalFromHeight(Hf, W, H, 2.6) };
 }

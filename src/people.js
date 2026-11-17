@@ -79,7 +79,7 @@ export class Person {
         if (m.name === 'opacity') { m.alphaTest = 0.45; m.alphaToCoverage = true; m.side = THREE.DoubleSide; m.roughness = 0.75; m.envMapIntensity = 0.5; }
         else if (m.name === 'head') { m.envMapIntensity = 0.7; m.normalScale.set(0.9, 0.9); }
         else { m.envMapIntensity = 0.65; }
-        if (m.name === 'head') backlight(m, 0.55); else if (m.name === 'body') backlight(m, 0.2); else if (m.name === 'opacity') backlight(m, 0.45, [1.0, 0.8, 0.55]);
+        if (m.name === 'head') backlight(m, 0.45); else if (m.name === 'body') backlight(m, 0.2); else if (m.name === 'opacity') backlight(m, 0.12, [1.0, 0.8, 0.55]);           // (hair: only a faint rim when the sun is behind it; more lit up its cards in bright streaks)
         m.metalness = 0; m.roughness = 1; m.needsUpdate = true;
       }
     });

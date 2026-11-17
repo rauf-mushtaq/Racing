@@ -231,8 +231,21 @@ function puddles(mat, cover = 0.6, kind = '') {
   mat.customProgramCacheKey = () => key + '|puddles' + cover + kind;
   return mat;
 }
-// Dirt and shade at the foot of walls, and long grey rain streaks running down from ledges and window sills (the facade meshes are in world coordinates).
-function grime(mat) {
+// The facades, made to look lived-in and weathered:
+//  - Rooms behind the windows. Each window bay of the texture (a cell of the facade grid: one storey high, one bay wide) has a room behind it, drawn
+//    by "interior mapping": the line of sight is followed through the glass into a box (back wall, side walls, floor and ceiling) and the surface it
+//    meets is shaded, so the room has real depth and shifts as you walk past. Each room has its own wall colour and floor, furniture against the back
+//    wall, sometimes blinds half down or curtains drawn; offices have rows of ceiling panels and desks, shops have shelves. By day the rooms are dim
+//    (an inside seen from the street), at night the rooms whose windows are lit (the emissive map) glow with their light. Ordinary windows are clear
+//    glass: little reflection looking straight in, more and more towards a glancing angle (Fresnel); the towers' glass keeps its mirror coating with
+//    the offices faintly behind it.
+//  - Weathering: dirt and shade at the foot of walls, grey rain streaks running down from ledges and from under each window sill, and large blotches
+//    where the paint or plaster has aged differently (the facade meshes are in world coordinates).
+// kind: 0 office tower, 1 apartment block, 2 shop, 3 house. grid: the texture's cells (bays across, storeys up); room: a room's width, height and depth
+// in metres; sill: the height of the window sills in a storey (0..1) and the span of the window across the bay (for the streaks), or null.
+const ROOM_LIGHT = TOD.night ? 0.01 : TOD.lampsOn ? 0.045 : TOD.hemiI * 0.07;           // (how bright a room looks from the street by daylight: dim)
+function facadeFx(mat, kind, grid, room, sill, clear) {
+  const f = v => v.toFixed(3);
   mat.onBeforeCompile = sh => {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = transformed;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
@@ -240,14 +253,67 @@ function grime(mat) {
       float gmH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float gmN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(gmH(i), gmH(i + vec2(1.0, 0.0)), f.x), mix(gmH(i + vec2(0.0, 1.0)), gmH(i + vec2(1.0, 1.0)), f.x), f.y); }`)
       .replace('#include <map_fragment>', `#include <map_fragment>
-        diffuseColor.rgb *= mix(0.58, 1.0, smoothstep(0.0, 4.5, vWP.y));
+        diffuseColor.rgb *= mix(0.55, 1.0, smoothstep(0.0, 4.5, vWP.y));
         { float along = vWP.x * 1.7 + vWP.z * 2.3;                                   // (which way a wall runs does not matter: the streaks are cut from the position along it)
           float st = gmN(vec2(along * 3.1, vWP.y * 0.11)) * 0.65 + gmN(vec2(along * 9.0 + 3.0, vWP.y * 0.23)) * 0.35;
-          float streak = smoothstep(0.56, 0.9, st) * smoothstep(2.0, 12.0, vWP.y) * 0.2;
-          float tonal = gmN(vec2(along * 0.45, vWP.y * 0.05 + 7.0));
-          diffuseColor.rgb *= (1.0 - streak) * (0.93 + 0.14 * tonal); }`);
+          float streak = smoothstep(0.56, 0.9, st) * smoothstep(2.0, 12.0, vWP.y) * 0.22;
+          float tonal = gmN(vec2(along * 0.45, vWP.y * 0.05 + 7.0)) * 0.6 + gmN(vec2(along * 0.12 + 3.0, vWP.y * 0.02)) * 0.4;
+          diffuseColor.rgb *= (1.0 - streak) * (0.88 + 0.2 * tonal);
+          ${sill ? `{ vec2 sc = vMapUv * vec2(${f(grid[0])}, ${f(grid[1])}); vec2 sf = fract(sc), si = floor(sc);          // (a dark streak under each sill)
+            float under = ${f(sill[0])} - sf.y, wx = smoothstep(${f(sill[1])}, ${f(sill[1] + 0.03)}, sf.x) * (1.0 - smoothstep(${f(sill[2] - 0.03)}, ${f(sill[2])}, sf.x));
+            float drip = gmN(vec2(sf.x * 26.0 + si.x * 7.0, si.y * 3.1)) * gmN(vec2(sf.x * 9.0 + si.y, si.x));
+            float len = 0.15 + 0.5 * gmH(si + 0.5);
+            diffuseColor.rgb *= 1.0 - step(0.0, under) * (1.0 - smoothstep(0.0, len, under)) * wx * drip * 0.5; }` : ''}
+        }`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        {
+          float gk = smoothstep(0.3, 0.55, metalnessFactor);
+          if (gk > 0.001) {
+            vec2 cell = vMapUv * vec2(${f(grid[0])}, ${f(grid[1])}), cid = floor(cell), cf = fract(cell);
+            vec3 D = normalize(-vViewPosition), Tn = normalize(tbn[0]), Bn = normalize(tbn[1]), Nn = normalize(tbn[2]);
+            vec3 rd = vec3(dot(D, Tn) / ${f(room[0])}, dot(D, Bn) / ${f(room[1])}, max(-dot(D, Nn), 0.02) / ${f(room[2])});
+            vec3 ro = vec3(cf, 0.0);
+            vec3 tt = vec3(rd.x > 0.0 ? (1.0 - ro.x) / rd.x : -ro.x / min(rd.x, -1e-5), rd.y > 0.0 ? (1.0 - ro.y) / rd.y : -ro.y / min(rd.y, -1e-5), 1.0 / rd.z);
+            float t = min(min(tt.x, tt.y), tt.z);
+            vec3 h = clamp(ro + rd * t, 0.0, 1.0);
+            vec2 rid = cid + floor(vColor.rg * 40.0 + 0.5) * 3.0;                    // (the building's colour, rounded, so every pixel of a room draws the same numbers)
+            float r1 = gmH(rid), r2 = gmH(rid + 7.13), r3 = gmH(rid + 13.7), r4 = gmH(rid + 21.9);
+            vec3 wallC = mix(vec3(0.78, 0.74, 0.66), vec3(0.6, 0.64, 0.66), r1);
+            if (r2 > 0.82) wallC = vec3(0.7, 0.55, 0.42); else if (r2 < 0.1) wallC = vec3(0.56, 0.6, 0.52);
+            vec3 floorC = r3 < 0.5 ? vec3(0.36, 0.25, 0.16) : r3 < 0.8 ? vec3(0.32, 0.31, 0.32) : vec3(0.52, 0.48, 0.42);
+            vec3 col; float lamp = 0.0;
+            if (t == tt.z) {                                                           // the back wall, and what stands against it
+              col = wallC;
+              ${kind === 2 ? `if (fract(h.y * 5.0) < 0.12 && h.y < 0.8) col = vec3(0.3, 0.27, 0.24); else if (h.y < 0.8) col = mix(vec3(0.5, 0.2, 0.15), vec3(0.2, 0.35, 0.5), gmH(floor(vec2(h.x * 9.0, h.y * 5.0)) + rid));` :
+              kind === 0 ? `if (h.y < 0.22 && fract(h.x * 2.0 + r1) < 0.7) col = vec3(0.42, 0.42, 0.44); if (h.y > 0.22 && h.y < 0.36 && fract(h.x * 2.0 + r1) < 0.55) col = vec3(0.3, 0.32, 0.36);` :
+              `float fx0 = 0.12 + r3 * 0.4, fw = 0.28 + r1 * 0.22;
+              if (h.y < 0.22 + r2 * 0.08 && h.x > fx0 && h.x < fx0 + fw) col = mix(vec3(0.3, 0.22, 0.18), vec3(0.45, 0.47, 0.5), r4);
+              if (abs(h.y - 0.6) < 0.08 && abs(h.x - 0.28 - r2 * 0.44) < 0.09) col = mix(vec3(0.4, 0.3, 0.25), vec3(0.3, 0.4, 0.5), r1);
+              if (r4 > 0.7 && h.x > 0.78 && h.y < 0.72) col = vec3(0.42, 0.3, 0.2);`}
+            } else if (t == tt.y) {
+              col = rd.y < 0.0 ? floorC : vec3(0.86, 0.85, 0.82);
+              ${kind === 0 ? `if (rd.y > 0.0 && abs(fract(h.x * 2.0) - 0.5) < 0.22 && abs(fract(h.z * 3.0) - 0.5) < 0.16) lamp = 1.0;` : `if (rd.y > 0.0 && length(vec2(h.x - 0.5, h.z - 0.45)) < 0.07) lamp = 1.0;`}
+              ${kind === 0 ? `if (rd.y < 0.0 && fract(h.z * 3.0 + 0.2) < 0.3 && fract(h.x * 2.0 + r1) < 0.7) col = vec3(0.5, 0.48, 0.45);` : ''}
+            } else {
+              col = wallC * 0.86;
+              ${kind === 2 ? `if (fract(h.y * 5.0) < 0.12 && h.y < 0.8) col = vec3(0.3, 0.27, 0.24);` : ''}
+            }
+            vec3 dd = vec3(min(h.x, 1.0 - h.x), min(h.y, 1.0 - h.y), 1.0 - h.z);
+            float mid = dd.x + dd.y + dd.z - min(dd.x, min(dd.y, dd.z)) - max(dd.x, max(dd.y, dd.z));
+            col *= (0.55 + 0.45 * smoothstep(0.0, 0.16, mid)) * mix(1.15, 0.5, h.z);  // (dark in the corners; light falls off away from the window)
+            vec3 lit = texture2D(emissiveMap, (cid + vec2(cf.x, 0.62)) / vec2(${f(grid[0])}, ${f(grid[1])}), 3.0).rgb;
+            vec3 roomRad = col * (${f(ROOM_LIGHT)} + lit * emissive * 0.85) + lamp * (${kind === 0 ? f(TOD.night ? 0.25 : 0.55) + ' + ' : ''}lit * emissive * 1.6);      // (office ceiling panels are on all day; a home's lamp only when its window is lit)
+            // Blinds or curtains in front of the room, just behind the glass.
+            if (r4 < 0.3 && cf.y > 1.0 - r2 * 0.6) roomRad = mix(vec3(0.62, 0.6, 0.55), vec3(0.5, 0.52, 0.55), r1) * (0.75 + 0.25 * step(0.4, fract(cf.y * 40.0))) * (${f(ROOM_LIGHT * 1.6)} + lit * emissive * 0.8);
+            else if (r4 > 0.86 && abs(cf.x - 0.5) > 0.3 - r3 * 0.1) roomRad = mix(vec3(0.6, 0.45, 0.35), vec3(0.75, 0.72, 0.65), r2) * (0.8 + 0.2 * sin(cf.x * 90.0)) * (${f(ROOM_LIGHT * 1.4)} + lit * emissive * 0.85);
+            float cosT = clamp(dot(-D, Nn), 0.0, 1.0), Fr = 0.04 + 0.96 * pow(1.0 - cosT, 5.0);
+            ${clear ? `metalnessFactor = mix(metalnessFactor, 0.0, gk); roughnessFactor = mix(roughnessFactor, 0.06, gk); diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.02), gk);
+            totalEmissiveRadiance = mix(totalEmissiveRadiance, roomRad * (1.0 - Fr), gk);` :
+            `totalEmissiveRadiance = mix(totalEmissiveRadiance, roomRad * (1.0 - Fr) * 0.55 + totalEmissiveRadiance * 0.25, gk);`}
+          }
+        }`);
   };
-  mat.customProgramCacheKey = () => 'grime2';
+  mat.customProgramCacheKey = () => 'facade3-' + kind + grid + room + sill + clear;
   return mat;
 }
 
@@ -277,10 +343,10 @@ export class City {
     this.tx = { asp, con, grass };
     this.props = makeProps();
     const std = o => new THREE.MeshStandardMaterial(o);
-    const fac = (f, ei, env) => grime(std({
+    const fac = (f, ei, env, fx) => facadeFx(std({
       map: f.map, emissiveMap: f.emissiveMap, roughnessMap: f.ormMap, metalnessMap: f.ormMap, normalMap: f.normalMap, normalScale: new THREE.Vector2(1, 1),
       emissive: 0xffffff, emissiveIntensity: ei, vertexColors: true, metalness: 1, roughness: 1, envMapIntensity: env,
-    }));
+    }), ...fx);
     // Road and pavement materials come from these so that the bridges (which must not be cut by the river) can have their own copies.
     const makeWalk = () => { const w = macro(std({ color: 0xc2b8b4, map: con.map, normalMap: con.normalMap, roughness: TOD.wet ? 0.62 : 0.92, envMapIntensity: TOD.wet ? 1.5 : 1 }), 0.06, 0.3); attachSSR(w, { range: 70, rough: 0.7 }); puddles(w, 0.35, 'walk'); return w; };
     const makeAsphalt = () => { const a = macro(std({ color: new THREE.Color(TOD.road).multiplyScalar(TOD.wet ? 1 : 0.78), map: asp.map, roughnessMap: asp.roughnessMap, normalMap: asp.normalMap, normalScale: TOD.wet ? new THREE.Vector2(0.4, 0.4) : new THREE.Vector2(0.55, 0.55), roughness: TOD.wet ? 0.4 : 0.79, metalness: 0, envMapIntensity: TOD.wet ? 2.0 : 0.85 }), 0.045, 0.35); attachSSR(a, { range: 90, rough: 0.64 }); puddles(a, 0.6, 'road'); return a; };
@@ -291,8 +357,11 @@ export class City {
       curb: std({ color: 0xc8c0bc, map: con.map, roughness: 0.9 }),
       park: std({ color: 0x8fa070, map: grass, roughness: 1, vertexColors: true }),
       mark: std({ vertexColors: true, color: 0xd4d2cc, roughness: 0.82, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-      glass: fac(facG, TOD.windows, 1.5), modern: fac(facM, TOD.windows, 1.3), apt: fac(facA, TOD.windows * 1.05, 0.8),
-      brick: fac(facB, TOD.windows * 1.05, 0.7), shop: fac(facS, TOD.lampsOn ? 2.0 : 0.45, 0.8), house: fac(facH, TOD.windows * 1.05, 0.8),
+      // (the rooms behind the windows: kind, the texture's grid of bays and storeys, a room's size, where the sills are, clear glass or a mirror coating)
+      glass: fac(facG, TOD.windows, 1.5, [0, [4, 4], [4, 3.5, 7], null, false]), modern: fac(facM, TOD.windows, 1.3, [0, [4, 4], [4, 3.5, 7], null, false]),
+      apt: fac(facA, TOD.windows * 1.05, 0.8, [1, [4, 4], [4, 3.5, 4.5], [0.26, 0.24, 0.76], true]),
+      brick: fac(facB, TOD.windows * 1.05, 0.7, [1, [4, 4], [4, 3.5, 4.5], [0.25, 0.26, 0.74], true]),
+      shop: fac(facS, TOD.lampsOn ? 2.0 : 0.45, 0.8, [2, [3, 1], [4, 5.25, 6], null, true]), house: fac(facH, TOD.windows * 1.05, 0.8, [3, [2, 2], [4, 3, 4], null, true]),
       roof: std({ map: misc.roof, vertexColors: true, roughness: 0.95 }),
       tile: std({ map: misc.tile, vertexColors: true, roughness: 0.85 }),
       lot: std({ color: 0x8a8486, map: asp.map, roughnessMap: asp.roughnessMap, roughness: 1 }),
@@ -479,8 +548,8 @@ export class City {
     const leaf = (c, rnd) => { const r = rnd(); c.setRGB(0.8 + r * 0.35, 0.88 + r * 0.2, 0.75 + r * 0.2); };
     inst(P.geo.treeCore, P.mat.treeCore, L.trees, placeTree, true, region.trees);
     inst(P.geo.treeCards, P.mat.treeCards, L.trees, placeTree, true, region.trees, leaf);
-    inst(P.geo.bushCore, P.mat.treeCore, L.bushes, placeTree, false, region.trees);
-    inst(P.geo.bushCards, P.mat.treeCards, L.bushes, placeTree, false, region.trees, leaf);
+    inst(P.geo.bushCore, P.mat.bushCore, L.bushes, placeTree, false, region.trees);
+    inst(P.geo.bushCards, P.mat.bushCards, L.bushes, placeTree, false, region.trees, leaf);
     // Flowering shrubs: about 4 bushes in 10 carry flowers (hot pink, red, orange, violet or white), the rest are plain green.
     const FLOWERS = [[3.2, 0.45, 1.2], [3.4, 0.2, 0.3], [3.6, 1.4, 0.25], [1.9, 0.5, 2.6], [3.0, 2.6, 0.9], [3.4, 3.2, 2.4]];
     inst(P.geo.bushBloom, P.mat.bushBloom, L.bushes.filter((b, i) => (i * 7 + 3) % 5 < 2), placeTree, false, region.trees, (c, rnd) => { const f = FLOWERS[(rnd() * FLOWERS.length) | 0]; c.setRGB(f[0], f[1], f[2]); });
@@ -1167,7 +1236,7 @@ export class City {
   hedgeRow(ctx, lot, f) {
     const e = f.dir[0] < 0 ? lot.x0 + 0.9 : f.dir[0] > 0 ? lot.x1 - 0.9 : f.dir[1] < 0 ? lot.z0 + 0.9 : lot.z1 - 0.9;
     const [a0, a1] = f.dir[0] !== 0 ? [lot.z0 + 1, lot.z1 - 1] : [lot.x0 + 1, lot.x1 - 1], mid = (a0 + a1) / 2;
-    for (const [p0, p1] of [[a0, mid - 1.5], [mid + 1.5, a1]]) if (p1 - p0 > 1) {
+    for (const [p0, p1] of [[a0, mid - 3.2], [mid + 3.2, a1]]) if (p1 - p0 > 1) {          // (a gap in the middle for the path to the front door)
       const hd = f.dir[0] !== 0 ? [e, (p0 + p1) / 2, 1.0, p1 - p0] : [(p0 + p1) / 2, e, p1 - p0, 1.0];
       ctx.L.hedges.push(hd);
       addCollider({ type: 'box', x0: hd[0] - hd[2] / 2, x1: hd[0] + hd[2] / 2, z0: hd[1] - hd[3] / 2, z1: hd[1] + hd[3] / 2 }, ctx.colliders);
@@ -1201,6 +1270,13 @@ export class City {
     const top = y;
     if (tower) G.props.extrude(offsetPoly(poly, 0.25), CURB, CURB + 1.2, 4, 4, STONE, 0, false);       // stone plinth
     else G.roof.extrude(offsetPoly(poly, 0.4), top - 0.5, top + 0.05, 4, 4, trim, 0, false);           // cornice
+    if ((style === 'apt' || style === 'brick') && kind === 'rect') {
+      // A ground floor that is not just another storey: a base course of stone, a ledge over the ground floor, and a front door on the street.
+      const base = (style === 'brick' ? new THREE.Color(0.5, 0.47, 0.44) : new THREE.Color(0.66, 0.62, 0.56)).multiplyScalar(0.85 + hash3(Math.round(b.x0), Math.round(b.z0), 71) * 0.2);     // (a hash, not rnd(): the city's random numbers must come out in the same order as before)
+      G.roof.extrude(offsetPoly(poly, 0.07), CURB, CURB + 0.7, 2, 2, base, 0, false);
+      if (h > 7) G.roof.extrude(offsetPoly(poly, 0.1), CURB + 3.38, CURB + 3.6, 8, 8, trim, 0, false);
+      if (faces.length) this.entrance(ctx, b, faces[0], trim, base);
+    }
     if (tower && h > 105 && rnd() < 0.55) {
       const tc = clamp(h * 0.08, 6, 14), small = scalePoly(topP, 0.55);                                   // tapered crown and mast
       G.roof.loft(topP, top, small, top + tc, 8, METAL); G.roof.cap(small, top + tc, 8, METAL);
@@ -1242,6 +1318,25 @@ export class City {
       if (isBlvd(faces[0].line) && rnd() < 0.3) this.poleSign(ctx, b, faces[0], rnd);
     }
     if (!tower && faces.length && ctx.L.bills.length < 2 && rnd() < 0.05) ctx.L.bills.push({ x: cx, z: cz, y: top + 2 + ctx.base, yaw: Math.atan2(faces[0].dir[0], faces[0].dir[1]) });
+  }
+
+  // A front door in the middle bay of a street face (the bays are 4 m wide from the corners): a door of two dark leaves set back in a stone surround,
+  // a step, and a flat canopy over it.
+  entrance(ctx, b, f, trim, stone) {
+    const G = ctx.gb, alongX = f.dir[0] === 0, a0 = alongX ? b.x0 : b.z0, a1 = alongX ? b.x1 : b.z1, len = a1 - a0, nb = Math.round(len / 4);
+    if (len < 8 || Math.abs(nb * 4 - len) > 0.05) return;
+    const c = a0 + 4 * Math.floor(nb / 2) + 2, W = 1.8, H = 2.8, J = 0.24, s = alongX ? f.dir[1] : f.dir[0], wall = alongX ? (s < 0 ? b.z0 : b.z1) : (s < 0 ? b.x0 : b.x1);
+    const door = new THREE.Color(0.09, 0.085, 0.08), canopy = new THREE.Color(0.18, 0.18, 0.19);
+    // A box from `o0` to `o1` metres out from the wall, from `p0` to `p1` along it, between heights y0 and y1.
+    const bx = (gb, p0, p1, o0, o1, y0, y1, col) => {
+      const w0 = wall + s * o0, w1 = wall + s * o1;
+      if (alongX) gb.box(p0, Math.min(w0, w1), p1, Math.max(w0, w1), y0, y1, 4, col); else gb.box(Math.min(w0, w1), p0, Math.max(w0, w1), p1, y0, y1, 4, col);
+    };
+    bx(G.props, c - W / 2, c - 0.015, 0, 0.04, CURB, CURB + H, door); bx(G.props, c + 0.015, c + W / 2, 0, 0.04, CURB, CURB + H, door);
+    bx(G.roof, c - W / 2 - J, c - W / 2, 0, 0.16, CURB, CURB + H + J, trim); bx(G.roof, c + W / 2, c + W / 2 + J, 0, 0.16, CURB, CURB + H + J, trim);
+    bx(G.roof, c - W / 2 - J, c + W / 2 + J, 0, 0.16, CURB + H, CURB + H + J, trim);
+    bx(G.roof, c - W / 2 - 0.3, c + W / 2 + 0.3, 0, 0.55, CURB - 0.02, CURB + 0.16, stone);
+    bx(G.props, c - W / 2 - 0.6, c + W / 2 + 0.6, 0, 1.15, CURB + H + J + 0.08, CURB + H + J + 0.2, canopy);
   }
 
   // Thin slab balconies with railings cut from a bar texture (no solid boxes).
