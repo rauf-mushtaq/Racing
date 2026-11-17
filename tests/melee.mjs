@@ -103,7 +103,7 @@ try {
   const one = await P.evaluate(() => { const g = window.__game; return { landed: g.melee.landed, N: g.game.assaultN, p0: g.peds.list[0].state }; });
   check('one punch on a stranger is a scuffle: no police, but it is counted', !(await P.evaluate(() => window.__game.game.chaseOn)) && one.N === 1, JSON.stringify(one));
   await put(1.0, 0, 1, true, false); await P.evaluate(() => { window.__game.melee.cool = 0; window.__game.melee.next.fist = 'jab'; window.__game.melee.attack('fist'); }); await step(P, 40);
-  check('a second one within half a minute is assault: the police come', await P.evaluate(() => window.__game.game.chaseOn && window.__game.game.wanted), await P.evaluate(() => { const g = window.__game; return JSON.stringify({ landed: g.melee.landed, N: g.game.assaultN, T: g.game.assaultT, clock: g.game.clock, chase: g.game.chaseOn, wanted: g.game.wanted, nw: g.game.noWanted, state: g.game.state, route: g.game.route }); }));
+  check('a second one within half a minute is assault: a patrol car comes to pull you up (not the whole force)', await P.evaluate(() => window.__game.game.stopOn && window.__game.stop.active && !window.__game.game.chaseOn), await P.evaluate(() => { const g = window.__game; return JSON.stringify({ landed: g.melee.landed, N: g.game.assaultN, T: g.game.assaultT, clock: g.game.clock, chase: g.game.chaseOn, wanted: g.game.wanted, nw: g.game.noWanted, state: g.game.state, route: g.game.route }); }));
   const t = await P.evaluate(() => window.__toasts.join(' | '));
   check('and the game says why', /ASSAULT/.test(t), t);
 

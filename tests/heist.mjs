@@ -161,8 +161,11 @@ try {
   check('staying inside for over a minute does not make them give up, or arrest you through the wall', still.result === 'running' && still.hidden <= 0.5 && still.bust === 0 && still.inside, JSON.stringify(still));
   // Busted with the bag: it is lost.
   await ev(() => { const g = window.__game; g.game.carried = 5000; g.police.result = 'busted'; g.police.endT = 5; }); await step(P, 90);
-  const bs = await ev(() => { const g = window.__game; return { inside: !!g.game.inside, carried: g.game.carried || 0, state: g.game.state, interior: !!g.walker.interior, mask: g.camera.layers.mask }; });
-  check('busted: thrown out of the building, the loot lost', !bs.inside && !bs.carried && !bs.interior && bs.mask === 1 && bs.state === 'chaseEnd', JSON.stringify(bs));
+  const bs = await ev(() => { const g = window.__game; return { inside: !!g.game.inside, carried: g.game.carried || 0, state: g.game.state, chase: !!g.game.chaseOn }; });
+  check('busted: taken out of the building, the loot lost, the chase over', !bs.inside && !bs.carried && !bs.chase && bs.state === 'free', JSON.stringify(bs));
+  await P.waitForFunction(() => window.__game.jail.active && window.__game.jail.locked, null, { timeout: 30000 }).catch(() => {});
+  const cells = await ev(() => { const g = window.__game; return { jail: g.jail.active, locked: g.jail.locked, days: g.jail.days, charges: (g.jail.V && g.jail.V.list || []).map(c => c.name) }; });
+  check('and then the cells (with handling stolen money on the charge sheet)', cells.jail && cells.locked && cells.charges.includes('HANDLING STOLEN MONEY'), JSON.stringify(cells));
 
   check('no script errors', logs.length === 0, logs.slice(0, 4).join(' | '));
 } catch (e) { console.error(e); const { check: c } = await import('./lib.mjs'); c('test ran to the end', false, String(e && e.message)); }

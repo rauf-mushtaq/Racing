@@ -604,12 +604,13 @@ function chaseResult() {
   const P = police, t = P.time, won = P.result === 'escaped';
   if (brawl && !won) { brawl.clear(); game.hp = 100; }
   if (interior && interior.active) forceLeave();
-  if (game.carried) { if (won) bankCarried(); else { hud.toast('THE LOOT IS LOST', 2.4); game.carried = 0; } }
+  const had = game.carried || 0, booked = game.wanted && P.result === 'busted';      // (caught with the loot: it goes on the charge sheet, and arrest() takes it off you)
+  if (game.carried && !booked) { if (won) bankCarried(); else { hud.toast('THE LOOT IS LOST', 2.4); game.carried = 0; } }
   if (game.wanted && won) {                                                    // got away from a free-roam wanted level: carry on
     hud.toast('YOU LOST THEM', 2.6); audio.beep(880, 0.2); setTimeout(() => audio.beep(1320, 0.3), 160); game.noWanted = (game.clock || 0) + 12; endChase(); setState('free'); return;
   }
   if (game.wanted && P.result === 'busted') {                                  // caught at the end of a free-roam chase: the cells, longer the hotter it was
-    const stars = P.maxStars, list = [{ name: 'EVADING THE POLICE', n: 1 }].concat(P.kills ? [{ name: 'DESTROYING POLICE CARS', n: P.kills }] : [], P.officersDown ? [{ name: 'ASSAULTING POLICE OFFICERS', n: P.officersDown }] : [], game.carried ? [{ name: 'HANDLING STOLEN MONEY', n: 1 }] : []);
+    const stars = P.maxStars, list = [{ name: 'EVADING THE POLICE', n: 1 }].concat(P.kills ? [{ name: 'DESTROYING POLICE CARS', n: P.kills }] : [], P.officersDown ? [{ name: 'ASSAULTING POLICE OFFICERS', n: P.officersDown }] : [], had ? [{ name: 'HANDLING STOLEN MONEY', n: 1 }] : []);
     endChase(); arrest({ list, days: clamp(1 + stars, 2, 7), arrest: true }); return;
   }
   document.querySelector('[data-ce="retry"]').textContent = game.wanted ? 'BACK TO THE STREETS' : 'PLAY AGAIN';
