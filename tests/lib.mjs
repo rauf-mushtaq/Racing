@@ -26,6 +26,7 @@ export async function open({ debug = true, w = 844, h = 390, touch = false, hasT
   await ctx.addInitScript(() => { try { localStorage.setItem('sunsetcity.v1', JSON.stringify({ quality: 'low', renderScale: 0.75 })); } catch (e) { /* private mode */ } });
   if (init) await ctx.addInitScript(init);
   const page = await ctx.newPage(); const logs = [], external = [];
+  page.setDefaultTimeout(120000);                    // (starting the game compiles every shader in software rendering: on a slow build server a click that starts it can wait more than the default 30 s)
   page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !ignorable(m.text())) logs.push(m.text().slice(0, 240)); });
   page.on('pageerror', e => logs.push('pageerror: ' + e.message.slice(0, 300)));
   page.on('response', r => { if (r.status() >= 400 && !/music\/chase\.mp3/.test(r.url())) logs.push(r.status() + ' ' + r.url()); });   // (music/chase.mp3 is optional: put your own there)
