@@ -106,7 +106,7 @@ export class TrafficStop {
         this.say(dist < 300 ? `PATROL CAR ${Math.round(dist)} M AWAY` : 'A PATROL CAR IS ON ITS WAY');
         if (inside) { if (this.t > 60) this.giveUp(); break; }                        // (gone into a building before they got here: they wait outside a while)
         if (c.sees && dist < (foot ? 45 : 60)) {
-          this.state = 'signal'; this.t = 0; this.stillT = 0; this.runT = 0; this.d0 = dist;
+          this.state = 'signal'; this.t = 0; this.stillT = 0; this.runT = 0; this.waitT = 0; this.d0 = dist;
           E.audio.beep && (E.audio.beep(980, 0.09, 0.25), setTimeout(() => E.audio.beep(740, 0.12, 0.25), 120));
           this.toast(foot ? 'POLICE: STAY WHERE YOU ARE' : 'POLICE: PULL OVER', 2.2);
         } else if (this.t > 110 && this.lastSee > 25) this.giveUp();
@@ -121,19 +121,24 @@ export class TrafficStop {
           if (c.speed < 0.6 && dist < 16) this.getOut();
           else if (this.t > 25) this.getOut();
         } else {
-          const left = Math.max(0, 15 - this.t); this.say(`PULL OVER: ${Math.ceil(left)} S`); this.meter(1 - left / 15);
           this.stillT = sp < 1.0 ? this.stillT + dt : 0;
-          if (this.stillT > 0.8 && dist < 45) { this.state = 'park'; this.t = 0; this.spot = { x: T.x, z: T.z }; this.toast('YOU PULLED OVER: STAY IN THE CAR', 1.8); break; }
+          // Stopped, but the patrol car is held up further back (by the traffic queued behind you): that is not failing to stop. The countdown waits
+          // for it, and if it never gets through, it gives up and goes. (A player sitting still was being charged with failing to stop.)
+          if (this.stillT > 0.8) { this.t = Math.min(this.t, 14); if ((this.waitT += dt) > 40) { this.giveUp(); return; } } else this.waitT = 0;
+          const left = Math.max(0, 15 - this.t); this.say(`PULL OVER: ${Math.ceil(left)} S`); this.meter(1 - left / 15);
+          this.cStuckT = c.speed < 0.6 ? (this.cStuckT || 0) + dt : 0;                          // (how long the patrol car has been standing: held up in the traffic)
+          if (this.stillT > 0.8 && (dist < 45 || (dist < 70 && this.cStuckT > 3))) { this.state = 'park'; this.t = 0; this.stuckT = 0; this.spot = { x: T.x, z: T.z }; this.toast('YOU PULLED OVER: STAY IN THE CAR', 1.8); break; }
           if (this.t > 6 && !this.warned) { this.warned = true; this.toast('PULL OVER NOW', 1.4); }
-          if (left <= 0 || dist > 120) { this.escalate('flee'); return; }
+          if (left <= 0 || (dist > 120 && this.stillT <= 0.8)) { this.escalate('flee'); return; }
         }
         break;
       }
       case 'park': {
         G.x = T.x - Math.sin(T.h) * 8.5; G.z = T.z - Math.cos(T.h) * 8.5; G.v = 0; G.park = true; this.say('THE OFFICER IS PULLING IN BEHIND YOU'); this.meter(0);
         if (sp > 3 || Math.hypot(T.x - this.spot.x, T.z - this.spot.z) > 8) { this.escalate('flee'); return; }
-        const near = dist < 24;
+        const near = dist < 24; this.stuckT = c.speed < 0.6 ? (this.stuckT || 0) + dt : 0;
         if (near && ((c.speed < 0.6 && Math.hypot(G.x - c.x, G.z - c.z) < 4) || this.t > 7)) this.getOut();
+        else if (!near && dist < 70 && this.stuckT > 4) this.getOut();                                // (held up further back by the traffic: the officer walks up from there)
         else if (!near && this.t > 12) { this.state = 'respond'; this.t = 0; }                      // (it lost you on the way in: it comes again)
         break;
       }

@@ -34,7 +34,7 @@ try {
     const g = window.__game, c = g.police.cops[0], o = g.stop.off, back = (c.x - g.car.x) * Math.sin(g.car.h) + (c.z - g.car.z) * Math.cos(g.car.h);
     return { carGap: +Math.hypot(c.x - g.car.x, c.z - g.car.z).toFixed(1), back: +back.toFixed(1), held: !!c.held, off: +Math.hypot(o.x - g.car.x, o.z - g.car.z).toFixed(2), shown: o.active && !!o.person, v: g.stop.verdict, card: !!document.querySelector('#sc-choice:not(.hidden) [data-act="pay"]'), prompt: g.stop.prompt, siren: g.police.sirenOn };
   });
-  check('the patrol car is parked close by (behind you, or across your front; or behind a car that queued behind you: the officer gets out within 24 m)', at.held && at.carGap < 25, JSON.stringify(at));
+  check('the patrol car is parked close by (behind you, or across your front; or behind a car that queued behind you: within 24 m; or, held up in the traffic further back, within 70 m, and the officer walks up from there)', (at.held || at.carGap >= 24) && at.carGap < 71, JSON.stringify(at));          // (held up, it is standing in the traffic where it got stuck, not parked)
   check('the officer (a real person) is at your door', at.shown && at.off < 2.6, JSON.stringify(at));
   check('a car hit is a ticket: $250, paid with the use button', !at.v.arrest && at.v.fine === 250 && at.card && /PAY \$250/.test(at.prompt), JSON.stringify(at.v));
   const paid = await P.evaluate(() => { const g = window.__game, c0 = g.settings.cash; g.stop.use(); return { c0, c1: g.settings.cash, state: g.stop.state, fines: g.settings.record.fines }; });
