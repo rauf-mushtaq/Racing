@@ -368,62 +368,87 @@ function brickCell(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
   if (rnd() < 0.24) interiorGlow(ge, wx + 2, wy + 2, ww - 4, wh - 4, rnd);
 }
 
-function houseCell(g, ge, gr, x, y, w, h, rnd) {
-  // 8 m x 6 m: two floors of plaster, windows and a door, on a stone base.
-  g.fillStyle = '#efeae0'; g.fillRect(x, y, w, h);
-  gr.fillStyle = '#e0e0e0'; gr.fillRect(x, y, w, h);
-  g.fillStyle = '#8f877b'; g.fillRect(x, y + h - 26, w, 26); gr.fillStyle = '#c0c0c0'; gr.fillRect(x, y + h - 26, w, 26);
-  g.fillStyle = 'rgba(0,0,0,0.07)'; g.fillRect(x, y + h * 0.5 - 4, w, 8);
+function houseCell(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
+  // 8 m by 6 m of a rendered house, two floors: a stone plinth, two windows upstairs, one window and the front door downstairs. The windows are white
+  // frames set back in their openings, each with a stone sill (streaked below) and a lintel; the door is a panelled door in a frame with a fanlight, a
+  // step and a lamp beside it.
+  g.fillStyle = '#ece6da'; g.fillRect(x, y, w, h); gr.fillStyle = '#e0e0e0'; gr.fillRect(x, y, w, h);
+  // The plinth: rough stone courses.
+  const py = y + h - 30; g.fillStyle = '#8a8277'; g.fillRect(x, py, w, 30); gr.fillStyle = '#c4c4c4'; gr.fillRect(x, py, w, 30); hrect(gh, x, py, w, 30, 250);
+  for (let c = 0; c < 2; c++) for (let s = 0; s < 14; s++) { const sx = x + s * w / 14 + (c ? w / 28 : 0), v = 0.85 + rnd() * 0.3; g.fillStyle = `rgb(${138 * v | 0},${130 * v | 0},${119 * v | 0})`; g.fillRect(sx + 1, py + c * 15 + 1, w / 14 - 2, 13); }
+  g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(x, py, w, 2);
+  g.fillStyle = 'rgba(70,60,50,0.1)'; g.fillRect(x, y + h * 0.5 - 3, w, 3);                                    // (a string course between the floors)
   const win = (wx, wy, ww, wh) => {
-    g.fillStyle = '#f4f0e8'; g.fillRect(wx - 7, wy - 7, ww + 14, wh + 14);
-    g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(wx - 7, wy - 7, ww + 14, 3);
-    g.fillStyle = vgrad(g, wy, wy + wh, [[0, '#6c7983'], [1, '#232b32']]); g.fillRect(wx, wy, ww, wh);
-    g.fillStyle = '#f4f0e8'; g.fillRect(wx + ww / 2 - 2, wy, 4, wh); g.fillRect(wx, wy + wh * 0.45, ww, 4);
-    g.fillStyle = '#d6d0c4'; g.fillRect(wx - 10, wy + wh + 7, ww + 20, 7);
-    gr.fillStyle = '#c0c0c0'; gr.fillRect(wx - 7, wy - 7, ww + 14, wh + 14);
-    gr.fillStyle = '#1c1c1c'; gr.fillRect(wx, wy, ww, wh);
-    if (rnd() < 0.3) interiorGlow(ge, wx + 2, wy + 2, ww - 4, wh - 4, rnd);
+    // Rain streaks under the sill.
+    for (let sk = 0; sk < 5; sk++) { const sx = wx - 6 + rnd() * (ww + 12), len = 14 + rnd() * 40, sg = g.createLinearGradient(0, wy + wh + 12, 0, wy + wh + 12 + len); sg.addColorStop(0, `rgba(70,62,52,${0.08 + rnd() * 0.12})`); sg.addColorStop(1, 'rgba(70,62,52,0)'); g.fillStyle = sg; g.fillRect(sx, wy + wh + 12, 2 + rnd() * 4, len); }
+    g.fillStyle = '#d8d0c2'; g.fillRect(wx - 8, wy - 14, ww + 16, 12); g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(wx - 8, wy - 2, ww + 16, 2); hrect(gh, wx - 8, wy - 14, ww + 16, 12, 252);   // the lintel
+    g.fillStyle = '#d4ccbe'; g.fillRect(wx, wy, ww, wh); hrect(gh, wx, wy, ww, wh, 110);                                   // the reveal
+    g.fillStyle = '#f2f1ec'; g.fillRect(wx + 3, wy + 3, ww - 6, wh - 6); gr.fillStyle = '#b4b4b4'; gr.fillRect(wx + 3, wy + 3, ww - 6, wh - 6); hrect(gh, wx + 3, wy + 3, ww - 6, wh - 6, 116);   // the frame
+    const panes = [[wx + 9, wy + 9, ww / 2 - 12, wh * 0.3 - 10], [wx + ww / 2 + 3, wy + 9, ww / 2 - 12, wh * 0.3 - 10], [wx + 9, wy + wh * 0.3 + 3, ww / 2 - 12, wh * 0.7 - 12], [wx + ww / 2 + 3, wy + wh * 0.3 + 3, ww / 2 - 12, wh * 0.7 - 12]];
+    for (const [qx, qy, qw, qh] of panes) { g.fillStyle = vgrad(g, qy, qy + qh, [[0, '#5d6870'], [0.6, '#3d464e'], [1, '#262d33']]); g.fillRect(qx, qy, qw, qh); g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(qx, qy, qw, 2); gr.fillStyle = '#1a1a1a'; gr.fillRect(qx, qy, qw, qh); hrect(gh, qx, qy, qw, qh, 92); }
+    g.fillStyle = '#cfc7b8'; g.fillRect(wx - 10, wy + wh, ww + 20, 9); g.fillStyle = 'rgba(255,255,255,0.4)'; g.fillRect(wx - 10, wy + wh, ww + 20, 2);
+    g.fillStyle = 'rgba(40,34,28,0.32)'; g.fillRect(wx - 10, wy + wh + 9, ww + 20, 3); gr.fillStyle = '#c4c4c4'; gr.fillRect(wx - 10, wy + wh, ww + 20, 9); hrect(gh, wx - 10, wy + wh, ww + 20, 9, 255);
+    if (rnd() < 0.3) interiorGlow(ge, wx + 9, wy + 9, ww - 18, wh - 18, rnd);
   };
-  win(70, 40, 80, 84); win(w - 150, 40, 80, 84);
-  win(70, h - 150, 80, 96);
-  const dc = ['#5b3a29', '#2f4a5a', '#7a2a2a', '#3b3b3b'][(rnd() * 4) | 0];
-  g.fillStyle = '#f4f0e8'; g.fillRect(w - 190, h - 190, 100, 164); g.fillStyle = dc; g.fillRect(w - 182, h - 182, 84, 156);
-  g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(w - 174, h - 170, 30, 60); g.fillRect(w - 136, h - 170, 30, 60); g.fillRect(w - 174, h - 100, 30, 60); g.fillRect(w - 136, h - 100, 30, 60);
-  g.fillStyle = '#d9c36a'; g.fillRect(w - 112, h - 106, 6, 14);
-  g.fillStyle = '#b8b2a6'; g.fillRect(w - 200, h - 26, 120, 12);
-  gr.fillStyle = '#b0b0b0'; gr.fillRect(w - 190, h - 190, 100, 164);
+  win(64, 46, 100, 98); win(w - 164, 46, 100, 98); win(64, h - 166, 100, 110);
+  // The front door: a frame, the door (four panels), a fanlight over it, a brass handle, a step, a lamp.
+  const dc = ['#3e2a20', '#28394a', '#5e2224', '#2b2d30', '#3c4a3a'][(rnd() * 5) | 0], dx = w - 186, dy = h - 196, dw = 88, dh = 166;
+  g.fillStyle = '#e4ded2'; g.fillRect(dx - 10, dy - 34, dw + 20, dh + 34); hrect(gh, dx - 10, dy - 34, dw + 20, dh + 34, 252);
+  g.fillStyle = '#d4ccbe'; g.fillRect(dx, dy - 26, dw, dh + 26); hrect(gh, dx, dy - 26, dw, dh + 26, 120);
+  g.fillStyle = vgrad(g, dy - 24, dy - 4, [[0, '#56626b'], [1, '#2c343a']]); g.fillRect(dx + 4, dy - 24, dw - 8, 18); gr.fillStyle = '#1a1a1a'; gr.fillRect(dx + 4, dy - 24, dw - 8, 18); hrect(gh, dx + 4, dy - 24, dw - 8, 18, 104);
+  g.fillStyle = dc; g.fillRect(dx + 4, dy, dw - 8, dh - 4); gr.fillStyle = '#9c9c9c'; gr.fillRect(dx + 4, dy, dw - 8, dh - 4); hrect(gh, dx + 4, dy, dw - 8, dh - 4, 130);
+  for (const [px, pyy, pw, ph] of [[dx + 12, dy + 10, 30, 62], [dx + dw - 42, dy + 10, 30, 62], [dx + 12, dy + 84, 30, 66], [dx + dw - 42, dy + 84, 30, 66]]) { g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(px, pyy, pw, ph); g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(px + 2, pyy + ph - 3, pw - 2, 3); g.fillStyle = shadeHex(dc, 1.08); g.fillRect(px + 3, pyy + 3, pw - 6, ph - 6); hrect(gh, px, pyy, pw, ph, 124); }
+  g.fillStyle = '#c9a54e'; g.fillRect(dx + dw - 20, dy + 78, 5, 16); hrect(gh, dx + dw - 20, dy + 78, 5, 16, 150);
+  g.fillStyle = '#bdb5a8'; g.fillRect(dx - 14, h - 32 + y, dw + 28, 8); hrect(gh, dx - 14, h - 32 + y, dw + 28, 8, 255);
+  g.fillStyle = '#1d1e20'; g.fillRect(dx + dw + 18, dy + 20, 12, 26); g.fillStyle = '#f4dca0'; g.fillRect(dx + dw + 20, dy + 24, 8, 16); hrect(gh, dx + dw + 18, dy + 20, 12, 26, 255);
+  ge.fillStyle = '#ffcf8a'; ge.globalAlpha = 0.9; ge.fillRect(dx + dw + 20, dy + 24, 8, 16); ge.globalAlpha = 1;
 }
 
-function shopBay(g, ge, gr, x, y, w, h, rnd, r, k) {
-  g.fillStyle = '#efe9e0'; g.fillRect(x, y, w, h);
-  gr.fillStyle = '#e0e0e0'; gr.fillRect(x, y, w, h);
-  g.fillStyle = '#e4ddd2'; g.fillRect(x, y + 58, w, 12); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x, y + 70, w, 4);
-  const sx = x + 12, sw = w - 24, sy = y + 150, sh = h - 150 - 30;
-  g.fillStyle = '#2b2b2e'; g.fillRect(sx - 6, sy - 6, sw + 12, sh + 12);
-  g.fillStyle = vgrad(g, sy, sy + sh, [[0, '#566673'], [0.6, '#2c3640'], [1, '#1c232a']]); g.fillRect(sx, sy, sw, sh);
-  gr.fillStyle = '#202020'; gr.fillRect(sx - 6, sy - 6, sw + 12, sh + 12); gr.fillStyle = '#141414'; gr.fillRect(sx, sy, sw, sh);
-  g.fillStyle = '#2b2b2e'; for (let m = 1; m < 4; m++) g.fillRect(sx + m * sw / 4 - 2.5, sy, 5, sh);
-  gr.fillStyle = '#505050'; for (let m = 1; m < 4; m++) gr.fillRect(sx + m * sw / 4 - 2.5, sy, 5, sh);
-  if (k === 1) { g.fillStyle = '#16181a'; g.fillRect(sx + sw * 0.36, sy + 12, sw * 0.28, sh - 12); g.fillStyle = '#c8ccd0'; g.fillRect(sx + sw * 0.6, sy + sh * 0.5, 4, 26); }
-  const warm = ['#ffd9a8', '#fff0d0', '#ffcf9a'][k % 3];
-  const eg = ge.createLinearGradient(0, sy, 0, sy + sh); eg.addColorStop(0, warm); eg.addColorStop(1, '#6b4a2a');
-  ge.globalAlpha = 0.55 + rnd() * 0.45; ge.fillStyle = eg; ge.fillRect(sx, sy, sw, sh); ge.globalAlpha = 1;
-  ge.fillStyle = '#000'; for (let m = 1; m < 4; m++) ge.fillRect(sx + m * sw / 4 - 2.5, sy, 5, sh);
-  // Awning with a scalloped edge.
-  const ac = ['#b23a3a', '#2f6b5a', '#c9a227'][k % 3];
-  g.fillStyle = ac; g.fillRect(sx - 10, sy - 42, sw + 20, 30);
-  g.fillStyle = 'rgba(255,255,255,0.4)'; for (let s = 0; s < sw + 20; s += 36) g.fillRect(sx - 10 + s, sy - 42, 18, 30);
-  g.fillStyle = ac; for (let s = 0; s < sw + 20; s += 18) { g.beginPath(); g.arc(sx - 10 + s + 9, sy - 12, 9, 0, Math.PI); g.fill(); }
-  g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(sx - 10, sy - 14, sw + 20, 3);
-  g.fillStyle = '#3a3a3e'; g.fillRect(x, y + h - 30, w, 30); gr.fillStyle = '#707070'; gr.fillRect(x, y + h - 30, w, 30);
+function shopBay(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
+  // One bay of a row of shops, 4 m wide and the height of the ground floor: a painted fascia board for the name under a moulded cornice, a transom of
+  // small panes, a big display window in a slim frame on a stall riser of dark tiles, and stone pilasters between the bays. The middle bay has the
+  // door, set back in a lobby with a glass door and a push bar.
+  const fasc = ['#1f3a2e', '#1b2a44', '#4a1c1f', '#151617', '#e8e0cc', '#2e2a26'][(rnd() * 6) | 0], light = fasc === '#e8e0cc';
+  const pil = 22, fx = x + pil, fw = w - 2 * pil;
+  g.fillStyle = '#e2dbcf'; g.fillRect(x, y, w, h); gr.fillStyle = '#dcdcdc'; gr.fillRect(x, y, w, h); hrect(gh, x, y, w, h, 255);
+  // The cornice over the fascia, and the fascia board itself.
+  g.fillStyle = '#ece6da'; g.fillRect(x, y + 34, w, 12); g.fillStyle = 'rgba(255,255,255,0.4)'; g.fillRect(x, y + 34, w, 2); g.fillStyle = 'rgba(40,34,28,0.35)'; g.fillRect(x, y + 46, w, 4);
+  g.fillStyle = fasc; g.fillRect(fx, y + 50, fw, 64); gr.fillStyle = '#909090'; gr.fillRect(fx, y + 50, fw, 64); hrect(gh, fx, y + 50, fw, 64, 238);
+  g.fillStyle = light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.1)'; g.fillRect(fx + 6, y + 56, fw - 12, 2); g.fillRect(fx + 6, y + 106, fw - 12, 2);
+  // The shopfront: a slim dark frame, a transom row of panes, the display glass, a stall riser.
+  const sy = y + 122, sh = h - 122, rh = 44, frame = ['#2a2d31', '#3a2a20', '#e6e2da', '#30363c'][(rnd() * 4) | 0];
+  g.fillStyle = frame; g.fillRect(fx, sy, fw, sh); gr.fillStyle = '#8a8a8a'; gr.fillRect(fx, sy, fw, sh); hrect(gh, fx, sy, fw, sh, 200);
+  const glassR = (gx, gy, gw, ghh) => { g.fillStyle = vgrad(g, gy, gy + ghh, [[0, '#5a6670'], [0.5, '#37414a'], [1, '#222930']]); g.fillRect(gx, gy, gw, ghh); gr.fillStyle = '#121212'; gr.fillRect(gx, gy, gw, ghh); hrect(gh, gx, gy, gw, ghh, 150); g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(gx, gy, gw, 2); };
+  const nT = 4; for (let t = 0; t < nT; t++) glassR(fx + 6 + t * (fw - 6) / nT, sy + 6, (fw - 6) / nT - 6, 30);
+  const door = k === 1, gy0 = sy + 42, gyh = sh - 42 - rh;
+  if (door) {
+    const dw = 70, dx = x + w / 2 - dw / 2;
+    glassR(fx + 6, gy0, dx - fx - 14, gyh); glassR(dx + dw + 8, gy0, fx + fw - dx - dw - 14, gyh);
+    g.fillStyle = '#3a3c40'; g.fillRect(dx - 2, gy0, dw + 4, sh - 42); hrect(gh, dx - 2, gy0, dw + 4, sh - 42, 70);              // the lobby, set back
+    g.fillStyle = frame; g.fillRect(dx + 2, gy0 + 4, dw - 4, sh - 50); hrect(gh, dx + 2, gy0 + 4, dw - 4, sh - 50, 76);
+    glassR(dx + 8, gy0 + 10, dw - 16, sh - 76); hrect(gh, dx + 8, gy0 + 10, dw - 16, sh - 76, 60);
+    g.fillStyle = '#b8bcc0'; g.fillRect(dx + 10, gy0 + (sh - 42) * 0.52, dw - 20, 5); hrect(gh, dx + 10, gy0 + (sh - 42) * 0.52, dw - 20, 5, 90);   // the push bar
+    g.fillStyle = '#6b6e72'; g.fillRect(dx + 4, y + h - 22, dw - 8, 18); hrect(gh, dx + 4, y + h - 22, dw - 8, 18, 82);                     // the kick plate
+  } else glassR(fx + 6, gy0, fw - 12, gyh);
+  // The stall riser: dark glazed tiles.
+  if (!door) { const ry = y + h - rh; g.fillStyle = '#1e2124'; g.fillRect(fx, ry, fw, rh); for (let a = 0; a < 2; a++) for (let b2 = 0; b2 < 10; b2++) { const v = 0.85 + rnd() * 0.3; g.fillStyle = `rgb(${34 * v | 0},${38 * v | 0},${42 * v | 0})`; g.fillRect(fx + 2 + b2 * fw / 10, ry + 2 + a * rh / 2, fw / 10 - 3, rh / 2 - 3); } g.fillStyle = 'rgba(255,255,255,0.2)'; g.fillRect(fx, ry, fw, 2); gr.fillStyle = '#505050'; gr.fillRect(fx, ry, fw, rh); hrect(gh, fx, ry, fw, rh, 210); }
+  // The pilasters, standing proud, with a capital and a base.
+  for (const px of [x, x + w - pil]) {
+    g.fillStyle = '#d9d1c3'; g.fillRect(px, y + 30, pil, h - 30); g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(px, y + 30, 3, h - 30); g.fillStyle = 'rgba(0,0,0,0.15)'; g.fillRect(px + pil - 3, y + 30, 3, h - 30);
+    g.fillStyle = '#e6dfd2'; g.fillRect(px - 2, y + 116, pil + 4, 8); g.fillStyle = '#8a8277'; g.fillRect(px, y + h - 22, pil, 22);
+    gr.fillStyle = '#d0d0d0'; gr.fillRect(px, y + 30, pil, h - 30); hrect(gh, px, y + 30, pil, h - 30, 255);
+  }
+  // At night the shops are lit inside.
+  const warm = ['#ffd9a8', '#fff0d0', '#ffcf9a'][k % 3], eg = ge.createLinearGradient(0, gy0, 0, gy0 + gyh); eg.addColorStop(0, warm); eg.addColorStop(1, '#6b4a2a');
+  ge.globalAlpha = 0.55 + rnd() * 0.45; ge.fillStyle = eg; ge.fillRect(fx + 6, gy0, fw - 12, gyh); ge.globalAlpha = 1;
 }
 
 export function facadeGlass() { return { ...facadeBase(4, 4, 256, 224, 17, glassCell, 2.2, { height: true }), w: 16, h: 14 }; }
 export function facadeModern() { return { ...facadeBase(4, 4, 256, 224, 53, modernCell, 2.6, { height: true, grain: 0.8 }), w: 16, h: 14 }; }
 export function facadeApartment() { return { ...facadeBase(4, 4, 256, 224, 29, aptCell, 3, { height: true, grain: 1 }), w: 16, h: 14 }; }
 export function facadeBrick() { return { ...facadeBase(4, 4, 256, 224, 43, brickCell, 3.4, { height: true, grain: 0.5 }), w: 16, h: 14 }; }
-export function facadeHouse() { return { ...facadeBase(1, 1, 512, 384, 61, houseCell, 3, { grain: 0.8 }), w: 8, h: 6 }; }
-export function facadeShop() { return { ...facadeBase(3, 1, 341, 448, 37, shopBay, 2.4), w: 12, h: 5.25 }; }
+export function facadeHouse() { return { ...facadeBase(1, 1, 512, 384, 61, houseCell, 3, { height: true, grain: 0.8 }), w: 8, h: 6 }; }
+export function facadeShop() { return { ...facadeBase(3, 1, 341, 448, 37, shopBay, 2.4, { height: true, grain: 0.6 }), w: 12, h: 5.25 }; }
 
 // ---------------------------------------------------------------------------
 // Roofs, rails and signs

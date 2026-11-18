@@ -321,7 +321,7 @@ async function build() {
   melee = new Melee({
     walker, yaw: () => footCam.yaw, get peds() { return peds; }, get officers() { return officers; }, get brawl() { return brawl; }, audio, hud: { toast: (t, s) => hud.toast(t, s) }, fx: police.fx,
     crime: (kind, n) => assault(n, kind), heat: a => { if (game.chaseOn) police.addHeat(a); }, shake: v => { game.shake = Math.max(game.shake, v); },
-    walls: (x, z) => solidAt(x, z), targets: () => heistTargets() || (stop ? stop.targets() : null), active: () => !!game.onFoot && game.state === 'free', power: () => (gym ? gym.strength : 0),
+    walls: (x, z) => solidAt(x, z), targets: () => heistTargets() || (gym && gym.active ? gym.targets() : null) || (stop ? stop.targets() : null), active: () => !!game.onFoot && game.state === 'free', power: () => (gym ? gym.strength : 0),
   });
   arsenal = new Arsenal({
     scene, melee, fx: police.fx, police, traffic, city, peds, audio, camera, aimRay, get officers() { return officers; }, get brawl() { return brawl; }, get interior() { return interior && interior.active ? interior : null; }, get heist() { return heist; },

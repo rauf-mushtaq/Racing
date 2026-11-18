@@ -137,11 +137,11 @@ const TILES = ['#ffffff', '#f2d8c8', '#c8a090', '#9a7a6a'].map(col);
 const WHITE = new THREE.Color(1, 1, 1), STONE = new THREE.Color(0.2, 0.2, 0.22), METAL = new THREE.Color(0.55, 0.6, 0.66);
 const GRASS_TINT = new THREE.Color(0.95, 1, 0.9);
 
-const COLORED = new Set(['park', 'mark', 'amark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props', 'pool']);
-const KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot', 'props', 'sign', 'rail', 'gantry', 'pool', 'water'];
+const COLORED = new Set(['park', 'mark', 'amark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props', 'pool', 'vglass', 'vmetal']);
+const KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot', 'props', 'sign', 'rail', 'gantry', 'pool', 'water', 'vglass', 'vmetal'];
 const FAR_KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot'];
-const DETAIL_KEYS = ['props', 'sign', 'rail', 'gantry', 'pool', 'water'];
-const CASTS = new Set(['glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props', 'pool']);
+const DETAIL_KEYS = ['props', 'sign', 'rail', 'gantry', 'pool', 'water', 'vglass', 'vmetal'];          // (vglass, vmetal: the glazing and the metalwork of the fronts of the places you can walk into, venues.js)
+const CASTS = new Set(['glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props', 'pool', 'vmetal']);
 const snap = h => Math.max(3.5, Math.round(h / 3.5) * 3.5);
 
 const GROUND = new Set(['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'lot']);            // (surfaces that follow the ground; everything else stands level on a base)
@@ -251,7 +251,63 @@ function puddles(mat, cover = 0.6, kind = '') {
 // in metres; sill: the height of the window sills in a storey (0..1) and the span of the window across the bay (for the streaks), or null; fac: the
 // facade (its height map and the metres one copy of it covers).
 const ROOM_LIGHT = TOD.night ? 0.01 : TOD.lampsOn ? 0.045 : TOD.hemiI * 0.07;           // (how bright a room looks from the street by daylight: dim)
-export const FACADE = { pom: { value: Q.name === 'low' ? 0 : 1 } };                    // (the depth: on, or off on Low and when the performance guard needs it)
+export const FACADE = { pom: { value: Q.name === 'low' ? 0 : 1 } };
+// The glass of a shop front, a door or a display window (venues.js): clear and reflective (little reflection looking straight in, more at a glancing
+// angle), with the lit inside of the place behind it, by the same interior mapping as the windows, in the pane's own metres (a box's UVs run a
+// quarter of a metre per unit from its corner: geom.js). The room behind is 3.4 m wide, 3.3 m high (its floor 0.6 m under the bottom of the pane: a
+// display window stands on a riser) and 6 m deep; its walls are the pane's vertex colour, and it has a counter or display along the back, lit
+// cases, ceiling lights, and a floor. Bright by day too: a shop is lit inside.
+function shopGlass(mat) {
+  mat.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vSgUv; varying vec3 vSgC;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvSgUv = uv * 4.0;\n#ifdef USE_COLOR\nvSgC = color;\n#else\nvSgC = vec3(0.8);\n#endif');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying vec2 vSgUv; varying vec3 vSgC;
+      float sgH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        {
+          vec3 N = normalize(vNormal), D = normalize(-vViewPosition), q0 = dFdx(-vViewPosition), q1 = dFdy(-vViewPosition); vec2 s0 = dFdx(vSgUv), s1 = dFdy(vSgUv);
+          vec3 T = normalize(cross(q1, N) * s0.x + cross(N, q0) * s1.x + 1e-7), B = normalize(cross(q1, N) * s0.y + cross(N, q0) * s1.y + 1e-7);
+          vec3 RS = vec3(3.4, 3.3, 6.0); vec2 lc = vec2(vSgUv.x, vSgUv.y + 0.6) / RS.xy; vec2 cid = floor(lc), cf = fract(lc);
+          vec3 rd = vec3(dot(D, T) / RS.x, dot(D, B) / RS.y, max(-dot(D, N), 0.02) / RS.z);                 // (the line of sight, into the room, in room units; D runs from the eye to the glass)
+          vec3 ro = vec3(cf, 0.0);
+          vec3 tt = vec3(rd.x > 0.0 ? (1.0 - ro.x) / rd.x : -ro.x / min(rd.x, -1e-5), rd.y > 0.0 ? (1.0 - ro.y) / rd.y : -ro.y / min(rd.y, -1e-5), 1.0 / rd.z);
+          float t = min(min(tt.x, tt.y), tt.z); vec3 h = clamp(ro + rd * t, 0.0, 1.0); float r1 = sgH(cid + 3.1), lamp = 0.0;
+          vec3 wall = vSgC, col;
+          // Goods on shelves: rows of little coloured blocks (a different colour for each), on the back wall above a counter and the length of the side walls.
+          #define GOODS(u, v) mix(wall * 0.55, vec3(0.25 + 0.6 * sgH(floor(vec2(u * 14.0, v * 9.0)) + cid), 0.22 + 0.5 * sgH(floor(vec2(u * 14.0, v * 9.0)) + cid + 5.3), 0.2 + 0.45 * sgH(floor(vec2(u * 14.0, v * 9.0)) + cid + 9.1)), step(0.3, fract(v * 9.0)) * step(0.15, fract(u * 14.0)))
+          // What kind of place (in the hundredths of the colour's red: venues.js): 0 a shop, 1 a jeweller, 2 a gym, 3 an office or a front desk.
+          float style = floor(fract(vSgC.r * 100.0 + 0.001) * 4.0 + 0.1);
+          vec3 floorC = style == 2.0 ? vec3(0.07, 0.07, 0.075) : style == 1.0 ? vec3(0.32, 0.27, 0.22) : vec3(0.28, 0.26, 0.24);
+          if (t == tt.z) {
+            col = wall;
+            if (style == 0.0) { if (h.y < 0.3) col = vec3(0.16, 0.15, 0.14); if (h.y > 0.27 && h.y < 0.31) col = vec3(1.4, 1.3, 1.1); if (h.y > 0.36 && h.y < 0.76) col = GOODS(h.x, h.y); }
+            else if (style == 1.0) { vec2 nc = vec2(fract(h.x * 3.0), h.y); if (abs(nc.x - 0.5) < 0.3 && nc.y > 0.36 && nc.y < 0.62) { col = vec3(0.9, 0.82, 0.7) * 1.4; if (abs(nc.x - 0.5) < 0.1 && abs(nc.y - 0.47) < 0.05) col = vec3(2.2, 1.7, 0.9); } if (h.y < 0.3) col = vec3(0.1, 0.07, 0.06); }
+            else if (style == 2.0) { if (h.y > 0.12 && h.y < 0.68) col = mix(vec3(0.5, 0.55, 0.6), vec3(0.75, 0.8, 0.85), fract(h.x * 1.7 + 0.3)); if (h.y > 0.12 && h.y < 0.4 && fract(h.x * 6.0) < 0.12) col = vec3(0.05); if (h.y > 0.7 && h.y < 0.78) col = vec3(0.95, 0.75, 0.15); }
+            else { if (h.y > 0.38 && h.y < 0.6 && abs(fract(h.x * 2.0) - 0.5) < 0.3) col = vec3(0.55, 0.45, 0.3); if (h.y < 0.3) col = vec3(0.3, 0.32, 0.36); }
+          }
+          else if (t == tt.y) { col = rd.y < 0.0 ? floorC * (0.85 + 0.15 * step(0.5, fract(h.x * 6.0))) : vec3(0.85); if (rd.y > 0.0 && abs(fract(h.x * 2.0) - 0.5) < 0.18 && abs(fract(h.z * 3.0) - 0.5) < 0.12) lamp = 1.0; }
+          else {
+            col = wall * 0.85;
+            if (style == 0.0 && h.z > 0.15 && h.y > 0.05 && h.y < 0.72) col = GOODS(h.z, h.y);
+            if (style == 1.0 && h.y > 0.3 && h.y < 0.62 && fract(h.z * 3.0) < 0.75) col = vec3(0.35, 0.22, 0.14) * (h.y > 0.58 ? 2.5 : 1.0);
+            if (style == 2.0 && h.y < 0.5 && fract(h.z * 2.5) < 0.55) col = vec3(0.08, 0.08, 0.09) + vec3(0.6) * step(0.92, fract(h.y * 6.0));
+          }
+          // In front of the back wall, partway in (a plane at 30% of the depth): a shop's counter, a jeweller's lit glass case, a gym's machine, a front desk.
+          { float tc = 0.3 / rd.z; vec3 hc = ro + rd * tc;
+            if (tc < t && abs(hc.x - 0.5) < 0.33) {
+              if (style == 2.0) { float fx = fract(hc.x * 3.0); if (hc.y < 0.45 && (fx < 0.08 || fx > 0.92 || abs(hc.y - 0.12) < 0.025 || abs(hc.y - 0.42) < 0.02)) { col = vec3(0.06, 0.06, 0.07); h = hc; } }
+              else if (hc.y < 0.3) { col = style == 1.0 ? (hc.y > 0.22 ? vec3(2.0, 1.8, 1.4) : vec3(0.08, 0.06, 0.05)) : hc.y > 0.27 ? vec3(1.3, 1.25, 1.1) : mix(vec3(0.12, 0.1, 0.09), wall * 0.4, step(0.5, fract(hc.x * 5.0 + r1))); h = hc; }
+            } }
+          vec3 dd = vec3(min(h.x, 1.0 - h.x), min(h.y, 1.0 - h.y), 1.0 - h.z); float mid = dd.x + dd.y + dd.z - min(dd.x, min(dd.y, dd.z)) - max(dd.x, max(dd.y, dd.z));
+          col *= (0.6 + 0.4 * smoothstep(0.0, 0.15, mid)) * mix(1.05, 0.6, h.z);
+          vec3 room = col * ${(TOD.night ? 0.85 : TOD.lampsOn ? 0.6 : 0.24).toFixed(2)} + lamp * vec3(${TOD.night || TOD.lampsOn ? '2.2, 2.1, 1.9' : '1.2, 1.15, 1.05'});          // (by day a shop is darker than the street, and its window mostly a reflection)
+          float Fr = 0.04 + 0.96 * pow(1.0 - clamp(dot(-D, N), 0.0, 1.0), 5.0);
+          totalEmissiveRadiance += room * (1.0 - Fr);
+        }`);
+  };
+  mat.customProgramCacheKey = () => 'shopGlass1';
+  return mat;
+}                    // (the depth: on, or off on Low and when the performance guard needs it)
 const DEPTH = 0.3;                                                                        // metres from the outermost face (height 1) to the deepest (0)
 function facadeFx(mat, kind, grid, room, sill, clear, fac) {
   const f = v => v.toFixed(3), TEXM = `vec2(${f(fac.w)}, ${f(fac.h)})`, grad = (chunk, from) => THREE.ShaderChunk[chunk].split(from).join(from.replace('texture2D(', 'textureGrad(').replace(/v\w+Uv \)/, 'pUv, fGx, fGy )'));     // (a chunk with its texture lookup moved to the parallax coordinates, sampled with the true gradients)
@@ -406,11 +462,13 @@ export class City {
       glass: fac(facG, TOD.windows, 1.5, [0, [4, 4], [4, 3.5, 7], null, false]), modern: fac(facM, TOD.windows, 1.3, [0, [4, 4], [4, 3.5, 7], null, false]),
       apt: fac(facA, TOD.windows * 1.05, 0.8, [1, [4, 4], [4, 3.5, 4.5], [0.26, 0.24, 0.76], true]),
       brick: fac(facB, TOD.windows * 1.05, 0.7, [1, [4, 4], [4, 3.5, 4.5], [0.25, 0.26, 0.74], true]),
-      shop: fac(facS, TOD.lampsOn ? 2.0 : 0.45, 0.8, [2, [3, 1], [4, 5.25, 6], null, true]), house: fac(facH, TOD.windows * 1.05, 0.8, [3, [2, 2], [4, 3, 4], null, true]),
+      shop: fac(facS, TOD.lampsOn ? 2.0 : 0.3, 0.8, [2, [3, 1], [4, 5.25, 6], null, true]), house: fac(facH, TOD.windows * 1.05, 0.8, [3, [2, 2], [4, 3, 4], null, true]),
       roof: std({ map: misc.roof, vertexColors: true, roughness: 0.95 }),
       tile: std({ map: misc.tile, vertexColors: true, roughness: 0.85 }),
       lot: std({ color: 0x8a8486, map: asp.map, roughnessMap: asp.roughnessMap, roughness: 1 }),
       props: std({ vertexColors: true, roughness: 0.7, metalness: 0.2 }),
+      vmetal: std({ vertexColors: true, roughness: 0.32, metalness: 1, envMapIntensity: 1.2 }),          // (brushed aluminium, brass, steel: frames, handles, push bars)
+      vglass: attachSSR(shopGlass(std({ vertexColors: true, color: 0x050607, roughness: 0.04, metalness: 0, envMapIntensity: 2.4 })), { range: 60, rough: 0.2, view: 90 }),
       pool: std({ vertexColors: true, roughness: 0.35, metalness: 0 }),
       water: poolMaterial(TOD.lampsOn, rippleTex()),
       sign: std({ map: misc.sign, emissiveMap: misc.sign, emissive: 0xffffff, emissiveIntensity: TOD.signs, roughness: 0.5, side: THREE.DoubleSide }),

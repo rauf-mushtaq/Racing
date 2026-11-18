@@ -70,13 +70,37 @@ export function venueKindFor(zone, lot, faces) {
 
 // ---- What they look like -----------------------------------------------------------------------------------------------------------------------------
 const col = (r, g, b) => new THREE.Color(r, g, b);
-// A door in a building's face: a dark frame and a pane of glass, an awning, and a sign, and the place registered at the pavement in front of it.
+// The colour of the room behind a glass front, with the kind of room in it (city.js shopGlass reads it from the hundredths of the red): 0 a shop with
+// shelves of goods, 1 a jeweller with lit cases, 2 a gym with mirrors and machines, 3 an office or a front desk.
+const roomCol = (r, g, b, style) => new THREE.Color(Math.round(r * 100) / 100 + style * 0.0025, g, b);
+// A front door in a building's face, and the place registered at the pavement in front of it. The door sits back in a portal (the jambs and the head stand
+// out from the wall, in the front's cladding): a pair of glass leaves in a slim metal frame (vmetal: real brushed aluminium, or brass, that reflects
+// the street), each with a kick plate and a push bar on stand-offs, a threshold, and through the glass (vglass, city.js) the lit inside of the place.
 function frontDoor(city, ctx, b, f, kind, o = {}) {
-  const G = ctx.gb, dark = col(0.12, 0.13, 0.15), pane = o.pane || col(0.28, 0.4, 0.46), h = o.h || 2.5;
-  city.faceBox(G.props, b, f, -1.25, 1.25, -0.04, 0.2, CURB, CURB + h + 0.15, dark);
-  city.faceBox(G.props, b, f, -1.05, -0.05, -0.06, 0.22, CURB + 0.1, CURB + h, pane); city.faceBox(G.props, b, f, 0.05, 1.05, -0.06, 0.22, CURB + 0.1, CURB + h, pane);
+  const G = ctx.gb, h = o.h || 2.5, W = o.w || 2.1, clad = o.clad || col(0.15, 0.15, 0.16), metal = o.metal || col(0.66, 0.68, 0.71), room = o.room || roomCol(0.82, 0.8, 0.76, 3), Y = CURB;
+  const fb = (gb, t0, t1, o0, o1, y0, y1, c) => city.faceBox(gb, b, f, t0, t1, o0, o1, y0, y1, c);
+  fb(G.props, -W / 2 - 0.34, -W / 2, 0, 0.3, Y, Y + h + 0.42, clad); fb(G.props, W / 2, W / 2 + 0.34, 0, 0.3, Y, Y + h + 0.42, clad); fb(G.props, -W / 2 - 0.34, W / 2 + 0.34, 0, 0.3, Y + h, Y + h + 0.42, clad);
+  fb(G.vmetal, -W / 2, -W / 2 + 0.06, 0, 0.1, Y, Y + h, metal); fb(G.vmetal, W / 2 - 0.06, W / 2, 0, 0.1, Y, Y + h, metal); fb(G.vmetal, -W / 2, W / 2, 0, 0.1, Y + h - 0.08, Y + h, metal); fb(G.vmetal, -0.035, 0.035, 0, 0.1, Y, Y + h - 0.08, metal);
+  for (const [t0, t1] of [[-W / 2 + 0.06, -0.035], [0.035, W / 2 - 0.06]]) {
+    fb(G.vglass, t0 + 0.04, t1 - 0.04, 0.035, 0.05, Y + 0.3, Y + h - 0.12, room);                                    // the glass
+    fb(G.vmetal, t0, t1, 0.03, 0.075, Y, Y + 0.3, metal); fb(G.vmetal, t0, t1, 0.03, 0.075, Y + h - 0.12, Y + h - 0.08, metal);     // the bottom rail (kick plate) and top rail
+    fb(G.vmetal, t0, t0 + 0.04, 0.03, 0.075, Y, Y + h - 0.08, metal); fb(G.vmetal, t1 - 0.04, t1, 0.03, 0.075, Y, Y + h - 0.08, metal);
+    fb(G.vmetal, t0 + 0.12, t1 - 0.12, 0.13, 0.16, Y + 1.0, Y + 1.04, metal);                                       // the push bar
+    for (const tt of [t0 + 0.16, t1 - 0.16]) fb(G.vmetal, tt - 0.012, tt + 0.012, 0.075, 0.13, Y + 1.005, Y + 1.035, metal);
+  }
+  fb(G.props, -W / 2 - 0.34, W / 2 + 0.34, 0, 0.55, Y - 0.02, Y + 0.03, col(0.55, 0.54, 0.52));                       // the threshold
   const [px, pz] = city.facePt(b, f, 0, 2.0);
   return addVenue({ kind, x: px, z: pz, dx: f.dir[0], dz: f.dir[1] });
+}
+// A display window (or a run of shop-front glazing) from t0 to t1, y0 to y1 above the pavement: glass in a slim frame, with mullions every `bay` metres,
+// standing a little out from the wall, the lit inside behind it.
+function glazing(city, ctx, b, f, t0, t1, y0, y1, o = {}) {
+  const G = ctx.gb, metal = o.metal || col(0.66, 0.68, 0.71), room = o.room || roomCol(0.82, 0.8, 0.76, 3), bay = o.bay || 1.6, Y = CURB, fr = o.frame ?? 0.06;
+  const fb = (gb, a0, a1, o0, o1, ya, yb, c) => city.faceBox(gb, b, f, a0, a1, o0, o1, ya, yb, c);
+  fb(G.vglass, t0, t1, 0.03, 0.05, Y + y0, Y + y1, room);
+  fb(G.vmetal, t0 - fr, t1 + fr, 0, 0.09, Y + y0 - fr, Y + y0, metal); fb(G.vmetal, t0 - fr, t1 + fr, 0, 0.09, Y + y1, Y + y1 + fr, metal);
+  const n = Math.max(1, Math.round((t1 - t0) / bay)); for (let k = 0; k <= n; k++) { const t = t0 + (t1 - t0) * k / n; fb(G.vmetal, t - fr / 2, t + fr / 2, 0, 0.09, Y + y0, Y + y1, metal); }
+  if (o.riser) fb(G.props, t0 - fr, t1 + fr, 0, 0.06, Y, Y + y0 - fr, o.riser);                                       // the stall riser under it
 }
 // A sign above the door, and a small lit panel on the pavement edge so it can be seen from the road.
 function signOver(city, ctx, b, f, cell, y, w, h, o = 0.3) { city.faceSign(ctx, b, f, cell, 0, o, CURB + y, w, h); }
@@ -94,7 +118,8 @@ export function buildVenue(city, ctx, lot, faces, zone, kind, rnd) {
     city.buildMass(ctx, b, 'brick', 4.2, [], rnd, { rect: true, color: col(0.9, 0.88, 0.82) });
     city.faceBox(G.props, b, f, -kw / 2 - 0.2, kw / 2 + 0.2, 0, 1.0, CURB + 3.2, CURB + 3.5, col(0.75, 0.1, 0.12));                    // the red fascia
     signOver(city, ctx, b, f, 4, 3.55, 5.2, 1.3, 0.1);
-    const door = frontDoor(city, ctx, b, f, 'petrol', { h: 2.4 });
+    const door = frontDoor(city, ctx, b, f, 'petrol', { h: 2.4, w: 2.0, clad: col(0.75, 0.1, 0.12), room: roomCol(0.92, 0.92, 0.9, 0) });
+    for (const s of [-1, 1]) glazing(city, ctx, b, f, s > 0 ? 1.45 : -kw / 2 + 0.6, s > 0 ? kw / 2 - 0.6 : -1.45, 0.7, 2.6, { room: roomCol(0.92, 0.92, 0.9, 0), riser: col(0.75, 0.1, 0.12), bay: 1.4 });
     // Canopy: a flat roof on four posts, with the pumps under it.
     const cw = Math.min(11, kw), cd = Math.min(7, forecourt - 1); const cb = { x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1 };
     const [qx, qz] = city.facePt(b, f, 0, forecourt * 0.62), cx0 = qx - (f.dir[0] !== 0 ? cd / 2 : cw / 2), cx1 = qx + (f.dir[0] !== 0 ? cd / 2 : cw / 2), cz0 = qz - (f.dir[0] !== 0 ? cw / 2 : cd / 2), cz1 = qz + (f.dir[0] !== 0 ? cw / 2 : cd / 2);
@@ -112,23 +137,30 @@ export function buildVenue(city, ctx, lot, faces, zone, kind, rnd) {
   }
   if (kind === 'shop') {
     city.buildMass(ctx, b, 'brick', 8.5, faces, rnd, { rect: true });
-    const W = Math.min(along - 3, 11);
-    city.faceBox(G.props, b, f, -W / 2, W / 2, -0.05, 0.16, CURB, CURB + 3.1, col(0.1, 0.12, 0.14));                                   // the shop window, dark
-    city.faceBox(G.props, b, f, -W / 2 + 0.2, W / 2 - 0.2, -0.07, 0.2, CURB + 0.7, CURB + 2.9, col(0.3, 0.42, 0.45));
-    city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 1.6, CURB + 3.2, CURB + 3.5, [col(0.1, 0.5, 0.25), col(0.75, 0.15, 0.15), col(0.15, 0.3, 0.65)][(rnd() * 3) | 0]);      // the awning
-    signOver(city, ctx, b, f, 5, 3.6, Math.min(7, W * 0.7), 1.6, 0.1);
-    const door = frontDoor(city, ctx, b, f, 'shop', { h: 2.5 });
+    const W = Math.min(along - 3, 11), brand = [col(0.1, 0.42, 0.22), col(0.68, 0.12, 0.12), col(0.12, 0.26, 0.6)][(rnd() * 3) | 0];
+    city.faceBox(G.props, b, f, -W / 2 - 0.2, W / 2 + 0.2, 0, 0.02, CURB, CURB + 3.2, col(0.2, 0.21, 0.22));                         // the front's dark surround (flat on the wall: the glass and the door stand in front of it)
+    for (const s of [-1, 1]) glazing(city, ctx, b, f, s > 0 ? 1.55 : -W / 2 + 0.1, s > 0 ? W / 2 - 0.1 : -1.55, 0.55, 2.95, { room: roomCol(0.9, 0.9, 0.88, 0), riser: col(0.16, 0.17, 0.18), bay: 1.5 });
+    city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.3, CURB + 3.2, CURB + 3.9, brand);                                // the fascia, in the brand's colour
+    city.faceBox(G.props, b, f, -W / 2 - 0.35, W / 2 + 0.35, 0, 1.3, CURB + 3.9, CURB + 3.98, col(0.2, 0.2, 0.21));               // a canopy over the front
+    signOver(city, ctx, b, f, 5, 3.15, Math.min(7, W * 0.7), 0.82, 0.32);
+    const door = frontDoor(city, ctx, b, f, 'shop', { h: 2.6, w: 2.0, clad: col(0.2, 0.21, 0.22), room: roomCol(0.9, 0.9, 0.88, 0) });
     const [kx, kz] = city.facePt(b, f, W / 2 + 2, 0.8); G.props.box(kx - 0.45, kz - 0.45, kx + 0.45, kz + 0.45, CURB, CURB + 1.3, 3, col(0.8, 0.5, 0.2)); addCollider({ type: 'box', x0: kx - 0.5, x1: kx + 0.5, z0: kz - 0.5, z1: kz + 0.5 }, ctx.colliders);       // a newspaper stand
     return door;
   }
   if (kind === 'jeweller') {
     city.buildMass(ctx, b, 'modern', 12 + Math.floor(rnd() * 3) * 3.5, faces, rnd, { rect: true, color: col(0.18, 0.16, 0.16) });
-    const W = Math.min(along - 4, 13), gold = col(0.85, 0.65, 0.2);
-    city.faceBox(G.props, b, f, -W / 2, W / 2, -0.04, 0.3, CURB, CURB + 3.6, col(0.08, 0.07, 0.08));
-    for (const s of [-1, 1]) city.faceBox(G.props, b, f, s * (W / 2 - 3.4) - 2.2, s * (W / 2 - 3.4) + 2.2, -0.08, 0.32, CURB + 0.6, CURB + 3.0, col(0.35, 0.45, 0.5));      // the display windows
-    city.faceBox(G.props, b, f, -W / 2 - 0.2, W / 2 + 0.2, -0.1, 0.5, CURB + 3.6, CURB + 3.75, gold); city.faceBox(G.props, b, f, -W / 2 - 0.2, W / 2 + 0.2, -0.1, 0.5, CURB + 0.0, CURB + 0.18, gold);
-    signOver(city, ctx, b, f, 6, 3.85, Math.min(8, W * 0.7), 1.9, 0.12);
-    const door = frontDoor(city, ctx, b, f, 'jeweller', { h: 2.6, pane: col(0.2, 0.3, 0.34) });
+    // A front of polished black stone with brass: two deep-set display windows (lit cases behind them) in brass frames, brass bands, a brass door.
+    const W = Math.min(along - 4, 13), gold = col(0.92, 0.72, 0.38), stone = col(0.045, 0.042, 0.045), vel = roomCol(0.3, 0.2, 0.24, 1);
+    // (the stone is built round the openings, standing 0.24 m proud, so the windows and the door are set deep into it)
+    city.faceBox(G.props, b, f, -W / 2, W / 2, 0, 0.02, CURB, CURB + 3.6, stone);
+    const wins = [-1, 1].map(s => s * (W / 2 - 3.2)), P = 0.24, fb = (t0, t1, y0, y1) => city.faceBox(G.props, b, f, t0, t1, 0, P, CURB + y0, CURB + y1, stone);
+    fb(-W / 2, W / 2, 2.98, 3.6); fb(-W / 2, wins[0] - 1.95, 0, 2.98); fb(wins[1] + 1.95, W / 2, 0, 2.98);
+    for (const c of wins) { fb(c - 1.95, c + 1.95, 0, 0.68); glazing(city, ctx, b, f, c - 1.85, c + 1.85, 0.75, 2.88, { metal: gold, room: vel, bay: 3.7, frame: 0.05 }); }
+    fb(wins[0] + 1.95, -1.3, 0, 2.98); fb(1.3, wins[1] - 1.95, 0, 2.98);
+    city.faceBox(G.vmetal, b, f, -W / 2 - 0.05, W / 2 + 0.05, 0.22, 0.27, CURB + 3.5, CURB + 3.57, gold); city.faceBox(G.vmetal, b, f, -W / 2 - 0.05, W / 2 + 0.05, 0.22, 0.27, CURB + 0.6, CURB + 0.66, gold);
+    city.faceBox(G.props, b, f, -W / 2 - 0.2, W / 2 + 0.2, 0, 0.42, CURB + 3.62, CURB + 4.8, stone);
+    signOver(city, ctx, b, f, 6, 3.7, Math.min(6.5, W * 0.55), 1.0, 0.44);
+    const door = frontDoor(city, ctx, b, f, 'jeweller', { h: 2.6, w: 1.9, clad: stone, metal: gold, room: vel });
     for (const t of [-1.6, 1.6]) { const [px, pz] = city.facePt(b, f, t, 1.0); G.props.box(px - 0.08, pz - 0.08, px + 0.08, pz + 0.08, CURB, CURB + 1.0, 3, gold); addCollider({ type: 'circ', x: px, z: pz, r: 0.25 }, ctx.colliders); }
     return door;
   }
@@ -136,11 +168,12 @@ export function buildVenue(city, ctx, lot, faces, zone, kind, rnd) {
     // A big plain hall: brick, a wall of tall dark windows with the gym lit up behind them, a black-and-yellow fascia, the sign, a bike rack.
     city.buildMass(ctx, b, 'brick', 7.5 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: col(0.55, 0.53, 0.52) });
     const W = Math.min(along - 3, 15), black = col(0.06, 0.06, 0.07), yellow = col(0.95, 0.76, 0.19);
-    city.faceBox(G.props, b, f, -W / 2, W / 2, -0.05, 0.18, CURB, CURB + 4.2, black);                                             // the glass front
-    for (let k = 0; k < 5; k++) { const x0 = -W / 2 + 0.3 + k * (W - 0.6) / 5, x1 = x0 + (W - 0.6) / 5 - 0.18; if (x1 > -1.4 && x0 < 1.4) continue; city.faceBox(G.props, b, f, x0, x1, -0.07, 0.2, CURB + 0.5, CURB + 3.9, col(0.55, 0.62, 0.7)); }
+    city.faceBox(G.props, b, f, -W / 2, W / 2, 0, 0.02, CURB, CURB + 4.2, black);                                                // the front: a dark steel curtain wall
+    const steel = col(0.2, 0.21, 0.23), hall = roomCol(0.78, 0.78, 0.76, 2);
+    for (const s of [-1, 1]) glazing(city, ctx, b, f, s > 0 ? 1.55 : -W / 2 + 0.25, s > 0 ? W / 2 - 0.25 : -1.55, 0.35, 4.0, { metal: steel, room: hall, bay: 1.5, frame: 0.08 });
     city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.5, CURB + 4.2, CURB + 5.2, black); city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.52, CURB + 4.2, CURB + 4.32, yellow); city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.52, CURB + 5.08, CURB + 5.2, yellow);
     city.faceSign(ctx, b, f, -23, 0, 0.56, CURB + 4.25, Math.min(6, W * 0.5), 0.92);                                             // (cell 13 of the sign atlas: GYM)
-    const door = frontDoor(city, ctx, b, f, 'gym', { h: 2.6, pane: col(0.3, 0.36, 0.42) });
+    const door = frontDoor(city, ctx, b, f, 'gym', { h: 2.8, w: 2.2, clad: black, metal: steel, room: hall });
     const [kx, kz] = city.facePt(b, f, W / 2 + 1.8, 0.9); for (let k = 0; k < 3; k++) { const o = k * 0.55 - 0.55, ax = f.dir[0] !== 0 ? 0 : o, az = f.dir[0] !== 0 ? o : 0; G.props.box(kx + ax - 0.03, kz + az - 0.03, kx + ax + 0.03, kz + az + 0.03, CURB, CURB + 0.8, 3, col(0.7, 0.72, 0.75)); }
     addCollider({ type: 'box', x0: kx - 0.7, x1: kx + 0.7, z0: kz - 0.7, z1: kz + 0.7 }, ctx.colliders);
     return door;
@@ -149,13 +182,13 @@ export function buildVenue(city, ctx, lot, faces, zone, kind, rnd) {
     // A civic building in pale stone: a dark glass front, a navy band with a chequered strip along its foot and POLICE in white over the door, a lamp
     // on a bracket each side of the door, steps up to it, and a bollard or two on the pavement.
     city.buildMass(ctx, b, 'modern', 10.5 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: col(0.78, 0.76, 0.72) });
-    const W = Math.min(along - 3, 14), navy = col(0.05, 0.1, 0.26), white = col(0.93, 0.94, 0.96), pane = col(0.32, 0.4, 0.48);
-    city.faceBox(G.props, b, f, -W / 2, W / 2, -0.04, 0.2, CURB, CURB + 3.4, col(0.11, 0.13, 0.16));
-    for (const s of [-1, 1]) for (let k = 0; k < 2; k++) { const a0 = s * (1.7 + k * (W / 2 - 1.9) / 2), a1 = s * (1.7 + (k + 1) * (W / 2 - 1.9) / 2) - s * 0.15; city.faceBox(G.props, b, f, Math.min(a0, a1), Math.max(a0, a1), -0.06, 0.22, CURB + 0.6, CURB + 3.15, pane); }
+    const W = Math.min(along - 3, 14), navy = col(0.05, 0.1, 0.26), white = col(0.93, 0.94, 0.96), cream = roomCol(0.86, 0.84, 0.76, 3);
+    city.faceBox(G.props, b, f, -W / 2, W / 2, 0, 0.02, CURB, CURB + 3.4, col(0.11, 0.13, 0.16));
+    for (const s of [-1, 1]) glazing(city, ctx, b, f, s > 0 ? 1.75 : -W / 2 + 0.2, s > 0 ? W / 2 - 0.2 : -1.75, 0.6, 3.15, { room: cream, bay: 1.6 });
     city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.45, CURB + 3.4, CURB + 4.5, navy);
     const n = Math.max(8, Math.round((W + 0.6) / 0.45)); for (let k = 0; k < n; k++) { const t0 = -W / 2 - 0.3 + k * (W + 0.6) / n, t1 = t0 + (W + 0.6) / n; city.faceBox(G.props, b, f, t0, t1, 0, 0.47, CURB + 3.4, CURB + 3.62, k % 2 ? white : navy); }
     city.faceSign(ctx, b, f, -33, 0, 0.5, CURB + 3.66, Math.min(5.2, W * 0.42), 0.8);                                         // (cell 23 of the sign atlas: POLICE)
-    const door = frontDoor(city, ctx, b, f, 'police', { h: 2.6, pane: col(0.26, 0.33, 0.42) });
+    const door = frontDoor(city, ctx, b, f, 'police', { h: 2.6, clad: col(0.7, 0.68, 0.64), room: cream });
     for (const s of [-1, 1]) { city.faceBox(G.props, b, f, s * 1.55 - 0.05, s * 1.55 + 0.05, 0, 0.35, CURB + 2.55, CURB + 2.62, col(0.1, 0.1, 0.12)); city.faceBox(G.props, b, f, s * 1.55 - 0.13, s * 1.55 + 0.13, 0.28, 0.54, CURB + 2.3, CURB + 2.62, col(0.25, 0.45, 0.95)); }      // the lamps
     city.faceBox(G.props, b, f, -1.6, 1.6, 0, 0.9, CURB, CURB + 0.12, col(0.7, 0.69, 0.66));                                        // a step
     // Police cars parked on the pavement out front, against the building and either side of the door: clear of the bollards, and of the people
