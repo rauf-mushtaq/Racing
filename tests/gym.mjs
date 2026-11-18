@@ -115,9 +115,9 @@ try {
     const tryKick = (str) => {
       g.settings.gymStr = str; const p = g.peds.list.find(q => q.state !== 'away' && q.state !== 'down'); if (!p) return null;
       w.place(p.x - Math.sin(w.h) * 1.3, p.z - Math.cos(w.h) * 1.3, w.h); p.state = 'idle'; p.idleT = 99; p.speed = 0; m.cool = 0; m.queued = null; m.comboT = 0; m.move = null; m.next.kick = 'kick';
-      const each = m.each; m.each = fn => fn(p, p.x, p.z, 'ped'); let info = null; const st = m.strike.bind(m); m.strike = (s, i) => { info = i; return st(s, i); };
+      const each = m.each; m.each = fn => fn(p, p.x, p.z, 'ped'); let info = null, deadNow = false; const st = m.strike.bind(m); m.strike = (s, i) => { info = i; const r = st(s, i); deadNow = !!p.dead; return r; };          // (dead when the kick lands: a body that ends up in the river is cleared away at once)
       m.kick(); for (let i = 0; i < 90 && m.busy; i++) g.tick(1 / 60); m.each = each; m.strike = st;
-      return info ? { dmg: Math.round(info.dmg), lethal: !!info.lethal, dead: !!p.dead, speed: +Math.hypot(p.vx || 0, p.vz || 0).toFixed(1) } : null;
+      return info ? { dmg: Math.round(info.dmg), lethal: !!info.lethal, dead: deadNow, speed: +Math.hypot(p.vx || 0, p.vz || 0).toFixed(1) } : null;
     };
     out.weak = tryKick(0); out.strong = tryKick(xpFor(10));
     function xpFor(n) { return 25 * n * n; }
