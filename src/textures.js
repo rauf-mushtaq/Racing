@@ -443,6 +443,24 @@ function shopBay(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
   ge.globalAlpha = 0.55 + rnd() * 0.45; ge.fillStyle = eg; ge.fillRect(fx + 6, gy0, fw - 12, gyh); ge.globalAlpha = 1;
 }
 
+function civicCell(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
+  // 4 m by one storey of a classical stone building (a bank, a museum): ashlar blocks with fine joints, a tall window in a moulded stone surround with
+  // a keystone over it and a sill under it, a string course along the top of the storey.
+  g.fillStyle = '#ddd5c6'; g.fillRect(x, y, w, h); gr.fillStyle = '#d8d8d8'; gr.fillRect(x, y, w, h); hrect(gh, x, y, w, h, 240);
+  const ch = h / 6; for (let c2 = 0; c2 < 6; c2++) { const off = (c2 % 2) * 0.5; for (let b2 = -1; b2 < 4; b2++) { const bx = x + (b2 + off) * w / 3, v = 0.92 + rnd() * 0.14; g.fillStyle = `rgb(${221 * v | 0},${213 * v | 0},${198 * v | 0})`; g.fillRect(Math.max(x, bx + 1.5), y + c2 * ch + 1.5, Math.min(x + w, bx + w / 3 - 1.5) - Math.max(x, bx + 1.5), ch - 3); } }
+  for (let c2 = 0; c2 <= 6; c2++) { g.fillStyle = 'rgba(80,70,55,0.35)'; g.fillRect(x, y + c2 * ch - 1, w, 2); hrect(gh, x, y + c2 * ch - 1, w, 2, 222); }
+  g.fillStyle = '#e8e1d3'; g.fillRect(x, y, w, 14); g.fillStyle = 'rgba(255,255,255,0.4)'; g.fillRect(x, y, w, 2); g.fillStyle = 'rgba(40,34,26,0.35)'; g.fillRect(x, y + 14, w, 4); hrect(gh, x, y, w, 14, 255);
+  const ww = 92, wh = 150, wx = x + (w - ww) / 2, wy = y + 34;
+  g.fillStyle = '#e9e2d4'; g.fillRect(wx - 14, wy - 14, ww + 28, wh + 24); g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(wx - 14, wy - 14, ww + 28, 3); hrect(gh, wx - 14, wy - 14, ww + 28, wh + 24, 252);
+  g.fillStyle = '#efe9dc'; g.fillRect(wx + ww / 2 - 9, wy - 20, 18, 22); hrect(gh, wx + ww / 2 - 9, wy - 20, 18, 22, 255);                    // the keystone
+  g.fillStyle = '#cfc6b4'; g.fillRect(wx, wy, ww, wh); hrect(gh, wx, wy, ww, wh, 96);
+  const px = wx + 7, py = wy + 7, pw = ww - 14, ph = wh - 14;
+  g.fillStyle = vgrad(g, py, py + ph, [[0, '#56626b'], [0.6, '#38424a'], [1, '#232a30']]); g.fillRect(px, py, pw, ph); gr.fillStyle = '#181818'; gr.fillRect(px, py, pw, ph); hrect(gh, px, py, pw, ph, 70);
+  g.fillStyle = '#2b2e2c'; for (const fx of [px + pw / 2 - 2]) g.fillRect(fx, py, 4, ph); for (const fy of [py + ph * 0.33, py + ph * 0.66]) g.fillRect(px, fy - 2, pw, 4); hrect(gh, px + pw / 2 - 2, py, 4, ph, 84);
+  g.fillStyle = '#d6cebe'; g.fillRect(wx - 18, wy + wh + 8, ww + 36, 10); g.fillStyle = 'rgba(40,34,26,0.35)'; g.fillRect(wx - 18, wy + wh + 18, ww + 36, 4); hrect(gh, wx - 18, wy + wh + 8, ww + 36, 10, 255);
+  if (rnd() < 0.3) interiorGlow(ge, px + 2, py + 2, pw - 4, ph - 4, rnd);
+}
+export function facadeCivic() { return { ...facadeBase(4, 4, 256, 224, 71, civicCell, 3, { height: true, grain: 0.7 }), w: 16, h: 14 }; }
 export function facadeGlass() { return { ...facadeBase(4, 4, 256, 224, 17, glassCell, 2.2, { height: true }), w: 16, h: 14 }; }
 export function facadeModern() { return { ...facadeBase(4, 4, 256, 224, 53, modernCell, 2.6, { height: true, grain: 0.8 }), w: 16, h: 14 }; }
 export function facadeApartment() { return { ...facadeBase(4, 4, 256, 224, 29, aptCell, 3, { height: true, grain: 1 }), w: 16, h: 14 }; }
@@ -466,19 +484,38 @@ export function roofTex() {
   return tex(c);
 }
 
+// Stone or paint seen close: a pale, faintly mottled surface (it is tinted by the colour of each piece), for the plain parts of buildings (columns,
+// steps, gable walls, chimneys). One repeat is 4 m.
+export function plainTex() {
+  const S = sz(256), rnd = mulberry32(19); const [c, g] = mk(S); const img = g.createImageData(S, S);
+  const f = lowField(64, 6, 4, 23);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const i = y * S + x, v = (0.9 + (bil(f, 64, x / S, y / S) - 0.5) * 0.16 + (rnd() - 0.5) * 0.05) * 255;
+    img.data[i * 4] = v; img.data[i * 4 + 1] = v * 0.995; img.data[i * 4 + 2] = v * 0.985; img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  return tex(c);
+}
+
 // Terracotta barrel tiles for pitched roofs (one repeat is about 5 m).
 export function roofTileTex() {
-  const S = sz(512), rnd = mulberry32(14); const [c, g] = mk(S);
-  g.fillStyle = '#6a3a2a'; g.fillRect(0, 0, S, S);
-  const rows = 16, cols = 16, th = S / rows, tw = S / cols;
-  for (let r = 0; r < rows; r++) for (let k = 0; k < cols + 1; k++) {
-    const x = (k - (r % 2) * 0.5) * tw, y = r * th, v = 0.8 + rnd() * 0.4;
-    const gr = g.createLinearGradient(0, y, 0, y + th);
-    gr.addColorStop(0, `rgb(${178 * v | 0},${96 * v | 0},${66 * v | 0})`); gr.addColorStop(1, `rgb(${120 * v | 0},${60 * v | 0},${44 * v | 0})`);
-    g.fillStyle = gr; rr(g, x + 1, y + 1, tw - 2, th * 1.25, tw * 0.3); g.fill();
-    g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(x + 1, y + th - 3, tw - 2, 3);
+  // Roof tiles, 2 m by 2 m to a copy (the roof builder lays it on with v running up the slope): eight courses of interlocking tiles, each tile a
+  // rounded pan with a shadow where the course above laps over it, every tile a slightly different shade, weathering darker towards the bottom of each
+  // course, and spots of lichen. Pale and nearly grey: the colour of a roof (terracotta, red clay, brown, slate) comes from its vertex colour.
+  // Returns the colour and a normal map (each course a ramp that drops at the lap, each tile rounded across).
+  const S = sz(512), K = S / 512, rnd = mulberry32(14), [c, g] = mk(S), img = g.createImageData(S, S), H = new Float32Array(S * S), lich = lowField(64, 9, 3, 15);
+  const rows = 8, cols = 7, th = S / rows, tw = S / cols, shade = new Float32Array(rows * (cols + 1)).map(() => 0.82 + rnd() * 0.3);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const r = Math.floor(y / th), fy = (y - r * th) / th, off = (r % 2) * 0.5, kx = x / tw + off, k = Math.floor(kx), fx = kx - k;
+    // (v runs up the slope, so the bottom of a course, where it laps over the one below, is at fy = 1 in canvas terms)
+    const roll = Math.sin(fx * Math.PI), gap = Math.min(1, Math.min(fx, 1 - fx) * 30), lap = fy > 0.88 ? (1 - fy) / 0.12 : 1;
+    const h = (0.25 + 0.6 * fy) * lap * (0.7 + 0.3 * roll) * gap; H[y * S + x] = h;
+    const sh = shade[(r * (cols + 1) + ((k % cols) + cols) % cols)], L = bil(lich, 64, x / S, y / S), moss = clamp((L - 0.62) * 4, 0, 1) * (rnd() < 0.5 ? 1 : 0.6);
+    let v = sh * (0.62 + 0.3 * roll + 0.12 * fy) * (fy > 0.88 ? 0.55 : 1) * (gap < 0.5 ? 0.45 : 1) * (0.94 + rnd() * 0.12);
+    const o = (y * S + x) * 4; img.data[o] = clamp(v * (230 - moss * 90), 0, 255); img.data[o + 1] = clamp(v * (226 - moss * 40), 0, 255); img.data[o + 2] = clamp(v * (220 - moss * 120), 0, 255); img.data[o + 3] = 255;
   }
-  return tex(c);
+  g.putImageData(img, 0, 0);
+  const t = tex(c); t.normalMap = normalFromHeight(H, S, S, 4 * K); return t;
 }
 
 // A balcony railing: a top rail and thin vertical bars, cut out of a quad.

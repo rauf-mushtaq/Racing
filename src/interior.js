@@ -61,6 +61,12 @@ const SURFACES = {
     const c = f > 0.965 ? [0.62, 0.62, 0.64] : f > 0.94 ? [0.55, 0.42, 0.12] : f > 0.92 ? [0.18, 0.35, 0.6] : [0.12, 0.12, 0.13];
     const k = 0.9 + 0.12 * fbm(u, v, 16); return [c[0] * 255 * k, c[1] * 255 * k, c[2] * 255 * k, joint ? 0.15 : 0.55 + 0.15 * hash(x, y), joint ? 1 : 0.86];
   }, 4),
+  // Grey rubber sports flooring (a health club's gym floor): tiles a metre square, speckled with pale and coloured granules, the joints between them.
+  gymfloor: () => surfaceTex(512, (u, v, x, y) => {
+    const tu = (u * 4) % 1, tv = (v * 4) % 1, joint = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.005, f = hash(x * 1.7, y * 2.3);
+    const c = f > 0.95 ? [0.62, 0.63, 0.65] : f > 0.925 ? [0.2, 0.22, 0.24] : f > 0.915 ? [0.55, 0.45, 0.2] : [0.34, 0.35, 0.37];
+    const k = 0.92 + 0.1 * fbm(u, v, 14); return [c[0] * 255 * k, c[1] * 255 * k, c[2] * 255 * k, joint ? 0.15 : 0.55 + 0.12 * hash(x, y), joint ? 1 : 0.82];
+  }, 3),
   // Oak boards (a museum's galleries).
   oak: () => surfaceTex(512, (u, v) => {
     const plank = Math.floor(u * 8), local = (u * 8) % 1, off = hash(plank, 1), lv = (v + off) % 1, row = Math.floor((v + off) * 2), end = (lv * 2) % 1 < 0.006;
@@ -99,7 +105,7 @@ export function surface(name) { return SURF[name] || (SURF[name] = SURFACES[name
 const LOOK = {
   petrol: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }], shop: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }],
   jeweller: ['granite', 'plaster', 'ceiling', { clearcoat: 0.8, rough: 0.6 }], bank: ['marble', 'plaster', 'ceiling', { clearcoat: 0.85, rough: 0.6 }],
-  museum: ['oak', 'plaster', 'ceiling', { clearcoat: 0.55, rough: 0.9 }], gym: ['rubber', 'brick', 'concrete', { clearcoat: 0, rough: 1 }],
+  museum: ['oak', 'plaster', 'ceiling', { clearcoat: 0.55, rough: 0.9 }], gym: ['gymfloor', 'plaster', 'concrete', { clearcoat: 0.08, rough: 1 }],
   police: ['epoxy', 'block', 'concrete', { clearcoat: 0.35, rough: 0.9 }],
 };
 export const TEX = {};
@@ -118,6 +124,8 @@ function makeTextures() {
   TEX.plaster = dataTex(64, (u, v) => { const g = 0.92 + 0.08 * noise(u, v, 12) + 0.04 * noise(u, v, 40); return [g * 244, g * 238, g * 228]; });
   // A suspended ceiling: tiles of 0.57 m with a dark grid between them and a little speckle (one texture covers 4 m).
   TEX.ceil = dataTex(128, (u, v) => { const tu = (u * 7) % 1, tv = (v * 7) % 1, grid = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.024, g = grid ? 0.5 : 0.93 + 0.05 * noise(u, v, 50) + 0.03 * noise(u, v, 9); return [g * 238, g * 236, g * 230]; });
+  // Artificial turf (a sled track): green blades, darker and lighter, in stripes a metre wide.
+  TEX.turf = dataTex(128, (u, v, x, y) => { const blade = hash(x * 3.1, y * 1.3), stripe = Math.floor(u * 2) & 1, g = (0.78 + 0.3 * blade) * (stripe ? 0.92 : 1.04) * (0.94 + 0.08 * noise(u, v, 12)); return [58 * g, 118 * g, 52 * g]; });
   TEX.concrete = dataTex(64, (u, v) => { const g = 0.72 + 0.2 * noise(u, v, 10) + 0.08 * noise(u, v, 50); return [g * 200, g * 200, g * 196]; });
   // Pictures for the walls of a gallery: a few soft shapes in a few colours.
   for (let k = 0; k < 4; k++) TEX['art' + k] = dataTex(64, (u, v) => {
@@ -134,7 +142,7 @@ export const C = h => new THREE.Color(h);
 export class Room {
   constructor(kind, ox, oz) {
     this.kind = kind; this.ox = ox; this.oz = oz; this.oy = STAGE_Y;
-    this.gb = { floor: new GB(true), wall: new GB(true), ceil: new GB(true), prop: new GB(true), metal: new GB(true), emit: new GB(true), art: [] };
+    this.gb = { floor: new GB(true), wall: new GB(true), ceil: new GB(true), prop: new GB(true), metal: new GB(true), emit: new GB(true), wood: new GB(true), turf: new GB(true), art: [] };      // (wood: oak boards and timber; turf: artificial grass)
     this.boxes = []; this.circs = []; this.items = []; this.spots = []; this.cams = []; this.lasers = []; this.loose = []; this.lights = [];
     this.W = 10; this.D = 8; this.H = 3;
   }
@@ -250,6 +258,8 @@ export class Interior {
       prop: m(THREE.MeshStandardMaterial, { vertexColors: true, roughness: 0.55, metalness: 0.05, envMapIntensity: 0.9 }),
       metal: m(THREE.MeshStandardMaterial, { vertexColors: true, roughness: 0.28, metalness: 0.92, envMapIntensity: 1.2 }),
       emit: m(THREE.MeshBasicMaterial, { vertexColors: true }),
+      wood: m(THREE.MeshPhysicalMaterial, { vertexColors: true, roughness: 0.55, clearcoat: 0.35, clearcoatRoughness: 0.3, envMapIntensity: 0.8 }),
+      turf: m(THREE.MeshStandardMaterial, { map: TEX.turf, vertexColors: true, roughness: 1, envMapIntensity: 0.3 }),
       glass: m(THREE.MeshPhysicalMaterial, { color: 0xd6ecf4, transparent: true, opacity: 0.2, roughness: 0.04, metalness: 0, envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false }),
       gem: m(THREE.MeshStandardMaterial, { color: 0xffffff, roughness: 0.02, metalness: 0.2, emissive: 0x6688aa, emissiveIntensity: 0.5, envMapIntensity: 2.4 }),
     };
@@ -283,9 +293,10 @@ export class Interior {
     this.dispose();
     const R = new Room(venue.kind, Math.round(venue.x), Math.round(venue.z)); R.mats = this.mats; R.art = [TEX.art0, TEX.art1, TEX.art2, TEX.art3]; plan(R, venue); decorate(R, venue); this.room = R;
     const g = new THREE.Group(); g.visible = false;
-    for (const k of ['floor', 'wall', 'ceil', 'prop', 'metal', 'emit']) {
+    if (R.gb.wood.count && !this.mats.wood.map) { const O = surface('oak'), wm = this.mats.wood; wm.map = O.map; wm.normalMap = O.normalMap; wm.roughnessMap = O.roughnessMap; wm.needsUpdate = true; }
+    for (const k of ['floor', 'wall', 'ceil', 'prop', 'metal', 'emit', 'wood', 'turf']) {
       const gb = R.gb[k]; if (!gb.count) continue; const mesh = new THREE.Mesh(gb.geometry(), this.mats[k]); mesh.frustumCulled = false;
-      mesh.receiveShadow = k !== 'emit'; mesh.castShadow = k === 'prop' || k === 'metal'; g.add(mesh);
+      mesh.receiveShadow = k !== 'emit'; mesh.castShadow = k === 'prop' || k === 'metal' || k === 'wood'; g.add(mesh);
     }
     for (const o of R.loose) { o.traverse(m => { if (m.isMesh && m.material !== this.mats.glass) { m.receiveShadow = true; if (m.castShadow === false && !m.material.transparent) m.castShadow = true; } }); g.add(o); }
     for (const m of softMeshes(R, this.mats)) g.add(m);

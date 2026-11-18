@@ -133,15 +133,16 @@ const BRICK = ['#ffffff', '#f0e4dc', '#e6d8d0', '#d8ccc4'].map(col);
 const MODERN = ['#ffffff', '#f2f0ea', '#e4e6e8'].map(col);
 const SHOP = ['#f2e8dc', '#e7d2bc', '#d4b79a', '#c9c2b8', '#e9dccb', '#d8c4ae', '#bfa58f'].map(col);
 const HOUSE = ['#ffffff', '#f4eee2', '#ebe0cc', '#dfe6ea', '#f0e4cf', '#e8d4c4', '#d8e0d0'].map(col);
-const TILES = ['#ffffff', '#f2d8c8', '#c8a090', '#9a7a6a'].map(col);
+const PLASTER = col('#ece6da'), CHIMNEY = col('#8c5240');          // (smooth render as the houses' walls show it, and the brick of a chimney)
+const TILES = ['#c8673f', '#a4402a', '#7c5641', '#5d636b', '#c88456', '#3f4044'].map(col);          // (the roof tiles' colours: terracotta, red clay, brown, slate, sandy, dark grey; the texture is near grey)
 const WHITE = new THREE.Color(1, 1, 1), STONE = new THREE.Color(0.2, 0.2, 0.22), METAL = new THREE.Color(0.55, 0.6, 0.66);
 const GRASS_TINT = new THREE.Color(0.95, 1, 0.9);
 
-const COLORED = new Set(['park', 'mark', 'amark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props', 'pool', 'vglass', 'vmetal']);
-const KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot', 'props', 'sign', 'rail', 'gantry', 'pool', 'water', 'vglass', 'vmetal'];
-const FAR_KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'lot'];
+const COLORED = new Set(['park', 'mark', 'amark', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'civic', 'roof', 'tile', 'plain', 'props', 'pool', 'vglass', 'vmetal']);
+const KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'civic', 'roof', 'tile', 'plain', 'lot', 'props', 'sign', 'rail', 'gantry', 'pool', 'water', 'vglass', 'vmetal'];
+const FAR_KEYS = ['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'glass', 'apt', 'shop', 'brick', 'modern', 'house', 'civic', 'roof', 'tile', 'plain', 'lot'];          // (plain: smooth painted or stone surfaces seen from afar, gable walls, chimneys, columns)
 const DETAIL_KEYS = ['props', 'sign', 'rail', 'gantry', 'pool', 'water', 'vglass', 'vmetal'];          // (vglass, vmetal: the glazing and the metalwork of the fronts of the places you can walk into, venues.js)
-const CASTS = new Set(['glass', 'apt', 'shop', 'brick', 'modern', 'house', 'roof', 'tile', 'props', 'pool', 'vmetal']);
+const CASTS = new Set(['glass', 'apt', 'shop', 'brick', 'modern', 'house', 'civic', 'roof', 'tile', 'plain', 'props', 'pool', 'vmetal']);
 const snap = h => Math.max(3.5, Math.round(h / 3.5) * 3.5);
 
 const GROUND = new Set(['walk', 'curb', 'park', 'mark', 'amark', 'acurb', 'lot']);            // (surfaces that follow the ground; everything else stands level on a base)
@@ -440,7 +441,8 @@ export class City {
     const facB = await step('Laying brick…', T.facadeBrick);
     const facS = await step('Fitting shop fronts…', T.facadeShop);
     const facH = await step('Building houses…', T.facadeHouse);
-    const misc = await step('Hanging the signs…', () => ({ roof: T.roofTex(), tile: T.roofTileTex(), rail: T.railTex(), sign: T.signAtlas(), gantry: T.gantryAtlas() }));
+    const facC = await step('Carving stone…', T.facadeCivic);
+    const misc = await step('Hanging the signs…', () => ({ roof: T.roofTex(), tile: T.roofTileTex(), plain: T.plainTex(), rail: T.railTex(), sign: T.signAtlas(), gantry: T.gantryAtlas() }));
     this.tx = { asp, con, grass };
     this.props = makeProps();
     const std = o => new THREE.MeshStandardMaterial(o);
@@ -463,8 +465,10 @@ export class City {
       apt: fac(facA, TOD.windows * 1.05, 0.8, [1, [4, 4], [4, 3.5, 4.5], [0.26, 0.24, 0.76], true]),
       brick: fac(facB, TOD.windows * 1.05, 0.7, [1, [4, 4], [4, 3.5, 4.5], [0.25, 0.26, 0.74], true]),
       shop: fac(facS, TOD.lampsOn ? 2.0 : 0.3, 0.8, [2, [3, 1], [4, 5.25, 6], null, true]), house: fac(facH, TOD.windows * 1.05, 0.8, [3, [2, 2], [4, 3, 4], null, true]),
+      civic: fac(facC, TOD.windows * 1.05, 0.8, [1, [4, 4], [4, 3.5, 5], [0.14, 0.25, 0.75], true]),          // (the bank and the museum: ashlar, tall windows in stone surrounds)
       roof: std({ map: misc.roof, vertexColors: true, roughness: 0.95 }),
-      tile: std({ map: misc.tile, vertexColors: true, roughness: 0.85 }),
+      tile: std({ map: misc.tile, normalMap: misc.tile.normalMap, normalScale: new THREE.Vector2(1.1, 1.1), vertexColors: true, roughness: 0.82 }),
+      plain: std({ map: misc.plain, color: new THREE.Color(1.28, 1.28, 1.28), vertexColors: true, roughness: 0.86 }),          // (the texture is near white, ~0.78 in linear terms: `color` makes up for it, so a colour given to `plain` is the colour seen)
       lot: std({ color: 0x8a8486, map: asp.map, roughnessMap: asp.roughnessMap, roughness: 1 }),
       props: std({ vertexColors: true, roughness: 0.7, metalness: 0.2 }),
       vmetal: std({ vertexColors: true, roughness: 0.32, metalness: 1, envMapIntensity: 1.2 }),          // (brushed aluminium, brass, steel: frames, handles, push bars)
@@ -483,7 +487,7 @@ export class City {
     for (const a of [m.asphalt, m.hillAsphalt]) if (a === m.asphalt) { a.polygonOffset = true; a.polygonOffsetFactor = 1; a.polygonOffsetUnits = 1; }          // (the flat plane is pushed back a little, so the ground of a hilly region, which is at the true height, always wins over it)
     this.style = {
       glass: { fac: facG, pal: GLASS }, modern: { fac: facM, pal: MODERN }, apt: { fac: facA, pal: STUCCO },
-      brick: { fac: facB, pal: BRICK }, shop: { fac: facS, pal: SHOP }, house: { fac: facH, pal: HOUSE },
+      brick: { fac: facB, pal: BRICK }, shop: { fac: facS, pal: SHOP }, house: { fac: facH, pal: HOUSE }, civic: { fac: facC, pal: [new THREE.Color(0.86, 0.82, 0.74)] },
     };
     // The road surface: one big plane under everything.
     const ground = new GB(); ground.flat(-EDGE, -EDGE, EDGE, EDGE, -0.05, 10);          // (a few centimetres down, so that the ground of a hilly region, which is exactly at the true height, always wins)
@@ -866,6 +870,14 @@ export class City {
     (palm ? ctx.L.palms : ctx.L.trees).push([x, z, sc, y]);
     addCollider({ type: 'circ', x, z, r: palm ? 0.4 : 0.45 }, ctx.colliders);
   }
+  // Take the street trees, palms and bushes out of a rectangle (and the trees' colliders with them): the pavement in front of the steps of a bank.
+  clearTrees(ctx, x0, z0, x1, z1) {
+    const inR = p => p[0] > x0 && p[0] < x1 && p[1] > z0 && p[1] < z1, gone = [];
+    for (const key of ['trees', 'palms', 'bushes']) { const a = ctx.L[key]; for (let i = a.length - 1; i >= 0; i--) if (inR(a[i])) { if (key !== 'bushes') gone.push(a[i]); a.splice(i, 1); } }
+    if (!gone.length) return;
+    const cs = ctx.colliders.filter(c => c.type === 'circ' && !c.brk && gone.some(t => t[0] === c.x && t[1] === c.z));
+    removeColliders(cs); for (const c of cs) ctx.colliders.splice(ctx.colliders.indexOf(c), 1);
+  }
 
   // A strip of pavement and palms beyond the ring road, on the edges of the map.
   outerStrip(ctx, i, j, b, rnd) {
@@ -1019,17 +1031,11 @@ export class City {
     for (const ff of faces) { if (ff.dir[0] < 0) b.x0 = lot.x0 + 0.3; if (ff.dir[0] > 0) b.x1 = lot.x1 - 0.3; if (ff.dir[1] < 0) b.z0 = lot.z0 + 0.3; if (ff.dir[1] > 0) b.z1 = lot.z1 - 0.3; }
     const stone = new THREE.Color(0.86, 0.82, 0.74), dark = new THREE.Color(0.16, 0.12, 0.09), gold = new THREE.Color(0.85, 0.65, 0.2), along = f.dir[0] !== 0 ? b.z1 - b.z0 : b.x1 - b.x0;
     if (kind === 'bank' || kind === 'museum') {
-      this.buildMass(ctx, b, 'modern', kind === 'museum' ? 17 : 20 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: kind === 'museum' ? new THREE.Color(0.9, 0.86, 0.78) : stone });
+      this.buildMass(ctx, b, 'civic', kind === 'museum' ? 17 : 20 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: kind === 'museum' ? new THREE.Color(0.9, 0.86, 0.78) : stone });
       { const [vx, vz] = this.facePt(b, f, 0, 4.4); addVenue({ kind, x: vx, z: vz, dx: f.dir[0], dz: f.dir[1] }); }
-      const W = Math.min(along - 6, 20), n = 6, step = W / (n - 1);
-      this.faceBox(G.props, b, f, -W / 2 - 1.2, W / 2 + 1.2, 0, 3.4, CURB, CURB + 0.5, stone); this.faceBox(G.props, b, f, -W / 2 - 0.6, W / 2 + 0.6, 0, 2.6, CURB + 0.5, CURB + 1.0, stone);     // steps
-      for (let k = 0; k < n; k++) { const [cx, cz] = this.facePt(b, f, -W / 2 + k * step, 1.7); G.props.extrude(circlePoly(cx, cz, 0.55, 10), CURB + 1.0, CURB + 10.2, 4, 4, stone, 0, true); G.props.cap(circlePoly(cx, cz, 0.55, 10), CURB + 10.2, 4, stone); addCollider({ type: 'circ', x: cx, z: cz, r: 0.6 }, ctx.colliders); }
-      this.faceBox(G.props, b, f, -W / 2 - 0.9, W / 2 + 0.9, 0, 2.5, CURB + 10.2, CURB + 12.2, stone);                                                                                       // entablature
-      const [ax, az] = this.facePt(b, f, -W / 2 - 0.9, 0), [bx, bz] = this.facePt(b, f, W / 2 + 0.9, 2.5), x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), z0 = Math.min(az, bz), z1 = Math.max(az, bz);
-      const ridge = f.dir[0] !== 0 ? [[(x0 + x1) / 2, z1], [(x0 + x1) / 2, z1], [(x0 + x1) / 2, z0], [(x0 + x1) / 2, z0]] : [[x0, (z0 + z1) / 2], [x0, (z0 + z1) / 2], [x1, (z0 + z1) / 2], [x1, (z0 + z1) / 2]];
-      G.roof.loft([[x0, z1], [x1, z1], [x1, z0], [x0, z0]], CURB + 12.2, ridge, CURB + 14.6, 5, new THREE.Color(0.8, 0.76, 0.7));                                                   // the pediment
-      this.faceBox(G.props, b, f, -1.3, 1.3, -0.02, 0.4, CURB + 1.0, CURB + 5.6, dark);                                                                                               // the doors
-      this.faceSign(ctx, b, f, kind === 'museum' ? 7 : 0, 0, 2.52, CURB + 10.3, Math.min(8, W * 0.5), 1.75);
+      const W = Math.min(along - 6, 20);
+      this.portico(ctx, b, f, W, col(kind === 'museum' ? '#e6dfcf' : '#ddd3bf'));
+      this.faceSign(ctx, b, f, kind === 'museum' ? 7 : 0, 0, 2.58, CURB + 11.0, Math.min(7.5, W * 0.45), 1.4);
       const [kx, kz] = this.facePt(b, f, W / 2 + 3.2, 1.0); const kb = { x0: kx - 0.55, x1: kx + 0.55, z0: kz - 0.55, z1: kz + 0.55 };                                                    // a cash machine on the pavement, with its queue marker
       G.props.box(kb.x0, kb.z0, kb.x1, kb.z1, CURB, CURB + 2.2, 3, new THREE.Color(0.25, 0.27, 0.3)); this.faceSign(ctx, { x0: kb.x0 + 0.55, x1: kb.x0 + 0.55, z0: kb.z0 + 0.55, z1: kb.z0 + 0.55 }, f, 3, 0, 0.58, CURB + 1.5, 0.9, 0.45);
       addCollider({ type: 'box', ...kb }, ctx.colliders);
@@ -1046,6 +1052,79 @@ export class City {
       this.faceBox(G.props, b, f, -W / 2, W / 2, 0, 3.4, CURB + 4.6, CURB + 5.1, new THREE.Color(0.9, 0.2, 0.55));                                                                      // the lit marquee
       this.faceSign(ctx, b, f, 2, 0, 0.1, CURB + 5.4, Math.min(10, W * 0.85), 3.4);
       for (let k = 0; k < 3; k++) { const t = -W / 2 + 1.6 + k * ((W - 3.2) / 2); this.faceBox(G.props, b, f, t - 0.7, t + 0.7, -0.05, 0.12, CURB + 1.2, CURB + 3.2, new THREE.Color(0.6 + rnd() * 0.4, 0.2 + rnd() * 0.5, 0.3 + rnd() * 0.5)); }   // film posters
+    }
+  }
+  // The front of a classical bank or museum, `W` wide between the outer columns: three steps up to a podium, six fluted columns (each on a square
+  // plinth and a round base, tapering a little as it rises, with a moulded capital and a square abacus), the entablature over them (architrave,
+  // a tall frieze for the name, a cornice with a row of dentils under it), and a low pediment with its raking cornices and roof. Behind the columns,
+  // tall bronze doors in a stone surround with a fanlight over them, and a bronze lantern on a post at each end of the steps. The big stone pieces are
+  // `plain` (seen from afar); the small ones (dentils, door panels, lanterns) are props, only drawn near by. No random numbers: the city's must come
+  // out as before.
+  portico(ctx, b, f, W, stone) {
+    const G = ctx.gb, [dx, dz] = f.dir, out = [dx, 0, dz], P = (t, o, y) => { const [x, z] = this.facePt(b, f, t, o); return [x, y, z]; };
+    const shade = k => stone.clone().multiplyScalar(k), bronze = col('#6b4a2a'), gold = col('#c9a24a');
+    const box = (gb, t0, t1, o0, o1, y0, y1, c) => this.faceBox(gb, b, f, t0, t1, o0, o1, y0, y1, c);
+    const E = W / 2 + 1.2, y0 = CURB, yP = CURB + 1.0;                                                   // (E: half the width of the entablature and the podium)
+    { const [ax, az] = this.facePt(b, f, -E - 2, 0), [bx, bz] = this.facePt(b, f, E + 2, 6); this.clearTrees(ctx, Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz)); }
+    // The steps and the podium.
+    for (let k = 0; k < 3; k++) box(G.plain, -E - 0.6 + k * 0.15, E + 0.6 - k * 0.15, 0, 4.2 - k * 0.42, y0 + k * 0.333, y0 + (k + 1) * 0.333, shade(0.96 - k * 0.02));
+    const under = (t0, t1, o0, o1, y, c) => { const [ax, az] = this.facePt(b, f, t0, o0), [bx, bz] = this.facePt(b, f, t1, o1); G.plain.ceil(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz), y, 4, c); };     // (box() makes no underside)
+    // The columns.
+    const n = 6, step = W / (n - 1), oC = 1.85, H0 = yP, H1 = CURB + 10.2, flutes = 20;
+    const fluted = (cx, cz, r) => { const pts = []; for (let k = 0; k < flutes * 2; k++) { const a = Math.PI / 2 - Math.PI * k / flutes, rr = k % 2 ? r * 0.92 : r; pts.push([cx + rr * Math.cos(a), cz + rr * Math.sin(a)]); } return pts; };
+    for (let k = 0; k < n; k++) {
+      const t = -W / 2 + k * step, [cx, cz] = this.facePt(b, f, t, oC);
+      G.plain.box(cx - 0.66, cz - 0.66, cx + 0.66, cz + 0.66, H0, H0 + 0.24, 4, shade(0.95));                                      // plinth
+      G.plain.extrude(circlePoly(cx, cz, 0.62, 16), H0 + 0.24, H0 + 0.36, 4, 4, shade(0.97), 0, true);                              // torus
+      G.plain.loft(circlePoly(cx, cz, 0.62, 16), H0 + 0.36, circlePoly(cx, cz, 0.54, 16), H0 + 0.46, 4, shade(0.97));
+      G.plain.loft(fluted(cx, cz, 0.54), H0 + 0.46, fluted(cx, cz, 0.47), H1 - 0.62, 4, shade(1.0));                              // the shaft, fluted and tapering
+      G.plain.extrude(circlePoly(cx, cz, 0.5, 16), H1 - 0.62, H1 - 0.52, 4, 4, shade(0.97), 0, true);                               // necking ring
+      G.plain.loft(circlePoly(cx, cz, 0.5, 16), H1 - 0.52, circlePoly(cx, cz, 0.68, 16), H1 - 0.24, 4, shade(0.98));               // echinus
+      G.plain.box(cx - 0.74, cz - 0.74, cx + 0.74, cz + 0.74, H1 - 0.24, H1, 4, shade(0.95));                                      // abacus
+      addCollider({ type: 'circ', x: cx, z: cz, r: 0.6 }, ctx.colliders);
+    }
+    // Pilasters against the wall behind the end columns.
+    for (const t of [-W / 2, W / 2]) box(G.plain, t - 0.55, t + 0.55, 0, 0.22, yP, H1, shade(0.97));
+    // The entablature: architrave in two fasciae, the frieze, the cornice with its dentils.
+    const yA = H1, yF = yA + 0.8, yC = yF + 1.55, yT = yC + 0.55;
+    box(G.plain, -E + 0.3, E - 0.3, 0, 2.45, yA, yA + 0.38, shade(0.93)); under(-E + 0.3, E - 0.3, 0, 2.45, yA, shade(0.8)); box(G.plain, -E + 0.25, E - 0.25, 0, 2.52, yA + 0.38, yF, shade(0.95));
+    box(G.plain, -E + 0.3, E - 0.3, 0, 2.48, yF, yC, shade(0.97));
+    box(G.plain, -E + 0.1, E - 0.1, 0, 2.62, yC, yC + 0.16, shade(0.92)); under(-E + 0.1, E - 0.1, 2.4, 2.62, yC, shade(0.75));            // bed moulding
+    box(G.plain, -E - 0.2, E + 0.2, 0, 2.9, yC + 0.16, yT, shade(1.0)); under(-E - 0.2, E + 0.2, 2.5, 2.9, yC + 0.16, shade(0.75));          // corona
+    for (let t = -E + 0.25; t < E - 0.2; t += 0.32) box(G.props, t, t + 0.15, 2.62, 2.74, yC + 0.0, yC + 0.16, shade(0.98));        // dentils
+    // The pediment: a triangle of stone (the tympanum) set back, raking cornices along its two top edges, and the low roof over it.
+    const rise = (E + 0.2) * 0.24, apex = yT + rise, rake = (t, o, dy = 0) => P(t, o, yT + rise * (1 - Math.abs(t) / (E + 0.2)) + dy);
+    quadToward(G.plain, P(-E + 0.3, 2.4, yT), P(E - 0.3, 2.4, yT), P(0, 2.4, apex - 0.42), P(0, 2.4, apex - 0.42), [[0, 0], [0, 0], [0, 0], [0, 0]], shade(0.9), out);
+    for (const sgn of [-1, 1]) {
+      const tE = sgn * (E + 0.2);
+      quadToward(G.plain, rake(tE, 2.9, -0.05), rake(0, 2.9, -0.05), rake(0, 2.9, 0.42), rake(tE, 2.9, 0.42), [[0, 0], [0, 0], [0, 0], [0, 0]], shade(1.0), out);           // the raking cornice's face
+      quadToward(G.plain, rake(tE, 2.9, -0.05), rake(0, 2.9, -0.05), rake(0, 2.45, -0.05), rake(tE, 2.45, -0.05), [[0, 0], [0, 0], [0, 0], [0, 0]], shade(0.8), [0, -1, 0]);   // and its underside
+      quadToward(G.plain, rake(tE, 2.45, -0.05), rake(0, 2.45, -0.05), rake(0, 2.45, -0.4), rake(tE, 2.45, -0.4), [[0, 0], [0, 0], [0, 0], [0, 0]], shade(0.85), out);
+      const side = dx !== 0 ? [0, 1, sgn * 0.3] : [sgn * 0.3, 1, 0];                                                   // (t runs along +z on a face across x, along +x otherwise)
+      quadToward(G.plain, rake(tE, 2.9, 0.42), rake(0, 2.9, 0.42), rake(0, -0.05, 0.42), rake(tE, -0.05, 0.42), [[0, 0], [0, 0], [0, 0], [0, 0]], col('#8e8a82'), side);   // the roof, lead grey
+    }
+    // The doorway: a deep stone surround (jambs, a lintel, a cornice on top), and set back in it bronze doors in panels with a fanlight over them.
+    const dw = 1.45, dh = yP + 4.6, dt = dh + 1.35;
+    for (const [a0, a1] of [[-dw - 0.55, -dw], [dw, dw + 0.55]]) box(G.plain, a0, a1, 0, 0.28, yP, dt, shade(1.02));
+    box(G.plain, -dw - 0.55, dw + 0.55, 0, 0.28, dt, dt + 0.45, shade(1.02)); under(-dw, dw, 0, 0.28, dt, shade(0.8));
+    box(G.plain, -dw - 0.8, dw + 0.8, 0, 0.42, dt + 0.45, dt + 0.75, shade(0.95)); under(-dw - 0.8, dw + 0.8, 0.28, 0.42, dt + 0.45, shade(0.75));
+    box(G.plain, -dw, dw, 0, 0.03, yP, dt, col('#141210'));                                                                      // (behind the doors, dark)
+    for (const s0 of [-1, 1]) {                                                                                                        // two leaves
+      const a0 = s0 < 0 ? -dw + 0.04 : 0.02, a1 = s0 < 0 ? -0.02 : dw - 0.04;
+      box(G.vmetal, a0, a1, 0.03, 0.09, yP, dh, bronze);
+      for (const [p0, p1] of [[0.25, 1.75], [2.05, 3.55], [3.8, 4.4]]) box(G.vmetal, a0 + 0.14, a1 - 0.14, 0.09, 0.11, yP + p0, yP + p1, bronze.clone().multiplyScalar(1.25));   // raised panels
+      const hx = s0 < 0 ? a1 - 0.12 : a0 + 0.05; box(G.vmetal, hx, hx + 0.07, 0.11, 0.17, yP + 1.6, yP + 2.6, gold);                  // the pull handles
+    }
+    box(G.props, -dw, dw, 0.03, 0.05, dh + 0.12, dt, col('#1d2a30'));                                                                // fanlight glass
+    for (let k = -3; k <= 3; k++) box(G.vmetal, k * 0.38 - 0.025, k * 0.38 + 0.025, 0.05, 0.08, dh + 0.12, dt, bronze);
+    box(G.vmetal, -dw, dw, 0.03, 0.09, dh, dh + 0.12, bronze);
+    // Lanterns on posts at the ends of the steps.
+    for (const t of [-E - 0.2, E + 0.2]) {
+      const [lx, lz] = this.facePt(b, f, t, 3.7);
+      G.vmetal.box(lx - 0.16, lz - 0.16, lx + 0.16, lz + 0.16, y0, y0 + 0.5, 3, bronze); G.vmetal.box(lx - 0.06, lz - 0.06, lx + 0.06, lz + 0.06, y0 + 0.5, y0 + 2.7, 3, bronze);
+      G.props.box(lx - 0.2, lz - 0.2, lx + 0.2, lz + 0.2, y0 + 2.7, y0 + 3.25, 3, TOD.lampsOn ? new THREE.Color(3.2, 2.4, 1.3) : new THREE.Color(1.0, 0.92, 0.75));
+      G.vmetal.box(lx - 0.25, lz - 0.25, lx + 0.25, lz + 0.25, y0 + 3.25, y0 + 3.33, 3, bronze); G.vmetal.box(lx - 0.08, lz - 0.08, lx + 0.08, lz + 0.08, y0 + 3.33, y0 + 3.5, 3, bronze);
+      addCollider({ type: 'circ', x: lx, z: lz, r: 0.25 }, ctx.colliders);
     }
   }
   // A café terrace in front of a shop: round tables, chairs and a striped umbrella over each, on the pavement.
@@ -1336,6 +1415,69 @@ export class City {
     this.buildMass(ctx, b, style, h, faces, rnd);
   }
 
+  // A pitched roof over the rectangle (x0, z0)-(x1, z1) of walls whose tops are at ey: a hip roof (four slopes) or a gable roof (two slopes, and a
+  // gable wall at each end in the colour `wall`), its eaves `e` out from the walls, rising `rise` to a ridge along the longer side. Tiles are laid with
+  // the courses along the eaves (the texture's v runs up each slope, 2 m to a copy), and there is everything a real roof has round its edge: a fascia
+  // board, a gutter in front of it and downpipes at the corners, the soffit under the overhang, a ridge cap along the top and (o.chimney) a brick
+  // chimney with a cap and pots.
+  pitchedRoof(ctx, x0, z0, x1, z1, ey, o = {}) {
+    const G = ctx.gb, e = o.e ?? 0.55, rise = o.rise ?? 3.2, col = o.col || TILES[0], gable = !!o.gable, T = 2.0;
+    const ex0 = x0 - e, ex1 = x1 + e, ez0 = z0 - e, ez1 = z1 + e, wx = ex1 - ex0, wz = ez1 - ez0, alongX = wx >= wz, ry = ey + rise;
+    const hx = (ex0 + ex1) / 2, hz = (ez0 + ez1) / 2, half = alongX ? (gable ? wx / 2 : (wx - wz) / 2) : (gable ? wz / 2 : (wz - wx) / 2);
+    const rA = alongX ? [hx - half, hz] : [hx, hz - half], rB = alongX ? [hx + half, hz] : [hx, hz + half];
+    // One slope: a quad (a trapezium, or a triangle at a hipped end) from the eave line (p, q) up to the ridge points (rq, rp), its UVs along the eave and up the slope.
+    const slope = (p, q, rq, rp) => {
+      const ux = q[0] - p[0], uz = q[1] - p[1], ul = Math.hypot(ux, uz) || 1, dx = ux / ul, dz = uz / ul;
+      const uv = P => { const along = (P[0] - p[0]) * dx + (P[2] - p[1]) * dz, h = Math.abs((P[0] - p[0]) * dz - (P[2] - p[1]) * dx), s2 = Math.hypot(h, P[1] - ey); return [along / T, s2 / T]; };
+      const A = [p[0], ey, p[1]], B = [q[0], ey, q[1]], C = [rq[0], ry, rq[1]], D = [rp[0], ry, rp[1]];
+      G.tile.q4(A, B, C, D, [uv(A), uv(B), uv(C), uv(D)], col);
+    };
+    const c00 = [ex0, ez0], c10 = [ex1, ez0], c11 = [ex1, ez1], c01 = [ex0, ez1];
+    // (round the eaves anticlockwise seen from above, z down the page: each slope faces out)
+    if (alongX) { slope(c01, c11, rB, rA); slope(c10, c00, rA, rB); if (!gable) { slope(c11, c10, rB, rB); slope(c00, c01, rA, rA); } }
+    else { slope(c11, c10, rA, rB); slope(c00, c01, rB, rA); if (!gable) { slope(c10, c00, rA, rA); slope(c01, c11, rB, rB); } }
+    // The ridge cap.
+    if (alongX) G.tile.box(rA[0], hz - 0.11, rB[0], hz + 0.11, ry - 0.06, ry + 0.08, 4, col.clone().multiplyScalar(0.8)); else G.tile.box(hx - 0.11, rA[1], hx + 0.11, rB[1], ry - 0.06, ry + 0.08, 4, col.clone().multiplyScalar(0.8));
+    // The edge: the soffit under the overhang, the fascia board, the gutter (dark grey, a little in front of it and lower), downpipes at the corners. The
+    // walls, fascia and boards are in `plain`, which is drawn at any distance (props are only drawn near by).
+    const trim = o.fascia || trimWhite, soffit = o.soffit || trimWhite, gutter = new THREE.Color(0.22, 0.23, 0.24), Z = [[0, 0], [0, 0], [0, 0], [0, 0]];
+    if (gable) {
+      // In the frame of the roof: `a` along the ridge, `t` across it. The gable walls go right up under the tiles (a band, then the triangle), and
+      // along each verge there is a barge board and the underside of the overhang.
+      const P = (a, t, y) => alongX ? [a, y, t] : [t, y, a], ce0 = alongX ? ez0 : ex0, ce1 = alongX ? ez1 : ex1, cm = (ce0 + ce1) / 2, halfW = (ce1 - ce0) / 2;
+      const c0 = alongX ? z0 : x0, c1 = alongX ? z1 : x1, yAt = t => ey + rise * (1 - Math.abs(t - cm) / halfW), wall = (o.wall || WHITE).clone().multiply(PLASTER);
+      const ends = alongX ? [[x0, ex0, -1], [x1, ex1, 1]] : [[z0, ez0, -1], [z1, ez1, 1]];
+      for (const [a, ae, out] of ends) {
+        const dir = alongX ? [out, 0, 0] : [0, 0, out], u = yAt(c0) - 0.05;
+        quadToward(G.plain, P(a, c0, ey), P(a, c1, ey), P(a, c1, u), P(a, c0, u), Z, wall, dir);
+        quadToward(G.plain, P(a, c0, u), P(a, c1, u), P(a, cm, ry - 0.05), P(a, cm, ry - 0.05), Z, wall, dir);
+        for (const [t0, t1] of [[ce0, cm], [cm, ce1]]) {
+          quadToward(G.plain, P(ae, t0, yAt(t0) + 0.04), P(ae, t1, yAt(t1) + 0.04), P(ae, t1, yAt(t1) - 0.2), P(ae, t0, yAt(t0) - 0.2), Z, trim, dir);
+          quadToward(G.plain, P(ae, t0, yAt(t0) - 0.2), P(ae, t1, yAt(t1) - 0.2), P(a, t1, yAt(t1) - 0.2), P(a, t0, yAt(t0) - 0.2), Z, soffit, [0, -1, 0]);
+        }
+      }
+      // Along the two eaves: the soffit, the fascia and the gutter.
+      for (const [t, out] of [[ce0, -1], [ce1, 1]]) {
+        const w0 = alongX ? ex0 : ez0, w1 = alongX ? ex1 : ez1, tw = alongX ? (out < 0 ? z0 : z1) : (out < 0 ? x0 : x1), dir = alongX ? [0, 0, out] : [out, 0, 0];
+        quadToward(G.plain, P(w0, t, ey + 0.04), P(w1, t, ey + 0.04), P(w1, t, ey - 0.24), P(w0, t, ey - 0.24), Z, trim, dir);
+        quadToward(G.plain, P(w0, t, ey - 0.22), P(w1, t, ey - 0.22), P(w1, tw, ey - 0.22), P(w0, tw, ey - 0.22), Z, soffit, [0, -1, 0]);
+        const g0 = t + out * 0.02, g1 = t + out * 0.14;
+        if (alongX) G.props.box(w0, Math.min(g0, g1), w1, Math.max(g0, g1), ey - 0.2, ey - 0.06, 3, gutter); else G.props.box(Math.min(g0, g1), w0, Math.max(g0, g1), w1, ey - 0.2, ey - 0.06, 3, gutter);
+      }
+    } else {
+      const eave = [c01, c11, c10, c00];
+      G.props.ceil(ex0, ez0, ex1, ez1, ey - 0.22, 4, soffit);
+      G.plain.extrude(eave, ey - 0.24, ey + 0.04, 4, 4, trim, 0, false);
+      G.props.extrude(offsetPoly(eave, 0.07), ey - 0.2, ey - 0.06, 4, 4, gutter, 0, false);
+    }
+    for (const [cx, cz] of [[x0 + 0.08, z0 + 0.08], [x1 - 0.08, z1 - 0.08]]) G.props.box(cx - 0.045, cz - 0.045, cx + 0.045, cz + 0.045, o.base ?? CURB, ey - 0.12, 3, gutter);
+    if (o.chimney) {                                                                                              // a brick chimney through the slope, with a cap and two pots
+      const [cx, cz] = o.chimney, brick = CHIMNEY, top = ry + 0.9;
+      G.plain.box(cx - 0.4, cz - 0.3, cx + 0.4, cz + 0.3, ey + rise * 0.25, top, 3, brick); G.plain.box(cx - 0.48, cz - 0.38, cx + 0.48, cz + 0.38, top, top + 0.1, 3, PLASTER);
+      for (const s2 of [-0.18, 0.18]) G.props.extrude(circlePoly(cx + s2, cz, 0.1, 8), top + 0.1, top + 0.42, 2, 2, new THREE.Color(0.62, 0.36, 0.26), 0, true);
+    }
+  }
+
   hedgeRow(ctx, lot, f) {
     const e = f.dir[0] < 0 ? lot.x0 + 0.9 : f.dir[0] > 0 ? lot.x1 - 0.9 : f.dir[1] < 0 ? lot.z0 + 0.9 : lot.z1 - 0.9;
     const [a0, a1] = f.dir[0] !== 0 ? [lot.z0 + 1, lot.z1 - 1] : [lot.x0 + 1, lot.x1 - 1], mid = (a0 + a1) / 2;
@@ -1392,7 +1534,7 @@ export class City {
         if (rnd() < 0.7) G.props.cap(circlePoly(ax + 0.8, az + 0.6, 0.38, 10), top + 1.12, 3, new THREE.Color(0.2, 0.2, 0.22));                // (the fan of an air-conditioning unit)
       }
       // A water tank on legs and a television aerial on the roof of the ordinary buildings: the things you see from above.
-      if (!tower && h > 9 && w > 9 && d > 9 && kind !== 'round') {
+      if (!tower && style !== 'civic' && h > 9 && w > 9 && d > 9 && kind !== 'round') {          // (not on the bank: it was built as a tower before, and drew no numbers here)
         if (rnd() < 0.5) {
           const tx = b.x0 + w * (0.25 + rnd() * 0.5), tz = b.z0 + d * (0.25 + rnd() * 0.5), tr = 1.2 + rnd() * 0.5, th = 2.0 + rnd() * 0.8, tc = new THREE.Color(0.55, 0.47, 0.4), lg = tr * 0.68;
           for (const [lx, lz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) G.props.box(tx + lx * lg - 0.07, tz + lz * lg - 0.07, tx + lx * lg + 0.07, tz + lz * lg + 0.07, top, top + 1.4, 3, METAL);
@@ -1407,10 +1549,8 @@ export class City {
       }
     }
     if (ctx.old && kind === 'rect' && h < 30 && style !== 'shop') {                                 // a hip roof of tiles over the flat one
-      const e = 0.6, hx = (b.x0 + b.x1) / 2, hz = (b.z0 + b.z1) / 2, wx = w + 2 * e, wz = d + 2 * e, rise = Math.min(4.2, Math.min(wx, wz) * 0.3), tile = TILES[(rnd() * TILES.length) | 0];
-      const eave = [[b.x0 - e, b.z1 + e], [b.x1 + e, b.z1 + e], [b.x1 + e, b.z0 - e], [b.x0 - e, b.z0 - e]];
-      const ridge = wx >= wz ? (() => { const hh = (wx - wz) / 2; return [[hx - hh, hz], [hx + hh, hz], [hx + hh, hz], [hx - hh, hz]]; })() : (() => { const hh = (wz - wx) / 2; return [[hx, hz + hh], [hx, hz + hh], [hx, hz - hh], [hx, hz - hh]]; })();
-      G.tile.loft(eave, top + 0.05, ridge, top + 0.05 + rise, 5, tile);
+      const e = 0.6, wx = w + 2 * e, wz = d + 2 * e, rise = Math.min(4.2, Math.min(wx, wz) * 0.3), tile = TILES[(rnd() * TILES.length) | 0];
+      this.pitchedRoof(ctx, b.x0, b.z0, b.x1, b.z1, top + 0.05, { e, rise: Math.min(5.5, Math.min(wx, wz) * 0.36) || rise, col: tile, base: CURB });
     }
     if (kind === 'round') addCollider({ type: 'circ', x: cx, z: cz, r: Math.min(w, d) / 2 }, ctx.colliders);
     else addCollider({ type: 'box', x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 }, ctx.colliders);
@@ -1519,16 +1659,11 @@ export class City {
     else { hb.z0 = cz - W / 2; hb.z1 = cz + W / 2; if (f[0] < 0) { hb.x0 = lot.x0 + sb; hb.x1 = hb.x0 + D; } else { hb.x1 = lot.x1 - sb; hb.x0 = hb.x1 - D; } }
     const floors = rnd() < 0.55 ? 2 : 1, hf = floors === 2 ? 6.2 : 3.3, wall = HOUSE[(rnd() * HOUSE.length) | 0];
     G.house.extrude(rectPoly(hb), CURB, CURB + hf, fac.w, fac.h, wall, Math.floor(rnd() * 8) / 8, false);
-    // Hip roof: eaves a little proud of the walls, rising to a ridge.
+    // The roof: hipped or gabled (from where the house is, not from rnd: the city's random numbers must come out as before), a real pitch.
     const e = 0.55, ey = CURB + hf, rise = 2.4 + rnd() * 0.9, tile = TILES[(rnd() * TILES.length) | 0];
-    const eave = [[hb.x0 - e, hb.z1 + e], [hb.x1 + e, hb.z1 + e], [hb.x1 + e, hb.z0 - e], [hb.x0 - e, hb.z0 - e]];
-    const hx = (hb.x0 + hb.x1) / 2, hz = (hb.z0 + hb.z1) / 2, wx = hb.x1 - hb.x0 + 2 * e, wz = hb.z1 - hb.z0 + 2 * e;
-    let ridge;
-    if (wx >= wz) { const half = (wx - wz) / 2; ridge = [[hx - half, hz], [hx + half, hz], [hx + half, hz], [hx - half, hz]]; }
-    else { const half = (wz - wx) / 2; ridge = [[hx, hz + half], [hx, hz + half], [hx, hz - half], [hx, hz - half]]; }
-    G.tile.loft(eave, ey, ridge, ey + rise, 5, tile);
-    G.roof.extrude(eave, ey - 0.3, ey, 4, 4, trimWhite, 0, false);            // fascia
-    if (rnd() < 0.6) G.props.box(hx + 1.5, hz - 0.5, hx + 2.5, hz + 0.5, ey + rise * 0.3, ey + rise + 1.4, 3, new THREE.Color(0.6, 0.45, 0.4));
+    const hx = (hb.x0 + hb.x1) / 2, hz = (hb.z0 + hb.z1) / 2, hh = hash3(Math.round(hx), Math.round(hz), 81), span2 = Math.min(hb.x1 - hb.x0, hb.z1 - hb.z0) + 2 * e;
+    const chim = rnd() < 0.6;
+    this.pitchedRoof(ctx, hb.x0, hb.z0, hb.x1, hb.z1, ey, { e, rise: Math.max(rise, span2 * (0.34 + hh * 0.12)), col: TILES[Math.floor(hh * 97) % TILES.length] || tile, gable: hh < 0.4, wall, chimney: chim ? [hx + 1.5 * (hh < 0.7 ? 1 : -1), hz] : null });
     addCollider({ type: 'box', x0: hb.x0, z0: hb.z0, x1: hb.x1, z1: hb.z1 }, ctx.colliders);
     // Driveway and front hedge.
     const dw = 3.2;

@@ -163,7 +163,14 @@ export class GB {
 export function quadToward(gb, a, b, c, d, uv, col, dir) {
   const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
   const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-  if (nx * dir[0] + ny * dir[1] + nz * dir[2] >= 0) gb.q4(a, b, c, d, uv, col); else gb.q4(a, d, c, b, [uv[0], uv[3], uv[2], uv[1]], col);
+  let P = [a, b, c, d], U = uv;
+  if (nx * dir[0] + ny * dir[1] + nz * dir[2] < 0) { P = [a, d, c, b]; U = [uv[0], uv[3], uv[2], uv[1]]; }
+  // (a triangle is a quad with two corners the same: start it where its first three corners are all different, or its normal comes out zero)
+  for (let k = 0; k < 4; k++) {
+    const p = P[k], q = P[(k + 1) % 4], r = P[(k + 2) % 4];
+    const ex = q[0] - p[0], ey = q[1] - p[1], ez = q[2] - p[2], fx = r[0] - p[0], fy = r[1] - p[1], fz = r[2] - p[2];
+    if (Math.hypot(ey * fz - ez * fy, ez * fx - ex * fz, ex * fy - ey * fx) > 1e-9) { const R = i => (k + i) % 4; gb.q4(P[R(0)], P[R(1)], P[R(2)], P[R(3)], [U[R(0)], U[R(1)], U[R(2)], U[R(3)]], col); return; }
+  }
 }
 
 // A square-section beam from p0 to p1 ([x, y, z] each), half-width r, added to a builder.

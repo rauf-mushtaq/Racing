@@ -3,11 +3,14 @@
 //   the heavy bags      punches (the recorded jabs, crosses, hooks, combinations and haymakers of moves.js), the bag swinging from each blow  -> STRENGTH
 //   the kick bag        kicks (street kick, roundhouse, side kick, front kick)                                                               -> STRENGTH
 //   the dumbbells       curls, one arm then the other                                                                                        -> STRENGTH
-//   the treadmills      running                                                                                                              -> STAMINA
+//   the cable crossover cable curls                                                                                                          -> STRENGTH
+//   the treadmills      running (and the cross trainers, a little slower)                                                                    -> STAMINA
+//   the ring, the mat   pad work with a coach (hit on his call, duck his swing), light sparring (no knockouts), or a bout for a purse         -> STRENGTH
 // Strength makes every blow land harder (more damage, people thrown further, a little quicker) and at its top, level 10, one kick kills anyone (see
 // melee.js). Stamina makes you sprint faster. A membership sets how far you can go and how fast you get there: Basic (strength and stamina to 4),
 // Pro (to 7, quicker) or Elite (to 10, quickest, with a personal trainer). It is good at every Iron City Gym, and it and what you have built up are kept.
-// Other people are training too: someone working a bag, someone running, someone lifting, two fighters sparring in the ring, a receptionist at the desk.
+// Other people are training too: someone working a bag, two running, someone lifting, a trainer by the rig, a member walking round, two fighters sparring
+// in the ring and two on the karate mat; a receptionist at the desk, a barista and a customer at the café bar.
 import * as THREE from 'three';
 import { Walker } from './walker.js';
 import { preload } from './people.js';
@@ -55,7 +58,7 @@ function stepBag(b, dt) {
 function hitBag(b, dx, dz, k) { const s = b.foot ? 0.5 : 0.32; b.vx += dz * k * s; b.vz += -dx * k * s; }      // (a heavy bag is 40 kg: a blow rocks it, a strong one swings it)
 
 // ---- The other people in the gym ------------------------------------------------------------------------------------------------------------------------
-const KEYS = { staff: 'ped_f1', boxer: 'hoodie', lifter: 'ped_m3', runner: 'ped_f3', sparA: 'tee', sparB: 'ped_m1', karA: 'ped_m2', karB: 'ped_m4' };
+const KEYS = { staff: 'ped_f1', boxer: 'hoodie', lifter: 'ped_m3', runner: 'ped_f3', runner2: 'ped_f4', sparA: 'tee', sparB: 'ped_m1', karA: 'ped_m2', karB: 'ped_m4', barista: 'ped_f2', cafe: 'denim', member: 'street', pt: 'leather' };
 const PAIR = r => (r === 'sparA' || r === 'sparB' ? 'spar' : r === 'karA' || r === 'karB' ? 'kar' : null);
 class Goer {
   constructor(G, spot) {
@@ -64,6 +67,7 @@ class Goer {
     w.place(spot.x, spot.z, spot.face); w.y = I.ground(spot.x, spot.z).y; w.show(true);
     this.t = Math.random() * 3; this.next = 0.5 + Math.random(); this.seq = Math.floor(Math.random() * 8);
     if (spot.role === 'lifter') this.dumbbells = [dumbbellMesh(), dumbbellMesh()].map(m => (G.env.scene.add(m), m));
+    if (spot.route) { w.noClip = true; this.leg = 1; this.pause = 0; }                    // (a member walking round the gym, along the aisles)
   }
   update(dt) {
     const G = this.G, w = this.walker, r = this.role; this.t += dt;
@@ -71,7 +75,13 @@ class Goer {
     const off = !!G.bout && PAIR(r) === (G.bout.style === 'boxing' ? 'spar' : 'kar');
     if (off !== !!this.off) { this.off = off; w.show(!off); if (!off) { w.place(this.spot.x, this.spot.z, this.spot.face); w.y = G.env.interior.ground(this.spot.x, this.spot.z).y; } }
     if (off) return;
-    if (r === 'runner') w.treadmill = 3.0;
+    if (this.spot.tread) w.treadmill = this.spot.tread;
+    if (this.spot.route) {                                                               // walking from point to point, stopping now and then
+      const [tx, tz] = this.spot.route[this.leg], dx = tx - (w.x - G.room.ox), dz = tz - (w.z - G.room.oz), d = Math.hypot(dx, dz);
+      if (this.pause > 0) this.pause -= dt;
+      else if (d < 0.35) { this.leg = (this.leg + 1) % this.spot.route.length; if (Math.random() < 0.35) this.pause = 1.5 + Math.random() * 3; }
+      w.update(dt, this.pause > 0 ? NOINP : { mx: -dx / (d || 1) * 0.32, my: dz / (d || 1) * 0.32, sprint: false, jump: false, crouch: false }, 0, null); return;
+    }
     if (r === 'lifter') { w.lift = (w.lift || 0) + dt * 2.4; }
     if (PAIR(r) && G.partner(this)) {
       const o = G.partner(this).walker, yaw = Math.atan2(o.x - w.x, o.z - w.z); w.h += wrapAngle(yaw - w.h) * Math.min(1, dt * 6);
@@ -95,17 +105,28 @@ class Goer {
   dispose() { const sc = this.G.env.scene, w = this.walker; w.show(false); sc.remove(w.mesh); sc.remove(w.blob); if (this.dumbbells) for (const m of this.dumbbells) sc.remove(m); }
 }
 
-// ---- A bout: boxing in the ring, or karate on the mat, against one of the gym's fighters --------------------------------------------------------------
-// Use the steps of the ring (or the edge of the mat) to fight. You are put in one corner and your opponent in the other; the bell goes; you fight with
-// your own punches and kicks (melee.js: he is a target while the bout is on). He squares up and keeps to the distance his style likes, circles, and throws
-// the recorded blows of a real boxer or fighter (moves.js), each landing at its own moment if you are still in front of him and in reach. Damage in a
-// bout comes off a bout's own health (yours and his: the bars at the top), not your real health.
+// ---- In the ring or on the mat: pad work with a coach, light sparring, or a bout ---------------------------------------------------------------------------
+// Use the steps of the ring (or the door of the karate studio) and choose:
+//   PAD WORK   a coach in focus mitts calls the shots ("ONE-TWO!", "PUNCH, KICK!") and you hit the pads on the call (each blow on the call counts, a
+//              kick when he asked for a punch does not); now and then he swings a slow hook at you instead ("DUCK!"): crouch under it. 60 s.
+//   SPARRING   gloves on and no knockouts: he throws his blows at half power and so do you; no one goes down and it ends when you stop (or after 2 min).
+//   A BOUT     a real fight against one of the gym's fighters, for a purse.
+// You are put in one corner and he in the other; the bell goes; you fight with your own punches and kicks (melee.js: he is a target while it is on). He
+// squares up and keeps to the distance his style likes, circles, and throws the recorded blows of a real boxer or fighter (moves.js), each landing at its
+// own moment if you are still in front of him and in reach. Damage comes off the bout's own health (the bars at the top), not your real health.
 //   BOXING   fists only (a kick is a foul: three and you are disqualified); win by knockout (his health to nothing), or on the damage done when the 90 s are up.
 //   KARATE   punches score a point, kicks two, a kick that puts him down three; first to 8 points wins, or the most points at the end.
-// A win pays a purse and some strength; a loss costs nothing but pride. Strength from the bags makes your blows count for more here too.
+// A win pays a purse and some strength; a loss costs nothing but pride. Strength from the bags makes your blows count for more here too, and every clean
+// blow in training or sparring builds it.
 export const STYLES = {
-  boxing: { name: 'BOXING', blows: ['jab', 'jab', 'cross', 'body', 'jab', 'combo', 'cross', 'hook'], range: [1.05, 1.4], gap: [0.55, 1.2], purse: 150, time: 90, key: 'ped_m1', kicks: false },
-  karate: { name: 'KARATE', blows: ['jab', 'roundhouse', 'cross', 'sidekick', 'frontkick', 'kick'], range: [1.45, 1.95], gap: [0.8, 1.5], purse: 200, time: 90, key: 'ped_m4', kicks: true, target: 8 },
+  boxing: { name: 'BOXING', blows: ['jab', 'jab', 'cross', 'body', 'jab', 'combo', 'cross', 'hook'], range: [1.05, 1.4], pads: [0.95, 1.25], gap: [0.55, 1.2], purse: 150, time: 90, key: 'ped_m1', coach: 'tee', kicks: false },
+  karate: { name: 'KARATE', blows: ['jab', 'roundhouse', 'cross', 'sidekick', 'frontkick', 'kick'], range: [1.45, 1.95], pads: [1.3, 1.65], gap: [0.8, 1.5], purse: 200, time: 90, key: 'ped_m4', coach: 'ped_m2', kicks: true, target: 8 },
+};
+export const MODES = { pads: { name: 'PAD WORK', time: 60 }, spar: { name: 'SPARRING', time: 120 }, bout: { name: 'BOUT', time: 90 } };
+// What the coach calls: blows in order ('p' a punch, 'k' a kick), or 'duck' (he swings, you get under it).
+const CALLS = {
+  boxing: [['JAB!', ['p']], ['ONE-TWO!', ['p', 'p']], ['JAB, JAB, CROSS!', ['p', 'p', 'p']], ['DOUBLE JAB!', ['p', 'p']], ['HOOK!', ['p']], ['ONE-TWO, HOOK!', ['p', 'p', 'p']], ['DUCK!', 'duck']],
+  karate: [['PUNCH!', ['p']], ['KICK!', ['k']], ['PUNCH, KICK!', ['p', 'k']], ['DOUBLE KICK!', ['k', 'k']], ['ONE-TWO, KICK!', ['p', 'p', 'k']], ['DUCK!', 'duck']],
 };
 const OPP = {
   jab: { clip: 'jab', rate: 1.15, reach: 1.45, dmg: 5, knock: 0, hand: true }, cross: { clip: 'cross', rate: 1.1, reach: 1.55, dmg: 8, knock: 0, hand: true },
@@ -115,103 +136,163 @@ const OPP = {
   sidekick: { clip: 'sidekick', rate: 1.05, reach: 2.0, dmg: 11, knock: 0.5, hand: false }, frontkick: { clip: 'frontkick', rate: 1.0, reach: 1.95, dmg: 10, knock: 0.3, hand: false },
 };
 const KICK = /kick|roundhouse/;
+let mittGeo = null;
 class Bout {
-  constructor(G, it) {
-    this.G = G; this.style = it.type === 'ring' ? 'boxing' : 'karate'; this.S = STYLES[this.style]; this.item = it;
+  constructor(G, it, mode = 'bout') {
+    this.G = G; this.style = it.type === 'ring' ? 'boxing' : 'karate'; this.S = STYLES[this.style]; this.item = it; this.mode = MODES[mode] ? mode : 'bout'; this.M = MODES[this.mode];
     const R = G.room, I = G.env.interior, P = G.env.walker, A = this.area = this.style === 'boxing' ? R.gymRing : R.gymMat;
-    this.state = 'intro'; this.t = 0; this.clock = this.S.time; this.php = 100; this.ohp = 100; this.pts = [0, 0]; this.downs = [0, 0]; this.fouls = 0; this.result = null;
-    this.landed = 0; this.taken = 0; this.cd = 1.4; this.strafe = 1; this.strafeT = 1;
-    const cz = (A.z0 + A.z1) / 2, xa = A.x0 + (A.x1 - A.x0) * 0.3, xb = A.x0 + (A.x1 - A.x0) * 0.7;
+    this.state = 'intro'; this.t = 0; this.clock = this.mode === 'bout' ? this.S.time : this.M.time; this.php = 100; this.ohp = 100; this.pts = [0, 0]; this.downs = [0, 0]; this.fouls = 0; this.result = null;
+    this.landed = 0; this.taken = 0; this.cd = this.mode === 'pads' ? 1.2 : 1.4; this.strafe = 1; this.strafeT = 1;
+    this.calls = 0; this.good = 0; this.streak = 0; this.best = 0; this.call = null; this.lastCall = -1;           // (pad work)
+    const cz = (A.z0 + A.z1) / 2, xa = A.x0 + (A.x1 - A.x0) * 0.3, xb = A.x0 + (A.x1 - A.x0) * (this.mode === 'pads' ? 0.55 : 0.7);
     P.place(xa, cz, Math.PI / 2); P.y = I.ground(xa, cz).y; P.vx = P.vz = 0; P.hold = false;
-    const o = this.opp = new Walker(G.env.scene, this.S.key, { lite: true }); o.interior = I; o.place(xb, cz, -Math.PI / 2); o.y = I.ground(xb, cz).y; o.show(true);
-    G.toast(`${this.S.name}: ${this.style === 'boxing' ? 'FISTS ONLY. KNOCK HIM OUT' : 'FIRST TO 8 POINTS: PUNCH 1, KICK 2'}`, 2.4);
+    const o = this.opp = new Walker(G.env.scene, this.mode === 'pads' ? this.S.coach : this.S.key, { lite: true }); o.interior = I; o.place(xb, cz, -Math.PI / 2); o.y = I.ground(xb, cz).y; o.show(true);
+    if (this.mode === 'pads') {                                                       // the coach's focus mitts (kick pads on the mat): red, on his hands
+      if (!mittGeo) mittGeo = new THREE.SphereGeometry(1, 14, 10);
+      const mat = new THREE.MeshStandardMaterial({ color: this.style === 'boxing' ? 0xb0121a : 0x1a1a1c, roughness: 0.55 }), face = new THREE.MeshStandardMaterial({ color: this.style === 'boxing' ? 0xf2f0ea : 0xb0121a, roughness: 0.6 });
+      this.mitts = [0, 1].map(() => { const g = new THREE.Group(), m = new THREE.Mesh(mittGeo, mat), f = new THREE.Mesh(mittGeo, face); const k = this.style === 'boxing' ? 0.1 : 0.13; m.scale.set(k, k * 1.25, k * 0.55); f.scale.set(k * 0.6, k * 0.75, k * 0.2); f.position.z = k * 0.45; g.add(m, f); g.traverse(q => { q.layers.set(1); q.castShadow = true; }); g.visible = false; G.env.scene.add(g); return g; });
+    }
+    G.toast(this.mode === 'pads' ? `${this.S.name} PAD WORK: ${this.style === 'boxing' ? 'HIT THE PADS ON THE CALL, DUCK WHEN HE SWINGS' : 'PUNCH OR KICK AS HE CALLS, DUCK WHEN HE SWINGS'}`
+      : this.mode === 'spar' ? `LIGHT SPARRING: NO KNOCKOUTS. USE AGAIN TO STOP` : `${this.S.name}: ${this.style === 'boxing' ? 'FISTS ONLY. KNOCK HIM OUT' : 'FIRST TO 8 POINTS: PUNCH 1, KICK 2'}`, 2.4);
     G.bell(1);
   }
   get x() { return this.opp.x; } get z() { return this.opp.z; } get y() { return this.opp.y; }
-  get alive() { return this.state === 'fight' && this.ohp > 0 && this.opp.down < 0.3; }
+  get alive() { return this.state === 'fight' && (this.mode !== 'bout' || this.ohp > 0) && this.opp.down < 0.3; }
   // Your blow lands on him (melee.js).
   hit(dmg, info = {}) {
     if (!this.alive) return false;
-    const o = this.opp, kick = KICK.test(info.kind || ''), dir = info.dir || { x: Math.sin(o.h + Math.PI), z: Math.cos(o.h + Math.PI) };
+    const o = this.opp, kick = KICK.test(info.kind || ''), dir = info.dir || { x: Math.sin(o.h + Math.PI), z: Math.cos(o.h + Math.PI) }, spar = this.mode === 'spar';
+    if (this.mode === 'pads') return this.padHit(kick, dir);
     if (this.style === 'boxing' && kick) {
-      this.fouls++; this.G.toast(this.fouls >= 3 ? 'THIRD FOUL: DISQUALIFIED' : `FOUL: NO KICKING IN THE RING (${this.fouls} OF 3)`, 1.6);
+      this.fouls++;
+      if (spar) { this.G.toast('NO KICKING IN THE RING', 1.2); return false; }
+      this.G.toast(this.fouls >= 3 ? 'THIRD FOUL: DISQUALIFIED' : `FOUL: NO KICKING IN THE RING (${this.fouls} OF 3)`, 1.6);
       if (this.fouls >= 3) this.finish('lose', 'DISQUALIFIED'); return false;
     }
     // Squared up and not throwing, he gets his guard to some of them: a blocked blow does a fraction of its damage (and scores nothing on the mat).
     const act = o.body && o.body.act, guarding = !act || act.name === 'guard', blocked = guarding && Math.random() < (kick ? (this.style === 'karate' ? 0.35 : 0.2) : 0.35);
-    const d = Math.min(30, dmg * (blocked ? 0.12 : 0.42)); this.ohp = Math.max(0, this.ohp - d); if (blocked) { o.flinch(dir.x, dir.z, 0.25, !kick); this.G.toast('BLOCKED', 0.5); this.G.env.audio.thump && this.G.env.audio.thump(0.15); return true; }
+    const d = Math.min(30, dmg * (blocked ? 0.12 : 0.42)) * (spar ? 0.4 : 1); this.ohp = Math.max(spar ? 12 : 0, this.ohp - d); if (blocked) { o.flinch(dir.x, dir.z, 0.25, !kick); this.G.toast('BLOCKED', 0.5); this.G.env.audio.thump && this.G.env.audio.thump(0.15); return true; }
     this.landed++;
     let floored = false;
-    if (this.ohp <= 0 || (info.knock >= 0.9 && (kick ? this.style === 'karate' : this.ohp < 45) && Math.random() < (kick ? 0.22 : 0.5))) { o.knockDown(dir.x * 3.2, dir.z * 3.2, { at: kick ? 'chest' : 'head', hurt: this.ohp <= 0 }); o.downT = this.ohp <= 0 ? 7 : 2.4; this.downs[1]++; floored = true; }
-    else o.flinch(dir.x, dir.z, Math.min(1.5, 0.4 + d / 14), !kick);
+    if (!spar && (this.ohp <= 0 || (info.knock >= 0.9 && (kick ? this.style === 'karate' : this.ohp < 45) && Math.random() < (kick ? 0.22 : 0.5)))) { o.knockDown(dir.x * 3.2, dir.z * 3.2, { at: kick ? 'chest' : 'head', hurt: this.ohp <= 0 }); o.downT = this.ohp <= 0 ? 7 : 2.4; this.downs[1]++; floored = true; }
+    else o.flinch(dir.x, dir.z, Math.min(spar ? 0.8 : 1.5, 0.4 + d / 14), !kick);
     if (this.style === 'karate') { const p = floored && kick ? 3 : kick ? 2 : 1; this.pts[0] += p; this.G.toast(p === 3 ? 'IPPON! 3 POINTS' : p === 2 ? 'WAZA-ARI: 2 POINTS' : 'YUKO: 1 POINT', 0.8); }
     if (this.G.env.audio.thump) this.G.env.audio.thump(Math.min(0.9, 0.3 + d / 30));
-    this.G.gain('str', kick ? 0.9 : 0.6);
+    this.G.gain('str', (kick ? 0.9 : 0.6) * (spar ? 0.8 : 1));
+    if (spar) return true;
     if (this.ohp <= 0) this.finish('win', this.style === 'boxing' ? 'KNOCKOUT' : 'HE CANNOT GO ON');
     else if (this.style === 'karate' && this.pts[0] >= this.S.target) this.finish('win', `${this.pts[0]} POINTS TO ${this.pts[1]}`);
     else if (floored && this.style === 'boxing') this.G.toast(`KNOCKDOWN!`, 1.0);
     return true;
   }
+  // Pad work: a blow on the pads counts if it is the next one he called for.
+  padHit(kick, dir) {
+    const o = this.opp, c = this.call, G = this.G;
+    o.flinch(dir.x, dir.z, 0.16, !kick); if (G.env.audio.thump) G.env.audio.thump(c && !c.duck ? 0.5 : 0.2);
+    if (!c || c.duck) { G.toast('WAIT FOR THE CALL', 0.6); return true; }
+    const want = c.need[0];
+    if ((want === 'k') !== kick) { G.toast(want === 'k' ? 'KICK!' : 'PUNCH!', 0.5); return true; }
+    c.need.shift(); this.landed++; G.gain('str', kick ? 1.3 : 0.9);
+    if (!c.need.length) { this.good++; this.streak++; this.best = Math.max(this.best, this.streak); G.toast(this.streak >= 3 ? `SHARP! ${this.streak} IN A ROW` : 'GOOD!', 0.7); this.call = null; this.cd = 0.55 + Math.random() * 0.8; }
+    return true;
+  }
+  // His slow hook arrives: under it, or in the way?
+  duckLand() {
+    const P = this.G.env.walker, o = this.opp, dx = P.x - o.x, dz = P.z - o.z, d = Math.hypot(dx, dz) || 1, c = this.call;
+    if (!c || !c.duck) return;
+    if (P.crouching || d > 1.75 || Math.abs(wrapAngle(Math.atan2(dx, dz) - o.h)) > 0.9) { this.good++; this.streak++; this.best = Math.max(this.best, this.streak); this.G.toast('NICE SLIP!', 0.8); if (this.G.env.audio.swish) this.G.env.audio.swish(0.3); }
+    else { this.streak = 0; this.taken++; this.G.toast('TAGGED: GET UNDER IT (CROUCH)', 1.0); P.flinch(dx / d, dz / d, 0.35, true); if (this.G.env.audio.thump) this.G.env.audio.thump(0.2); }
+    this.call = null; this.cd = 0.8 + Math.random() * 0.8;
+  }
+  padUpdate(dt) {
+    const o = this.opp, G = this.G;
+    if (!this.call) {
+      this.cd -= dt; if (this.cd > 0 || !(o.body && o.body.ready('jab'))) return;
+      const list = CALLS[this.style], duck = list.length - 1; let k = duck;                // (every fourth call is a swing to duck under; the others are blows, never the same twice running)
+      if (this.calls % 4 !== 3) do { k = (Math.random() * duck) | 0; } while (k === this.lastCall);
+      this.lastCall = k; const [say, need] = list[k]; this.calls++;
+      this.call = need === 'duck' ? { say, duck: true, t: 0 } : { say, need: need.slice(), t: 0, win: 0.9 + 0.6 * need.length };
+      G.toast(say, need === 'duck' ? 1.0 : 0.8); if (G.env.audio.beep) G.env.audio.beep(need === 'duck' ? 520 : 760, 0.06, 0.16);
+      return;
+    }
+    const c = this.call; c.t += dt;
+    if (c.duck) { if (!c.swung && c.t > 0.3) { c.swung = true; if (!o.play('hook', { rate: 0.78, fade: 0.1, out: 0.25, root: false, onHit: () => this.duckLand() })) this.duckLand(); } if (c.t > 2.6 && this.call === c) this.duckLand(); }
+    else if (c.t > c.win) { this.streak = 0; G.toast('TOO SLOW', 0.6); this.call = null; this.cd = 0.6 + Math.random() * 0.8; }
+  }
   // One of his blows lands at its recorded moment: does it catch you?
   land(def, name) {
     if (this.state !== 'fight') return;
-    const o = this.opp, P = this.G.env.walker, dx = P.x - o.x, dz = P.z - o.z, d = Math.hypot(dx, dz) || 1, ang = Math.abs(wrapAngle(Math.atan2(dx, dz) - o.h));
+    const o = this.opp, P = this.G.env.walker, dx = P.x - o.x, dz = P.z - o.z, d = Math.hypot(dx, dz) || 1, ang = Math.abs(wrapAngle(Math.atan2(dx, dz) - o.h)), spar = this.mode === 'spar';
     if (d > def.reach + 0.15 || ang > 0.85 || P.down > 0.3) { if (this.G.env.audio.swish) this.G.env.audio.swish(0.25); return; }
-    const dmg = def.dmg * (P.crouching ? 0.55 : 1); this.php = Math.max(0, this.php - dmg); this.taken++;
+    const dmg = def.dmg * (P.crouching ? 0.55 : 1) * (spar ? 0.35 : 1); this.php = Math.max(spar ? 12 : 0, this.php - dmg); this.taken++;
     if (this.style === 'karate') this.pts[1] += KICK.test(name) ? 2 : 1;
     if (this.G.env.audio.thump) this.G.env.audio.thump(0.3 + def.knock * 0.3);
-    if (this.php <= 0 || (def.knock && this.php < 35 && Math.random() < def.knock)) { P.knockDown(dx / d * 3.5, dz / d * 3.5, { at: def.hand ? 'head' : 'chest', hurt: this.php <= 0 }); P.downT = this.php <= 0 ? 4 : 2.2; this.downs[0]++; }
-    else P.flinch(dx / d, dz / d, 0.45 + dmg / 18, def.hand);
+    if (!spar && (this.php <= 0 || (def.knock && this.php < 35 && Math.random() < def.knock))) { P.knockDown(dx / d * 3.5, dz / d * 3.5, { at: def.hand ? 'head' : 'chest', hurt: this.php <= 0 }); P.downT = this.php <= 0 ? 4 : 2.2; this.downs[0]++; }
+    else P.flinch(dx / d, dz / d, (0.45 + dmg / 18) * (spar ? 0.7 : 1), def.hand);
+    if (spar) return;
     if (this.php <= 0) this.finish('lose', this.style === 'boxing' ? 'YOU WERE KNOCKED OUT' : 'YOU CANNOT GO ON');
     else if (this.style === 'karate' && this.pts[1] >= this.S.target) this.finish('lose', `${this.pts[0]} POINTS TO ${this.pts[1]}`);
   }
+  // The end of a practice (you stop it, or its time is up): what you did, and a little strength for a good session.
+  summary() { return this.mode === 'pads' ? `${this.good} OF ${this.calls} CALLS` + (this.best >= 3 ? `, ${this.best} IN A ROW` : '') : `YOU LANDED ${this.landed}, HE LANDED ${this.taken}`; }
+  stop() { if (this.state === 'fight' || this.state === 'intro') this.finish('done', this.summary()); }
   finish(result, why) {
     if (this.state === 'over') return; this.state = 'over'; this.t = 0; this.result = result; this.why = why; const G = this.G;
-    G.bell(3);
-    if (result === 'win') {
+    G.bell(result === 'done' ? 2 : 3); this.call = null;
+    if (result === 'done') {
+      if (this.mode === 'pads' && this.calls) G.gain('str', 4 * this.good / this.calls);
+      G.toast(`${this.M.name} DONE: ${why}`, 3.0); G.env.save && G.env.save();
+    } else if (result === 'win') {
       const S = G.settings; S.cash = (S.cash || 0) + this.S.purse; G.gain('str', 6); G.env.save && G.env.save();
       G.toast(`YOU WIN: ${why}. PURSE $${this.S.purse}`, 3.2);
     } else G.toast(result === 'draw' ? `A DRAW: ${why}` : `YOU LOSE: ${why}`, 3.2);
     const o = this.opp; if (o.body && o.body.act) o.body.stop(0.2);
   }
   update(dt, f) {
-    const G = this.G, P = G.env.walker, o = this.opp, A = this.area, S = this.S; this.t += dt;
-    if (this.state === 'intro') { if (this.t > 2.2 && ((o.person && o.body && o.body.ready('jab')) || this.t > 10)) { this.state = 'fight'; this.t = 0; G.toast('FIGHT!', 1.0); } }
+    const G = this.G, P = G.env.walker, o = this.opp, A = this.area, S = this.S, pads = this.mode === 'pads'; this.t += dt;
+    if (this.state === 'intro') { if (this.t > 2.2 && ((o.person && o.body && o.body.ready('jab')) || this.t > 10)) { this.state = 'fight'; this.t = 0; G.toast(pads ? 'GO!' : this.mode === 'spar' ? 'TOUCH GLOVES. GO!' : 'FIGHT!', 1.0); } }
     else if (this.state === 'fight') {
       this.clock -= dt;
       if (this.clock <= 0) {
-        const a = this.style === 'boxing' ? 100 - this.ohp : this.pts[0], b = this.style === 'boxing' ? 100 - this.php : this.pts[1];
-        this.finish(a > b ? 'win' : a < b ? 'lose' : 'draw', this.style === 'boxing' ? `ON POINTS (${Math.round(a)} TO ${Math.round(b)})` : `${this.pts[0]} POINTS TO ${this.pts[1]}`);
+        if (this.mode !== 'bout') this.finish('done', this.summary());
+        else {
+          const a = this.style === 'boxing' ? 100 - this.ohp : this.pts[0], b = this.style === 'boxing' ? 100 - this.php : this.pts[1];
+          this.finish(a > b ? 'win' : a < b ? 'lose' : 'draw', this.style === 'boxing' ? `ON POINTS (${Math.round(a)} TO ${Math.round(b)})` : `${this.pts[0]} POINTS TO ${this.pts[1]}`);
+        }
       }
     } else if (this.t > 3.4 && P.down < 0.3) { G.endBout(); return; }
-    // Him: squared up, facing you, keeping his distance and circling, throwing his blows.
+    // Him: squared up, facing you, keeping his distance (and circling, in a fight), throwing his blows; the coach calls the shots instead.
     const dx = P.x - o.x, dz = P.z - o.z, d = Math.hypot(dx, dz) || 1, yaw = Math.atan2(dx, dz);
     let mx = 0, mz = 0;
     if (o.down < 0.3 && !(o.body && o.body.ragOn)) {
       o.h += wrapAngle(yaw - o.h) * Math.min(1, dt * 7);
       if (this.state === 'fight') {
-        const [lo, hi] = S.range, busy = o.body && o.body.act && o.body.act.name !== 'guard';
+        const [lo, hi] = pads ? S.pads : S.range, busy = o.body && o.body.act && o.body.act.name !== 'guard';
         if (!busy) {
           if (d > hi) { mx = dx / d; mz = dz / d; } else if (d < lo) { mx = -dx / d * 0.8; mz = -dz / d * 0.8; }
           this.strafeT -= dt; if (this.strafeT <= 0) { this.strafe = -this.strafe; this.strafeT = 0.8 + Math.random() * 1.6; }
-          mx += (-dz / d) * 0.3 * this.strafe; mz += (dx / d) * 0.3 * this.strafe;
+          const sk = pads ? 0.12 : 0.3; mx += (-dz / d) * sk * this.strafe; mz += (dx / d) * sk * this.strafe;
         }
-        this.cd -= dt;
-        if (this.cd <= 0 && !busy && d < hi + 0.35 && P.down < 0.3 && o.body && o.body.ready('jab')) {
-          const name = S.blows[(Math.random() * S.blows.length) | 0], def = OPP[name];
-          if (o.play(def.clip, { rate: def.rate, fade: 0.08, out: 0.25, root: false, onHit: () => this.land(def, name) })) this.cd = S.gap[0] + Math.random() * (S.gap[1] - S.gap[0]);
-          else this.cd = 0.3;
+        if (pads) this.padUpdate(dt);
+        else {
+          this.cd -= dt;
+          if (this.cd <= 0 && !busy && d < hi + 0.35 && P.down < 0.3 && o.body && o.body.ready('jab')) {
+            const name = S.blows[(Math.random() * S.blows.length) | 0], def = OPP[name], k = this.mode === 'spar' ? 1.35 : 1;
+            if (o.play(def.clip, { rate: def.rate, fade: 0.08, out: 0.25, root: false, onHit: () => this.land(def, name) })) this.cd = (S.gap[0] + Math.random() * (S.gap[1] - S.gap[0])) * k;
+            else this.cd = 0.3;
+          }
         }
       }
       if (o.body && o.body.ready('guard') && !o.body.act) o.play('guard', { lock: false, root: false, fade: 0.3 });
     }
     o.update(dt, { mx: -mx, my: mz, sprint: false, jump: false, crouch: false }, 0, null);
+    if (this.mitts) { const on = !!o.person && o.mesh.visible; for (const [i, side] of [[0, 'L'], [1, 'R']]) { const m = this.mitts[i]; m.visible = on; if (!on) continue; o.person.worldPos(`Bip01_${side}_Hand`, _v); o.person.worldPos(`Bip01_${side}_Finger2`, _a); _v.lerp(_a, 0.5); m.position.copy(_v); m.rotation.set(0, o.h, 0); } }
     // The ropes keep both of you in the ring; on the mat you are kept on it.
     const keep = w => { w.x = clamp(w.x, A.x0 + 0.45, A.x1 - 0.45); w.z = clamp(w.z, A.z0 + 0.45, A.z1 - 0.45); };
     if (!(o.body && o.body.ragOn)) keep(o); if (this.state !== 'over' && !(P.body && P.body.ragOn)) keep(P);
     G.renderBout(this);
   }
-  dispose() { const sc = this.G.env.scene, o = this.opp; o.show(false); sc.remove(o.mesh); sc.remove(o.blob); }
+  dispose() { const sc = this.G.env.scene, o = this.opp; o.show(false); sc.remove(o.mesh); sc.remove(o.blob); if (this.mitts) for (const m of this.mitts) sc.remove(m); }
 }
 
 // ---- The gym --------------------------------------------------------------------------------------------------------------------------------------------
@@ -247,9 +328,15 @@ export class Gym {
   }
   // Melee targets in here: your opponent, while a bout is on (the bags are hit by training on them, not by punching the air at them).
   targets() { return this.bout && this.bout.alive ? [this.bout] : null; }
-  startBout(it) {
+  startBout(it, mode = 'bout') {
     const w = this.env.walker; if (w.down > 0.3 || this.bout) return;
-    this.stop(); this.bout = new Bout(this, it); this.showBout(true);
+    this.stop(); this.bout = new Bout(this, it, mode); this.showBout(true);
+  }
+  // The ring's steps (or the studio's door): what to do there. pick() is the choice (also the menu's buttons and the keys 1 to 3).
+  openChoice(it) { this.choiceItem = it; this.showMenu(true, 'choice'); }
+  pick(mode) {
+    const it = this.choiceItem; if (!it || !MODES[mode]) return false;
+    this.choiceItem = null; this.showMenu(false); this.startBout(it, mode); return !!this.bout;
   }
   endBout() {
     const b = this.bout; if (!b) return; this.bout = null; b.dispose(); this.showBout(false);
@@ -261,13 +348,13 @@ export class Gym {
   use() {
     if (!this.active) return false; const P = this.env.walker, R = this.room;
     if (this.menuOpen) { this.showMenu(false); return true; }
-    if (this.bout) { if (this.bout.state === 'over') this.endBout(); else { this.bout.finish('lose', 'YOU THREW IN THE TOWEL'); } return true; }
+    if (this.bout) { if (this.bout.state === 'over') this.endBout(); else if (this.bout.mode !== 'bout') this.bout.stop(); else this.bout.finish('lose', 'YOU THREW IN THE TOWEL'); return true; }
     if (this.session) { this.stop(); return true; }
     if (Math.hypot(R.exit.x - P.x, R.exit.z - P.z) < 1.7) return 'exit';
     const it = this.nearest(); if (!it) return false;
     if (it.type === 'desk') { this.showMenu(true); return true; }
     if (!this.tier) { this.toast('YOU NEED A MEMBERSHIP: SEE THE FRONT DESK', 1.8); return true; }
-    if (it.type === 'ring' || it.type === 'dojo') { this.startBout(it); return true; }
+    if (it.type === 'ring' || it.type === 'dojo') { this.openChoice(it); return true; }
     this.start(it); return true;
   }
   nearest() {
@@ -278,8 +365,8 @@ export class Gym {
   start(it) {
     const w = this.env.walker; if (w.down > 0.3) return;
     w.x = it.x; w.z = it.z; w.h = it.face || 0; w.vx = w.vz = 0; w.hold = true; this.session = { it, t: 0, seq: 0, last: -1 };
-    if (it.type === 'treadmill') w.treadmill = 2.2 + 0.25 * this.stamina;
-    if (it.type === 'weights') w.lift = 0;
+    if (it.type === 'treadmill') w.treadmill = (2.2 + 0.25 * this.stamina) * (it.speed || 1);
+    if (it.type === 'weights' || it.type === 'cable') w.lift = 0;
     if ((it.type === 'bag' || it.type === 'kickbag') && !(w.body && w.body.ready('jab'))) { this.toast('LOADING...', 0.8); }
     this.toast(it.type === 'treadmill' ? 'RUNNING: STAMINA' : 'TRAINING: STRENGTH  (USE AGAIN, OR MOVE, TO STOP)', 1.8);
   }
@@ -316,7 +403,7 @@ export class Gym {
     if (!this.active) return; const P = this.env.walker, R = this.room;
     for (const b of R.bags) stepBag(b, dt);
     for (const g of this.goers) g.update(dt);
-    if (this.bout) { this.bout.update(dt, f); this._prompt = this.bout ? (this.bout.state === 'over' ? 'LEAVE THE RING' : 'THROW IN THE TOWEL') : ''; if (this.bout) { this.renderHud(); return; } }
+    if (this.bout) { this.bout.update(dt, f); const b = this.bout; this._prompt = b ? (b.state === 'over' ? (b.style === 'boxing' ? 'LEAVE THE RING' : 'STEP OFF THE MAT') : b.mode !== 'bout' ? 'STOP' : 'THROW IN THE TOWEL') : ''; if (this.bout) { this.renderHud(); return; } }
     // Training.
     const s = this.session;
     if (s) {
@@ -336,12 +423,12 @@ export class Gym {
               this.gain('str', XP[name] || 1);
             } });
           }
-        } else if (it.type === 'weights') {
+        } else if (it.type === 'weights' || it.type === 'cable') {
           const before = P.lift || 0; P.lift = before + dt * (2.2 + 0.08 * this.strength); P.h = it.face || 0;
           if (Math.floor(P.lift / Math.PI) !== Math.floor(before / Math.PI)) this.gain('str', 0.9);
-          if (this.dumbbells) holdDumbbells(P, this.dumbbells);
+          if (this.dumbbells && it.type === 'weights') holdDumbbells(P, this.dumbbells);
         } else if (it.type === 'treadmill') {
-          P.treadmill = 2.2 + 0.25 * this.stamina; P.h = it.face || 0;
+          P.treadmill = (2.2 + 0.25 * this.stamina) * (it.speed || 1); P.h = it.face || 0;
           s.acc = (s.acc || 0) + dt; if (s.acc >= 1) { s.acc -= 1; this.gain('sta', 1.4); }
         }
       }
@@ -375,30 +462,48 @@ export class Gym {
     if (typeof document === 'undefined') return;
     if (!this.boutEl) {
       ensureStyle(); const el = document.createElement('div'); el.id = 'bouthud'; el.className = 'hidden';
-      el.innerHTML = '<div class="bh-top"><b id="bh-name"></b><span id="bh-clock"></span></div><div class="bh-row"><span>YOU</span><i><em id="bh-p"></em></i><b id="bh-pp"></b></div><div class="bh-row"><span>HIM</span><i><em id="bh-o"></em></i><b id="bh-op"></b></div>';
+      el.innerHTML = '<div class="bh-top"><b id="bh-name"></b><span id="bh-clock"></span></div><div class="bh-row"><span id="bh-pl">YOU</span><i><em id="bh-p"></em></i><b id="bh-pp"></b></div><div class="bh-row"><span id="bh-ol">HIM</span><i><em id="bh-o"></em></i><b id="bh-op"></b></div>';
       (document.getElementById('hud') || document.body).appendChild(el); this.boutEl = el;
     }
     this.boutEl.classList.toggle('hidden', !on); if (this.hud) this.hud.classList.toggle('hidden', !!on || !this.active);
   }
   renderBout(b) {
-    if (!this.boutEl) return; const sig = [b.state, Math.ceil(b.clock), Math.round(b.php), Math.round(b.ohp), b.pts[0], b.pts[1]].join('|'); if (sig === this.boutSig) return; this.boutSig = sig;
-    document.getElementById('bh-name').textContent = b.S.name + (b.state === 'intro' ? ': SQUARE UP' : b.state === 'over' ? (b.result === 'win' ? ': YOU WIN' : b.result === 'draw' ? ': A DRAW' : ': YOU LOSE') : '');
-    const c = Math.max(0, Math.ceil(b.clock)); document.getElementById('bh-clock').textContent = `${(c / 60) | 0}:${String(c % 60).padStart(2, '0')}`;
-    document.getElementById('bh-p').style.width = b.php + '%'; document.getElementById('bh-o').style.width = b.ohp + '%';
-    document.getElementById('bh-pp').textContent = b.style === 'karate' ? b.pts[0] + ' PTS' : ''; document.getElementById('bh-op').textContent = b.style === 'karate' ? b.pts[1] + ' PTS' : '';
+    if (!this.boutEl) return; const sig = [b.mode, b.state, Math.ceil(b.clock), Math.round(b.php), Math.round(b.ohp), b.pts[0], b.pts[1], b.good, b.calls, b.streak, b.landed, b.taken].join('|'); if (sig === this.boutSig) return; this.boutSig = sig;
+    const $ = id => document.getElementById(id), pads = b.mode === 'pads', spar = b.mode === 'spar';
+    $('bh-name').textContent = b.S.name + (b.mode !== 'bout' ? ' ' + b.M.name : '') + (b.state === 'intro' ? ': SQUARE UP' : b.state === 'over' ? (b.result === 'done' ? ': DONE' : b.result === 'win' ? ': YOU WIN' : b.result === 'draw' ? ': A DRAW' : ': YOU LOSE') : '');
+    const c = Math.max(0, Math.ceil(b.clock)); $('bh-clock').textContent = `${(c / 60) | 0}:${String(c % 60).padStart(2, '0')}`;
+    $('bh-pl').textContent = pads ? 'CALLS' : spar ? 'YOU' : 'YOU'; $('bh-ol').textContent = pads ? 'STREAK' : 'HIM';
+    if (pads) { $('bh-p').style.width = (b.calls ? 100 * b.good / b.calls : 0) + '%'; $('bh-o').style.width = Math.min(10, b.streak) * 10 + '%'; $('bh-pp').textContent = `${b.good}/${b.calls}`; $('bh-op').textContent = String(b.streak); return; }
+    $('bh-p').style.width = b.php + '%'; $('bh-o').style.width = b.ohp + '%';
+    $('bh-pp').textContent = b.style === 'karate' ? b.pts[0] + ' PTS' : spar ? String(b.landed) : ''; $('bh-op').textContent = b.style === 'karate' ? b.pts[1] + ' PTS' : spar ? String(b.taken) : '';
   }
-  showMenu(on) {
-    this.menuOpen = !!on; if (typeof document === 'undefined') return;
+  // The menu: the memberships (at the desk), or what to do in the ring or on the mat (kind 'choice').
+  showMenu(on, kind = 'member') {
+    this.menuOpen = !!on; if (on) this.menuKind = kind; else this.choiceItem = this.menuKind === 'choice' ? null : this.choiceItem;
+    if (typeof document === 'undefined') return;
     if (on && !this.menu) {
       ensureStyle();
       const el = document.createElement('div'); el.id = 'gymmenu'; el.className = 'hidden'; document.body.appendChild(el); this.menu = el;
-      el.addEventListener('click', e => { const b = e.target.closest('[data-buy]'); if (b) { e.stopPropagation(); this.buy(+b.dataset.buy); } else if (e.target.closest('[data-close]')) { e.stopPropagation(); this.showMenu(false); } });
-      this.onKey = e => { if (!this.menuOpen) return; if (e.code === 'Escape') { this.showMenu(false); e.preventDefault(); e.stopPropagation(); } else if (/^Digit[1-3]$/.test(e.code)) { this.buy(+e.code.slice(5) - 1); e.preventDefault(); e.stopPropagation(); } };
+      el.addEventListener('click', e => { const b = e.target.closest('[data-buy]'), p = e.target.closest('[data-pick]'); if (b) { e.stopPropagation(); this.buy(+b.dataset.buy); } else if (p) { e.stopPropagation(); this.pick(p.dataset.pick); } else if (e.target.closest('[data-close]')) { e.stopPropagation(); this.showMenu(false); } });
+      this.onKey = e => {
+        if (!this.menuOpen) return;
+        if (e.code === 'Escape') { this.showMenu(false); e.preventDefault(); e.stopPropagation(); }
+        else if (/^Digit[1-3]$/.test(e.code)) { const n = +e.code.slice(5) - 1; if (this.menuKind === 'choice') this.pick(['pads', 'spar', 'bout'][n]); else this.buy(n); e.preventDefault(); e.stopPropagation(); }
+      };
       window.addEventListener('keydown', this.onKey, true);
     }
     if (!this.menu) return;
-    if (on) { this.renderMenu(); if (document.exitPointerLock && document.pointerLockElement) document.exitPointerLock(); }
+    if (on) { if (kind === 'choice') this.renderChoice(); else this.renderMenu(); if (document.exitPointerLock && document.pointerLockElement) document.exitPointerLock(); }
     this.menu.classList.toggle('hidden', !on);
+  }
+  renderChoice() {
+    if (!this.menu || !this.choiceItem) return; const box = this.choiceItem.type === 'ring', S = STYLES[box ? 'boxing' : 'karate'];
+    const cards = [
+      ['pads', 'PAD WORK', 'WITH A COACH', box ? 'He holds the focus mitts and calls the shots: hit them on the call ("ONE-TWO!"), and duck when he swings. 60 seconds. Builds strength.' : 'He holds the kick pads and calls PUNCH or KICK: hit on the call, and duck when he swings. 60 seconds. Builds strength.'],
+      ['spar', 'SPARRING', 'LIGHT, NO KNOCKOUTS', `Trade blows with a sparring partner at half power${box ? ' (fists only)' : ''}. No one goes down; stop when you like (or after 2 minutes). Builds strength.`],
+      ['bout', 'A BOUT', `PURSE $${S.purse}`, box ? 'A real fight: fists only, 90 seconds. Win by knockout, or on the damage done at the bell.' : 'A real fight: punch 1 point, kick 2, a kick that floors him 3. First to 8 wins.'],
+    ];
+    this.menu.innerHTML = `<div class="gm-box"><div class="gm-head"><b>${S.name}</b><span>${box ? 'THE RING' : 'THE KARATE STUDIO'}</span></div><div class="gm-cards">${cards.map(([k, t, sub, p], i) => `<div class="gm-card"><b>${t}</b><div class="gm-price">${sub}</div><p>${p}</p><button data-pick="${k}">${k === 'bout' ? 'FIGHT' : 'START'} (${i + 1})</button></div>`).join('')}</div><p class="gm-note">Your punches and kicks are your own: punch, kick, and crouch to duck. Use again to stop pad work or sparring, or to throw in the towel.</p><button class="gm-close" data-close="1">CLOSE (ESC)</button></div>`;
   }
   renderMenu() {
     if (!this.menu) return; const cash = this.settings.cash || 0, have = this.tier;

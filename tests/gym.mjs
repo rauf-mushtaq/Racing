@@ -1,7 +1,8 @@
 // Gyms (src/gym.js, the room in src/rooms.js, the front in src/venues.js): there are many on the map; walk in; a membership is bought at the front desk
 // with banked money (and only if there is enough); without one the machines are refused; training on the heavy bag raises strength (the recorded
 // punches, the bag swinging), the treadmill stamina, the dumbbells strength; the membership caps how far; strength makes blows hit harder and at 10 a
-// kick kills; stamina sprints faster.
+// kick kills; stamina sprints faster. In the ring and on the karate mat you choose: pad work with a coach (hit on his call, duck his swing), light
+// sparring (no knockouts), or a bout for a purse.
 import { check, open, step, finish } from './lib.mjs';
 
 try {
@@ -31,6 +32,7 @@ try {
   check('walking in builds the gym (not a robbery)', inn.ok && inn.inside && inn.gym && !inn.heist, JSON.stringify(inn));
   check('it has a desk, heavy bags, a kick bag, dumbbells and treadmills', ['desk', 'bag', 'kickbag', 'weights', 'treadmill'].every(t => inn.items.includes(t)) && inn.bags >= 4, JSON.stringify(inn.items));
   check('and people training in it', inn.people >= 5, String(inn.people));
+  check('a health club: treadmills and cross trainers, a cable station, a café, a dozen people about', inn.items.filter(t => t === 'treadmill').length >= 7 && inn.items.includes('cable') && inn.people >= 11, JSON.stringify({ items: inn.items, people: inn.people }));
   await P.waitForFunction(() => window.__game.walker.body && window.__game.walker.body.ready('jab') && window.__game.gym.goers.every(o => o.walker.person), null, { timeout: 60000 }).catch(() => {});
 
   const at = type => P.evaluate(t => { const g = window.__game, it = g.gym.room.items.find(i => i.type === t); g.walker.x = it.x; g.walker.z = it.z; g.walker.h = it.face || 0; g.tick(1 / 60); return g.gym.prompt; }, type);
@@ -86,7 +88,7 @@ try {
   console.log('bouts');
   const kit = await P.evaluate(() => { const R = window.__game.gym.room; return { ring: !!R.gymRing && R.items.some(i => i.type === 'ring'), mat: !!R.gymMat && R.items.some(i => i.type === 'dojo'), loose: R.loose.length }; });
   check('the gym has a boxing ring and a karate mat you can fight on, and more kit (barbells, plates)', kit.ring && kit.mat && kit.loose > 20, JSON.stringify(kit));
-  const startBout = type => P.evaluate(t => { const g = window.__game, G = g.gym, w = g.walker, it = G.room.items.find(i => i.type === t); G.settings.gymTier = 2; G.settings.gymStr = 0; w.place(it.x, it.z, it.face || 0); g.tick(1 / 60); const prompt = G.prompt; G.use(); const b = G.bout, A = b && b.area; return { prompt, style: b && b.style, inside: !!A && w.x > A.x0 && w.x < A.x1 && w.z > A.z0 && w.z < A.z1, oppIn: !!A && b.x > A.x0 && b.x < A.x1 }; }, type);
+  const startBout = (type, mode = 'bout') => P.evaluate(([t, mode]) => { const g = window.__game, G = g.gym, w = g.walker, it = G.room.items.find(i => i.type === t); G.settings.gymTier = 2; G.settings.gymStr = 0; w.place(it.x, it.z, it.face || 0); g.tick(1 / 60); const prompt = G.prompt; G.use(); const menu = G.menuOpen && !G.bout && [...document.querySelectorAll('#gymmenu:not(.hidden) [data-pick]')].map(b => b.dataset.pick).join(','); G.pick(mode); const b = G.bout, A = b && b.area; return { prompt, menu, mode: b && b.mode, style: b && b.style, inside: !!A && w.x > A.x0 && w.x < A.x1 && w.z > A.z0 && w.z < A.z1, oppIn: !!A && b.x > A.x0 && b.x < A.x1 }; }, [type, mode]);
   const waitOpp = () => P.waitForFunction(() => { const b = window.__game.gym.bout; return !b || (b.opp.person && b.opp.body && b.opp.body.ready('jab')); }, null, { timeout: 60000 }).catch(() => {});
   // Fight: face him (the camera too: a blow goes where you look) and throw a blow every 0.4 s, as `kind` ('fist' or 'kick').
   const fightOut = kind => P.evaluate(kind => {
@@ -98,7 +100,7 @@ try {
     for (let k = 0; k < 60 * 8 && G.bout; k++) g.tick(1 / 60); out.ended = !G.bout; const it = b.item; out.back = Math.hypot(w.x - it.x, w.z - it.z) < 0.6; return out;
   }, kind);
   const b1 = await startBout('ring'); await waitOpp(); const f1 = await fightOut('fist');
-  check('using the ring\'s steps starts a boxing bout, with you and him in the ring', b1.prompt === 'BOXING: FIGHT A BOUT' && b1.style === 'boxing' && b1.inside && b1.oppIn, JSON.stringify(b1));
+  check('the ring\'s steps offer pad work, sparring or a bout; a bout puts you and him in the ring', b1.prompt === 'BOXING: TRAIN OR FIGHT' && b1.menu === 'pads,spar,bout' && b1.mode === 'bout' && b1.style === 'boxing' && b1.inside && b1.oppIn, JSON.stringify(b1));
   check('the bell goes, he is a target for your fists, and the bout is fought to a finish (both of you land blows)', f1.fought && f1.targeted && f1.state === 'over' && f1.landed > 0 && f1.taken > 0 && !!f1.result, JSON.stringify(f1));
   check('a knockout win pays the purse; afterwards you are back down the steps', (f1.result !== 'win' || f1.paid === 150) && f1.ended && f1.back, JSON.stringify(f1));
   // A kick in the ring is a foul.
@@ -106,9 +108,41 @@ try {
   const foul = await P.evaluate(() => { const g = window.__game, G = g.gym, b = G.bout; for (let i = 0; i < 60 * 12 && b.state === 'intro'; i++) g.tick(1 / 60); const h0 = b.ohp, r = b.hit(24, { kind: 'kick', knock: 1, dir: { x: 1, z: 0 } }); const out = { fouls: b.fouls, same: b.ohp === h0, r }; b.hit(24, { kind: 'kick' }); b.hit(24, { kind: 'roundhouse' }); out.after = { state: b.state, result: b.result, why: b.why }; for (let k = 0; k < 60 * 8 && G.bout; k++) g.tick(1 / 60); return out; });
   check('boxing is fists only: a kick is a foul that does nothing, and three are a disqualification', foul.fouls === 1 && foul.same && foul.after.result === 'lose' && /DISQUALIFIED/.test(foul.after.why), JSON.stringify(foul));
   const b2 = await startBout('dojo'); await waitOpp(); const f2 = await fightOut('kick');
-  check('the edge of the mat starts a karate bout on it', b2.prompt === 'KARATE: SPAR ON THE MAT' && b2.style === 'karate' && b2.inside && b2.oppIn, JSON.stringify(b2));
+  check('the karate studio\'s door offers the same, and a bout is fought on the mat', b2.prompt === 'KARATE: TRAIN OR SPAR' && b2.menu === 'pads,spar,bout' && b2.style === 'karate' && b2.inside && b2.oppIn, JSON.stringify(b2));
   check('in karate kicks score (two points, three if he goes down) and the first to 8 wins (or the most at the bell)', f2.fought && f2.state === 'over' && (f2.pts[0] >= 2 || f2.pts[1] >= 2) && (f2.result !== 'win' || f2.paid === 200), JSON.stringify(f2));
   check('the sparring pair on the mat stepped off for the bout, and are back after it', await P.evaluate(() => { const g = window.__game; g.tick(1 / 60); return g.gym.goers.filter(o => /^kar/.test(o.role)).every(o => !o.off && o.walker.mesh.visible); }), '');
+  // Pad work: the coach calls, you hit on the call (a kick when he calls a kick), you crouch under his swing.
+  for (const [type, label] of [['ring', 'boxing'], ['dojo', 'karate']]) {
+    const s0 = await startBout(type, 'pads'); await waitOpp();
+    const pw = await P.evaluate(() => {
+      const g = window.__game, G = g.gym, w = g.walker, b = G.bout, str0 = g.settings.gymStr || 0; if (!b) return { none: true };
+      for (let i = 0; i < 60 * 12 && b.state === 'intro'; i++) g.tick(1 / 60);
+      b.clock = 30;                                                                   // (half the real minute: enough calls, and the test stays short)
+      let i = 0, ducks = 0; const said = new Set();
+      for (; i < 60 * 40 && b.state === 'fight'; i++) {
+        w.h = Math.atan2(b.x - w.x, b.z - w.z); g.footCam.yaw = w.h; const c = b.call; if (c) said.add(c.say);
+        g.input.touch.crouch = !!(c && c.duck); if (c && c.duck) ducks++;
+        if (c && !c.duck && c.need.length && !g.melee.busy && i % 6 === 0) { if (c.need[0] === 'k') g.melee.kick(); else g.melee.attack('fist'); }
+        g.tick(1 / 60);
+      }
+      g.input.touch.crouch = false;
+      const out = { state: b.state, result: b.result, why: b.why, calls: b.calls, good: b.good, taken: b.taken, said: [...said], mitts: !!b.mitts && b.mitts.every(m => m.visible), gain: +((g.settings.gymStr || 0) - str0).toFixed(1), downs: b.downs };
+      for (let k = 0; k < 60 * 8 && G.bout; k++) g.tick(1 / 60); out.ended = !G.bout; return out;
+    });
+    check(`${label} pad work: the coach holds the pads and calls the shots; blows on the call count and build strength; it ends when the time is up`, s0.mode === 'pads' && s0.inside && pw.calls >= 6 && pw.good >= pw.calls * 0.5 && pw.said.length >= 3 && pw.gain > 3 && pw.result === 'done' && pw.ended, JSON.stringify({ s0, pw }));
+    check(`${label} pad work: he swings at you now and then (DUCK!), and no one is knocked down`, pw.said.includes('DUCK!') && pw.downs[0] + pw.downs[1] === 0, JSON.stringify(pw.said));
+  }
+  // Sparring: blows land both ways at half power, no one goes down, and it stops when you use again.
+  const sp0 = await startBout('ring', 'spar'); await waitOpp();
+  const sp = await P.evaluate(() => {
+    const g = window.__game, G = g.gym, w = g.walker, b = G.bout; if (!b) return { none: true }; const cash0 = g.settings.cash;
+    for (let i = 0; i < 60 * 12 && b.state === 'intro'; i++) g.tick(1 / 60);
+    let minP = 100, minO = 100, downs = 0, i = 0;
+    for (; i < 60 * 20 && b.state === 'fight'; i++) { w.h = Math.atan2(b.x - w.x, b.z - w.z); g.footCam.yaw = w.h; if (i % 24 === 0) g.melee.attack('fist'); g.tick(1 / 60); minP = Math.min(minP, b.php); minO = Math.min(minO, b.ohp); if (w.down > 0.5 || b.opp.down > 0.5) downs++; }
+    const going = b.state === 'fight'; G.use(); const out = { going, state: b.state, result: b.result, why: b.why, landed: b.landed, taken: b.taken, minP: Math.round(minP), minO: Math.round(minO), downs, paid: g.settings.cash - cash0 };
+    for (let k = 0; k < 60 * 8 && G.bout; k++) g.tick(1 / 60); out.ended = !G.bout; return out;
+  });
+  check('light sparring: blows land both ways, no knockouts (no one goes down), and using again stops it with no purse', sp0.mode === 'spar' && sp.going && sp.landed > 0 && sp.taken > 0 && sp.downs === 0 && sp.minP >= 12 && sp.minO >= 12 && sp.result === 'done' && sp.paid === 0 && sp.ended, JSON.stringify({ sp0, sp }));
   await P.evaluate(() => { const g = window.__game; g.leaveVenue(true); g.tick(1 / 60); });
   const hit = await P.evaluate(() => {
     const g = window.__game, m = g.melee, w = g.walker, out = {}, saved = g.settings.gymStr; for (const q of g.peds.list) q.kind = 'civ';
