@@ -19,7 +19,22 @@ export const VENUE_TYPES = {
   gym:      { kind: 'gym',      name: 'IRON CITY GYM',    gym: true, tier: 0, stars: 0, blurb: 'Train: hit harder, run faster' },
   // Nor this: a police station, with its front desk and its cells (jail.js). Arrested, you are kept here.
   police:   { kind: 'police',   name: 'POLICE STATION',   station: true, tier: 0, stars: 0, blurb: 'The front desk, and the cells' },
+  // And every other building: walk in through any wall to look round (rooms-visit.js, visit.js). Nothing to rob, people about.
+  office:    { kind: 'office',    name: 'THE OFFICES',         visit: true, tier: 0, stars: 0, blurb: 'A lobby five storeys high, galleries, the floors above' },
+  flats:     { kind: 'flats',     name: 'THE FLATS',           visit: true, tier: 0, stars: 0, blurb: 'A loft flat over two floors' },
+  home:      { kind: 'home',      name: 'THE HOUSE',           visit: true, tier: 0, stars: 0, blurb: 'A family home' },
+  store:     { kind: 'store',     name: 'THE STORE',           visit: true, tier: 0, stars: 0, blurb: 'A department store and supermarket' },
+  hotel:     { kind: 'hotel',     name: 'THE HOTEL',           visit: true, tier: 0, stars: 0, blurb: 'A grand lobby and its galleries' },
+  cinema:    { kind: 'cinema',    name: 'THE CINEMA',          visit: true, tier: 0, stars: 0, blurb: 'The big screen' },
+  church:    { kind: 'church',    name: 'THE CATHEDRAL',       visit: true, tier: 0, stars: 0, blurb: 'The nave and the high altar' },
+  warehouse: { kind: 'warehouse', name: 'THE WAREHOUSE',       visit: true, tier: 0, stars: 0, blurb: 'Racking, pallets and forklifts' },
 };
+// Which kind of room is behind the walls of a building, from what the city knows of it (city.js tags its colliders with `bld`).
+export function insideKindFor(c) {
+  const use = c && c.bld && c.bld.use;
+  if (use && VENUE_TYPES[use]) return use;
+  return { glass: 'office', modern: 'office', civic: 'office', apt: 'flats', brick: 'flats', shop: 'store', house: 'home' }[use] || 'warehouse';
+}
 // The nearest police station that has been built so far (or null).
 export function stationNear(x, z) { let best = null, bd = 1e18; for (const v of VENUES.values()) { if (v.kind !== 'police') continue; const d = (v.x - x) ** 2 + (v.z - z) ** 2; if (d < bd) { bd = d; best = v; } } return best; }
 
@@ -106,6 +121,9 @@ function glazing(city, ctx, b, f, t0, t1, y0, y1, o = {}) {
 function signOver(city, ctx, b, f, cell, y, w, h, o = 0.3) { city.faceSign(ctx, b, f, cell, 0, o, CURB + y, w, h); }
 
 export function buildVenue(city, ctx, lot, faces, zone, kind, rnd) {
+  ctx.use = kind; try { buildVenueOf(city, ctx, lot, faces, zone, kind, rnd); } finally { ctx.use = null; }          // (its walls lead into it too: city.js tags its building)
+}
+function buildVenueOf(city, ctx, lot, faces, zone, kind, rnd) {
   const f = faces[0], G = ctx.gb, along = f.dir[0] !== 0 ? lot.z1 - lot.z0 : lot.x1 - lot.x0, depth = f.dir[0] !== 0 ? lot.x1 - lot.x0 : lot.z1 - lot.z0;
   const g = 0.8 + rnd() * 0.8, b = { x0: lot.x0 + g, z0: lot.z0 + g, x1: lot.x1 - g, z1: lot.z1 - g };
   for (const ff of faces) { if (ff.dir[0] < 0) b.x0 = lot.x0 + 0.3; if (ff.dir[0] > 0) b.x1 = lot.x1 - 0.3; if (ff.dir[1] < 0) b.z0 = lot.z0 + 0.3; if (ff.dir[1] > 0) b.z1 = lot.z1 - 0.3; }

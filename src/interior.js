@@ -4,7 +4,7 @@
 // the floor, and the bullets all work from the room's own list of boxes, never the city's. The streets round the door go on being simulated, so the police
 // really do arrive outside it.
 import * as THREE from 'three';
-import { GB, circlePoly } from './geom.js';
+import { GB, circlePoly, mergeGeoms } from './geom.js';
 import { clamp, mulberry32 } from './util.js';
 import { attachSSR } from './ssr.js';
 
@@ -67,6 +67,31 @@ const SURFACES = {
     const c = f > 0.95 ? [0.62, 0.63, 0.65] : f > 0.925 ? [0.2, 0.22, 0.24] : f > 0.915 ? [0.55, 0.45, 0.2] : [0.34, 0.35, 0.37];
     const k = 0.92 + 0.1 * fbm(u, v, 14); return [c[0] * 255 * k, c[1] * 255 * k, c[2] * 255 * k, joint ? 0.15 : 0.55 + 0.12 * hash(x, y), joint ? 1 : 0.82];
   }, 3),
+  // Terrazzo (an office lobby): pale polished stone flecked with chips, in big slabs with brass strips between them.
+  terrazzo: () => surfaceTex(512, (u, v, x, y) => {
+    const tu = (u * 2) % 1, tv = (v * 2) % 1, joint = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.004, f = hash(x * 2.1, y * 1.7), chip = f > 0.9 ? (f > 0.97 ? 0.45 : f > 0.94 ? 0.62 : 0.78) : 0;
+    const g = (chip || 0.9 + 0.04 * fbm(u, v, 9)); return joint ? [176, 146, 92, 0.6, 0.3] : [g * 238, g * 234, g * 226, 0.55, 0.1 + 0.05 * noise(u, v, 30)];
+  }, 1.5),
+  // Carpet (a cinema, a hotel corridor): a dark red pile with a pattern of small diamonds.
+  carpet: () => surfaceTex(256, (u, v, x, y) => {
+    const du = Math.abs(((u * 8) % 1) - 0.5), dv = Math.abs(((v * 8) % 1) - 0.5), dia = du + dv < 0.18 ? 1 : 0, pile = 0.85 + 0.15 * hash(x, y);
+    const c = dia ? [150, 108, 52] : [92, 22, 30]; return [c[0] * pile, c[1] * pile, c[2] * pile, 0.5 + 0.2 * hash(x * 3, y), 0.95];
+  }, 1.2),
+  // Stone flags (a cathedral's floor): big worn slabs of pale grey-brown stone in courses, the joints dark.
+  flags: () => surfaceTex(512, (u, v, x, y) => {
+    const rows = 4, r = Math.floor(v * rows), lv = (v * rows) % 1, off = hash(r, 3) * 0.6, lu = (u * 2.5 + off) % 1, c = Math.floor(u * 2.5 + off), joint = lv < 0.012 || lu < 0.008;
+    const tone = 0.78 + 0.18 * hash(c, r), wear = 0.94 + 0.08 * fbm(u, v, 6); const g = joint ? 0.35 : tone * wear; return [g * 214, g * 202, g * 182, joint ? 0.1 : 0.5 + 0.08 * fbm(u, v, 20), joint ? 0.9 : 0.6];
+  }, 2.5),
+  // Ashlar (a cathedral's walls): courses of dressed stone, fine joints.
+  ashlar: () => surfaceTex(512, (u, v, x, y) => {
+    const rows = 8, r = Math.floor(v * rows), lv = (v * rows) % 1, lu = (u * 3 + (r & 1) * 0.5) % 1, c = Math.floor(u * 3 + (r & 1) * 0.5), joint = lv < 0.03 || lu < 0.012;
+    const g = joint ? 0.62 : (0.84 + 0.12 * hash(c, r)) * (0.95 + 0.07 * fbm(u, v, 16)); return [g * 226, g * 214, g * 192, joint ? 0.1 : 0.55, 0.85];
+  }, 2.5),
+  // Polished concrete (a warehouse, a loft): grey, mottled, with saw cuts and a few stains.
+  slab: () => surfaceTex(512, (u, v, x, y) => {
+    const tu = (u * 2) % 1, tv = (v * 2) % 1, cut = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.003, m = fbm(u * 0.8, v * 0.8, 5), st = Math.pow(fbm(u + 7, v, 3), 3) * 0.25;
+    const g = (0.62 + 0.18 * m) * (1 - st); return [g * 200, g * 198, g * 194, cut ? 0.1 : 0.55, cut ? 0.9 : 0.35 + 0.2 * m];
+  }, 1.5),
   // Oak boards (a museum's galleries).
   oak: () => surfaceTex(512, (u, v) => {
     const plank = Math.floor(u * 8), local = (u * 8) % 1, off = hash(plank, 1), lv = (v + off) % 1, row = Math.floor((v + off) * 2), end = (lv * 2) % 1 < 0.006;
@@ -107,6 +132,12 @@ const LOOK = {
   jeweller: ['granite', 'plaster', 'ceiling', { clearcoat: 0.8, rough: 0.6 }], bank: ['marble', 'plaster', 'ceiling', { clearcoat: 0.85, rough: 0.6 }],
   museum: ['oak', 'plaster', 'ceiling', { clearcoat: 0.55, rough: 0.9 }], gym: ['gymfloor', 'plaster', 'concrete', { clearcoat: 0.08, rough: 1 }],
   police: ['epoxy', 'block', 'concrete', { clearcoat: 0.35, rough: 0.9 }],
+  // The buildings you can walk into to look round (rooms-visit.js).
+  // (glow: the light a white ceiling gets back from a bright room, which the room's few lamps, all below it, do not give it)
+  office: ['terrazzo', 'plaster', 'ceiling', { clearcoat: 0.9, rough: 0.5, glow: 0.45 }], flats: ['oak', 'plaster', 'plaster', { clearcoat: 0.5, rough: 0.8, glow: 0.4 }],
+  home: ['oak', 'plaster', 'plaster', { clearcoat: 0.5, rough: 0.8, glow: 0.38 }], store: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.4, rough: 0.9, glow: 0.42 }],
+  hotel: ['marble', 'plaster', 'plaster', { clearcoat: 0.9, rough: 0.5, glow: 0.32 }], cinema: ['carpet', 'plaster', 'concrete', { clearcoat: 0, rough: 1 }],
+  church: ['flags', 'ashlar', 'ashlar', { clearcoat: 0.15, rough: 0.9, glow: 0.22 }], warehouse: ['slab', 'block', 'concrete', { clearcoat: 0.3, rough: 0.9, glow: 0.15 }],
 };
 export const TEX = {};
 function makeTextures() {
@@ -124,6 +155,40 @@ function makeTextures() {
   TEX.plaster = dataTex(64, (u, v) => { const g = 0.92 + 0.08 * noise(u, v, 12) + 0.04 * noise(u, v, 40); return [g * 244, g * 238, g * 228]; });
   // A suspended ceiling: tiles of 0.57 m with a dark grid between them and a little speckle (one texture covers 4 m).
   TEX.ceil = dataTex(128, (u, v) => { const tu = (u * 7) % 1, tv = (v * 7) % 1, grid = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.024, g = grid ? 0.5 : 0.93 + 0.05 * noise(u, v, 50) + 0.03 * noise(u, v, 9); return [g * 238, g * 236, g * 230]; });
+  // Books on a shelf: rows of spines in many colours, each row a little different (4 rows to a copy, 1.6 m along).
+  TEX.books = dataTex(256, (u, v, x, y) => {
+    const row = Math.floor(v * 4), lv = (v * 4) % 1, w = [0.07, 0.05, 0.09, 0.06][row], col = Math.floor(u / w), lu = (u / w) % 1, hgt = 0.55 + 0.35 * hash(col, row * 7);
+    const pal = [[210, 58, 58], [232, 192, 48], [58, 120, 210], [58, 168, 96], [240, 240, 236], [226, 122, 48], [138, 74, 194], [40, 40, 44], [200, 160, 110]], c = pal[Math.floor(hash(col * 3.1, row) * pal.length)];
+    if (lv < 0.06) return [150, 156, 162];                                                       // the shelf's edge
+    if (lv > 0.06 + hgt * 0.94 || lu < 0.06 || lu > 0.94) return [36, 34, 32];                   // the dark gap behind and between
+    const band = lv > 0.35 && lv < 0.55 ? 1.25 : 1, sh = 0.8 + 0.25 * Math.sin(lu * 3.1);
+    return [Math.min(255, c[0] * band * sh), Math.min(255, c[1] * band * sh), Math.min(255, c[2] * band * sh)];
+  });
+  // Goods on a supermarket shelf: on each shelf a run of one product (boxes, bottles, tins or packets), faced up in rows, each with its label; white
+  // shelves with a price strip along the edge (4 shelves to a copy, 1.6 m along).
+  TEX.goods = dataTex(256, (u, v, x, y) => {
+    const row = Math.floor(v * 4), lv = (v * 4) % 1, kind = row % 4, run = Math.floor(u * 3), prod = Math.floor(hash(run * 3.7, row * 1.3) * 9);
+    const pal = [[210, 58, 58], [232, 192, 48], [58, 120, 210], [58, 168, 96], [240, 240, 236], [226, 122, 48], [138, 74, 194], [40, 40, 44], [200, 160, 110]], c = pal[prod];
+    if (lv < 0.07) return lv < 0.035 ? [235, 236, 238] : [252, 214, 60];                        // the shelf, and its price strip
+    const w = [0.045, 0.028, 0.034, 0.05][kind], lu = (u / w) % 1, top = [0.82, 0.88, 0.5, 0.7][kind];
+    if (lv > 0.07 + top * 0.9) return [212, 214, 216];                                          // the white back of the shelf above the goods
+    if (lu < 0.05 || lu > 0.95) return [c[0] * 0.45, c[1] * 0.45, c[2] * 0.45];                    // between one and the next
+    const hh = (lv - 0.07) / (top * 0.9);
+    if (kind === 1 && hh > 0.78) { if (lu < 0.3 || lu > 0.7) return [212, 214, 216]; return [40, 40, 44]; }      // bottles: a neck and a cap
+    if (kind === 2 && (hh < 0.08 || hh > 0.92)) return [180, 184, 188];                          // tins: the rims
+    const label = hh > 0.32 && hh < 0.64, sh = 0.82 + 0.22 * Math.sin(lu * 3.1);
+    if (label) return [Math.min(255, 245 * sh), Math.min(255, 242 * sh), Math.min(255, 232 * sh)].map((q, i) => q * (0.9 + 0.1 * (i === 0 ? c[0] / 255 : i === 1 ? c[1] / 255 : c[2] / 255)));
+    return [c[0] * sh, c[1] * sh, c[2] * sh];
+  });
+  // A frame of a film (the cinema's screen, the televisions): a sunset over a city skyline, two figures.
+  TEX.film = dataTex(256, (u, v0) => {
+    const v = 1 - v0;                                                                            // (a data texture's first row is the bottom of the picture)
+    const sky = [[255, 170, 90], [240, 110, 90], [120, 70, 130], [40, 40, 90]], t = v, i = Math.min(2, Math.floor(t * 3)), f = t * 3 - i, c = sky[i].map((a, k) => a + (sky[i + 1][k] - a) * f);
+    const sun = Math.hypot(u - 0.62, (v - 0.32) * 1.6); if (sun < 0.09) return [255, 236, 190];
+    const bld = 0.18 + 0.32 * Math.abs(Math.sin(Math.floor(u * 22) * 12.9898)) * (Math.floor(u * 22) % 3 ? 1 : 0.6); if (1 - v < bld) { const win = ((u * 160) % 1 < 0.4 && ((1 - v) * 90) % 1 < 0.5 && hash(Math.floor(u * 160), Math.floor(v * 90)) > 0.6); return win ? [255, 210, 130] : [26, 22, 34]; }
+    if (Math.abs(u - 0.3) < 0.02 && v > 0.5 && v < 0.78 || Math.abs(u - 0.35) < 0.018 && v > 0.53 && v < 0.78) return [20, 16, 24];
+    return c;
+  });
   // Artificial turf (a sled track): green blades, darker and lighter, in stripes a metre wide.
   TEX.turf = dataTex(128, (u, v, x, y) => { const blade = hash(x * 3.1, y * 1.3), stripe = Math.floor(u * 2) & 1, g = (0.78 + 0.3 * blade) * (stripe ? 0.92 : 1.04) * (0.94 + 0.08 * noise(u, v, 12)); return [58 * g, 118 * g, 52 * g]; });
   TEX.concrete = dataTex(64, (u, v) => { const g = 0.72 + 0.2 * noise(u, v, 10) + 0.08 * noise(u, v, 50); return [g * 200, g * 200, g * 196]; });
@@ -142,12 +207,13 @@ export const C = h => new THREE.Color(h);
 export class Room {
   constructor(kind, ox, oz) {
     this.kind = kind; this.ox = ox; this.oz = oz; this.oy = STAGE_Y;
-    this.gb = { floor: new GB(true), wall: new GB(true), ceil: new GB(true), prop: new GB(true), metal: new GB(true), emit: new GB(true), wood: new GB(true), turf: new GB(true), art: [] };      // (wood: oak boards and timber; turf: artificial grass)
+    this.gb = { floor: new GB(true), wall: new GB(true), ceil: new GB(true), prop: new GB(true), metal: new GB(true), emit: new GB(true), wood: new GB(true), turf: new GB(true), goods: new GB(true), books: new GB(true), screen: new GB(true), art: [] };      // (wood: oak boards and timber; turf: artificial grass; goods: packets on shelves; screen: a picture that glows)
     this.boxes = []; this.circs = []; this.items = []; this.spots = []; this.cams = []; this.lasers = []; this.loose = []; this.lights = [];
-    this.W = 10; this.D = 8; this.H = 3;
+    this.W = 10; this.D = 8; this.H = 3; this.lift = 0;              // (lift: everything boxed or drummed in goes up by this much: furniture on a gallery)
   }
   // Boxes: x0, z0, x1, z1 across the floor, y0..y1 up. `solid` makes it a thing to walk round (and to be shot at).
   box(kind, x0, z0, x1, z1, y0, y1, col, solid = false) {
+    y0 += this.lift; y1 += this.lift;
     this.gb[kind].box(this.ox + x0, this.oz + z0, this.ox + x1, this.oz + z1, this.oy + y0, this.oy + y1, 1.2, col);
     if (solid) this.boxes.push({ x0: this.ox + x0, x1: this.ox + x1, z0: this.oz + z0, z1: this.oz + z1, y0: this.oy + y0, y1: this.oy + y1 });
   }
@@ -157,7 +223,7 @@ export class Room {
   ceil(x0, z0, x1, z1, y, col) { this.gb.ceil.ceil(this.ox + x0, this.oz + z0, this.ox + x1, this.oz + z1, this.oy + y, 4, col); }
   // A round column or drum.
   drum(kind, x, z, r, y0, y1, col, solid = true, n = 14) {
-    const pts = []; for (let i = 0; i < n; i++) { const a = -i / n * Math.PI * 2; pts.push([this.ox + x + Math.cos(a) * r, this.oz + z + Math.sin(a) * r]); }
+    y0 += this.lift; y1 += this.lift; const pts = []; for (let i = 0; i < n; i++) { const a = -i / n * Math.PI * 2; pts.push([this.ox + x + Math.cos(a) * r, this.oz + z + Math.sin(a) * r]); }
     this.gb[kind].extrude(pts, this.oy + y0, this.oy + y1, 2, 2, col, 0, true); this.gb[kind].cap(pts.slice().reverse(), this.oy + y1, 2, col);
     if (solid) this.circs.push({ x: this.ox + x, z: this.oz + z, r: r + 0.05, y0: this.oy + y0, y1: this.oy + y1 });
   }
@@ -182,9 +248,81 @@ export class Room {
   }
   // A thing to do: id, type, where, how long it takes (s), what it is worth, a label for the prompt, and the object to hide when it is done.
   item(it) { it.x += this.ox; it.z += this.oz; it.y = (it.y ?? 1) + this.oy; it.state = 'ready'; this.items.push(it); return it; }
+  // Somewhere raised to stand on (a gallery, a landing, a stage), h above the floor.
+  deck(x0, z0, x1, z1, h) { (this.decks || (this.decks = [])).push({ x0: this.ox + x0, x1: this.ox + x1, z0: this.oz + z0, z1: this.oz + z1, h }); }
+  // A solid thing in the way only between y0 and y1 (a railing up on a gallery, a wall under the stairs).
+  block(x0, z0, x1, z1, y0, y1) { this.boxes.push({ x0: this.ox + x0, x1: this.ox + x1, z0: this.oz + z0, z1: this.oz + z1, y0: this.oy + y0, y1: this.oy + y1 }); }
+  // A railing along a line at height h (a top rail, a mid rail, posts every 1.2 m, or a glass panel), that keeps you on whatever it edges.
+  rail(x0, z0, x1, z1, h, col, glass = false) {
+    const along = Math.abs(x1 - x0) > Math.abs(z1 - z0), t = 0.03;
+    const bx = (a0, a1, y0, y1, w = t) => along ? this.box('metal', Math.min(x0, x1), z0 - w, Math.max(x0, x1), z0 + w, y0, y1, col) : this.box('metal', x0 - w, Math.min(z0, z1), x0 + w, Math.max(z0, z1), y0, y1, col);
+    bx(0, 0, h + 1.0, h + 1.06, 0.035);
+    if (glass) { const m = new THREE.Mesh(new THREE.BoxGeometry(along ? Math.abs(x1 - x0) : 0.02, 0.95, along ? 0.02 : Math.abs(z1 - z0)), this.mats.glass); m.position.set(this.ox + (x0 + x1) / 2, this.oy + h + 0.5, this.oz + (z0 + z1) / 2); m.renderOrder = 3; this.loose.push(m); }
+    else bx(0, 0, h + 0.5, h + 0.53);
+    const L = along ? Math.abs(x1 - x0) : Math.abs(z1 - z0), n = Math.max(1, Math.round(L / 1.2));
+    for (let k = 0; k <= n; k++) { const f = k / n, px = along ? Math.min(x0, x1) + L * f : x0, pz = along ? z0 : Math.min(z0, z1) + L * f; this.box('metal', px - 0.025, pz - 0.025, px + 0.025, pz + 0.025, h, h + 1.0, col); }
+    this.block(along ? Math.min(x0, x1) : x0 - 0.05, along ? z0 - 0.05 : Math.min(z0, z1), along ? Math.max(x0, x1) : x0 + 0.05, along ? z0 + 0.05 : Math.max(z0, z1), h, h + 1.1);
+  }
+  // A flight of steps over (x0, z0)-(x1, z1), rising towards dir ('+z', '-z', '+x', '-x') from h0 to h1: each step a deck you walk up and a block under it
+  // (to the floor). sides: which long sides get a railing and a wall under it ('a' the low-x / low-z side, 'b' the other, 'ab' both).
+  stairs(x0, z0, x1, z1, dir, h0, h1, kind, col, sides = 'ab', railCol = C(0x2a2c30), glass = false) {
+    const n = Math.max(1, Math.round((h1 - h0) / 0.18)), rise = (h1 - h0) / n, zDir = dir[1] === 'z', a0 = zDir ? z0 : x0, a1 = zDir ? z1 : x1, len = a1 - a0, up = dir[0] === '+';
+    for (let k = 0; k < n; k++) {
+      const top = h0 + rise * (k + 1), s0 = up ? a0 + len * k / n : a1 - len * (k + 1) / n, s1 = s0 + len / n;
+      const [qx0, qz0, qx1, qz1] = zDir ? [x0, s0, x1, s1] : [s0, z0, s1, z1];
+      this.box(kind, qx0, qz0, qx1, qz1, 0, top, col); this.box('prop', zDir ? qx0 : (up ? qx1 - 0.03 : qx0), zDir ? (up ? qz1 - 0.03 : qz0) : qz0, zDir ? qx1 : (up ? qx1 : qx0 + 0.03), zDir ? (up ? qz1 : qz0 + 0.03) : qz1, top - 0.004, top + 0.002, C(0x2a2a2c));     // (a dark nosing on each step)
+      this.deck(qx0, qz0, qx1, qz1, top);
+    }
+    for (const sd of sides) {
+      const lineA = zDir ? (sd === 'a' ? x0 : x1) : (sd === 'a' ? z0 : z1);
+      // The railing follows the slope in steps of a metre; under it, a wall to the floor keeps anyone below from walking into the flight.
+      const m = Math.max(1, Math.round(Math.abs(len) / 1.0));
+      for (let k = 0; k < m; k++) {
+        const s0 = a0 + len * k / m, s1 = a0 + len * (k + 1) / m, f = (k + 0.5) / m, h = h0 + (h1 - h0) * (up ? f : 1 - f);
+        if (zDir) { this.box('metal', lineA - 0.03, s0, lineA + 0.03, s1, h + 0.98, h + 1.04, railCol); this.box('metal', lineA - 0.02, (s0 + s1) / 2 - 0.02, lineA + 0.02, (s0 + s1) / 2 + 0.02, h, h + 1.0, railCol); }
+        else { this.box('metal', s0, lineA - 0.03, s1, lineA + 0.03, h + 0.98, h + 1.04, railCol); this.box('metal', (s0 + s1) / 2 - 0.02, lineA - 0.02, (s0 + s1) / 2 + 0.02, lineA + 0.02, h, h + 1.0, railCol); }
+      }
+      if (zDir) this.block(lineA - 0.06, Math.min(z0, z1), lineA + 0.06, Math.max(z0, z1), 0, h1 + 1.1); else this.block(Math.min(x0, x1), lineA - 0.06, Math.max(x0, x1), lineA + 0.06, 0, h1 + 1.1);
+    }
+  }
+  // Goods on shelves: a face of packets (a texture of rows of them), x0..x1 or z0..z1 along a line, from y0 to y1, facing (fx, fz).
+  goods(x0, z0, x1, z1, y0, y1, fx, fz, kind = 'goods') {
+    const L = Math.hypot(x1 - x0, z1 - z0), U = [x1 - x0, 0, z1 - z0], V = [0, y1 - y0, 0], o = [this.ox + x0, this.oy + y0, this.oz + z0];
+    // (the quad faces along U x V: flip it if that is not the way asked)
+    const nx = U[1] * V[2] - U[2] * V[1], nz = U[0] * V[1] - U[1] * V[0], rows = Math.max(1, Math.round((y1 - y0) / 0.42)), u = L / 1.6;
+    if (nx * fx + nz * fz >= 0) this.gb[kind].quad(o, U, V, 0, 0, u, rows / 4, C(0xffffff));
+    else this.gb[kind].quad([this.ox + x1, this.oy + y0, this.oz + z1], [-U[0], 0, -U[2]], V, 0, 0, u, rows / 4, C(0xffffff));
+  }
   spot(role, x, z, face = Math.PI, o = {}) { this.spots.push({ role, x: this.ox + x, z: this.oz + z, face, ...o }); }
 }
 
+// Plants in pots: a pot with soil, and a fan of long curved leaves out of it, each tapering to a point and lighter towards its tip. The leaves of all the
+// plants in a room are made into one mesh (plantMesh), so they cost one draw.
+export function leafGeom(L, Wd, bend, n = 7) {
+  const pos = [], col = [], idx = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, w = Wd * Math.pow(Math.sin(Math.PI * (0.06 + t * 0.9)), 0.7) * (1 - 0.85 * t * t), y = L * t * (1 - 0.25 * bend * t), z = bend * t * t * L, k = 0.5 + 0.5 * t;
+    for (const s of [-1, 1]) { pos.push(s * w / 2, y, z + (s > 0 ? 0.004 : 0)); col.push(k, k, k); }
+    if (i) { const a = (i - 1) * 2; idx.push(a, a + 1, a + 3, a, a + 3, a + 2); }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
+}
+export const LEAF_GREENS = [0x2f6b34, 0x3c7a3a, 0x285c2c, 0x4a8240].map(h => new THREE.Color(h));
+export function plant(R, x, z, h = 1.6, pot = C(0xe8e4dc)) {
+  R.drum('prop', x, z, 0.3, 0, 0.55, pot); R.drum('prop', x, z, 0.27, 0.55, 0.56, C(0x2a2018), false);
+  const leaves = R.plantLeaves || (R.plantLeaves = []), seed = Math.abs(Math.sin(x * 12.9 + z * 78.2)) * 1000, n = 18;
+  for (let k = 0; k < n; k++) {
+    const r1 = (Math.sin(seed + k * 3.7) + 1) / 2, r2 = (Math.sin(seed * 1.3 + k * 5.1) + 1) / 2, L = h * (0.45 + 0.4 * r1), g = leafGeom(L, 0.09 + 0.07 * r2, 0.35 + 0.5 * r2);
+    g.rotateX(-(0.12 + 0.55 * (1 - L / h) + 0.2 * r2)); g.rotateY(k / n * Math.PI * 2 + r1); g.translate(R.ox + x + Math.sin(k * 2.4) * 0.05, R.oy + 0.52, R.oz + z + Math.cos(k * 2.4) * 0.05);
+    const c = LEAF_GREENS[k % 4], a = g.attributes.color; for (let i = 0; i < a.count; i++) a.setXYZ(i, a.getX(i) * c.r, a.getY(i) * c.g, a.getZ(i) * c.b);
+    leaves.push(g);
+  }
+}
+export function plantMesh(R) {
+  if (!R.plantLeaves || !R.plantLeaves.length) return;
+  const m = new THREE.Mesh(mergeGeoms(R.plantLeaves), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, side: THREE.DoubleSide, envMapIntensity: 0.6 }));
+  m.castShadow = true; m.frustumCulled = false; R.loose.push(m); for (const g of R.plantLeaves) g.dispose(); R.plantLeaves = null;
+}
 // ---- Dressing every room: the finishing touches (a doormat, an exit sign, a clock, smoke detectors, plants, posters, a fire extinguisher) --------------------
 function decorate(R, venue) {
   const rnd = mulberry32((venue.seed | 0) * 131 + 7), W = R.W, D = R.D, H = R.H, dark = C(0x1c1d20), white = C(0xf2f0e8);
@@ -195,12 +333,8 @@ function decorate(R, venue) {
   R.box('metal', cx - 0.012, CD - 0.085, cx + 0.012, CD - 0.075, cy, cy + 0.15, dark); R.box('metal', cx, CD - 0.085, cx + 0.1, CD - 0.075, cy - 0.012, cy + 0.012, dark);   // with its hands
   for (const [x, z] of [[-W / 4, D * 0.3], [W / 4, D * 0.3], [-W / 4, D * 0.72], [W / 4, D * 0.72]]) R.box('prop', x - 0.08, z - 0.08, x + 0.08, z + 0.08, H - 0.05, H, white);    // smoke detectors
   for (const x of [-W / 2 + 1.0, W / 2 - 1.0]) R.box('prop', x - 0.3, D * 0.5 - 0.3, x + 0.3, D * 0.5 + 0.3, H - 0.03, H, C(0xcfd2d4));                                         // air vents
-  // Plants in the front corners (a pot and a bush of leaves).
-  for (const sx of [-1, 1]) {
-    const px = sx * (W / 2 - 0.45), pz = 0.55, gb = R.gb.prop, leaf = [C(0x2c6a34), C(0x3b7d3c), C(0x255c2e)];
-    R.drum('prop', px, pz, 0.21, 0, 0.42, C(0x70503c));
-    for (let k = 0; k < 3; k++) { const ox = R.ox + px + (k - 1) * 0.1, oz = R.oz + pz + ((k * 5) % 3 - 1) * 0.08; gb.loft(circlePoly(ox, oz, 0.34 - k * 0.04, 10), R.oy + 0.4 + k * 0.1, circlePoly(ox, oz, 0.03, 10), R.oy + 1.25 + k * 0.15, 3, leaf[k]); }
-  }
+  // Plants in the front corners.
+  for (const sx of [-1, 1]) plant(R, sx * (W / 2 - 0.45), 0.55, 1.3 + (sx > 0 ? 0.2 : 0));
   // A fire extinguisher by the door (a red drum on a white plate), and, in the shops, posters on the walls.
   R.box('prop', W / 2 - 0.03, 0.8, W / 2, 1.1, 0.6, 1.2, white); R.drum('prop', W / 2 - 0.12, 0.95, 0.07, 0.62, 1.12, C(0xc4302a), false, 10);
   if (venue.kind === 'petrol' || venue.kind === 'shop') for (const sx of [-1, 1]) for (let k = 0; k < 3; k++) {
@@ -260,6 +394,9 @@ export class Interior {
       emit: m(THREE.MeshBasicMaterial, { vertexColors: true }),
       wood: m(THREE.MeshPhysicalMaterial, { vertexColors: true, roughness: 0.55, clearcoat: 0.35, clearcoatRoughness: 0.3, envMapIntensity: 0.8 }),
       turf: m(THREE.MeshStandardMaterial, { map: TEX.turf, vertexColors: true, roughness: 1, envMapIntensity: 0.3 }),
+      goods: m(THREE.MeshStandardMaterial, { map: TEX.goods, vertexColors: true, roughness: 0.6, envMapIntensity: 0.7 }),
+      books: m(THREE.MeshStandardMaterial, { map: TEX.books, vertexColors: true, roughness: 0.75, envMapIntensity: 0.5 }),
+      screen: m(THREE.MeshBasicMaterial, { map: TEX.film, vertexColors: true, toneMapped: false }),
       glass: m(THREE.MeshPhysicalMaterial, { color: 0xd6ecf4, transparent: true, opacity: 0.2, roughness: 0.04, metalness: 0, envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false }),
       gem: m(THREE.MeshStandardMaterial, { color: 0xffffff, roughness: 0.02, metalness: 0.2, emissive: 0x6688aa, emissiveIntensity: 0.5, envMapIntensity: 2.4 }),
     };
@@ -291,10 +428,10 @@ export class Interior {
   // Builds the room for a venue ({ kind, x, z, seed }) at the stage above its door.
   build(venue, plan) {
     this.dispose();
-    const R = new Room(venue.kind, Math.round(venue.x), Math.round(venue.z)); R.mats = this.mats; R.art = [TEX.art0, TEX.art1, TEX.art2, TEX.art3]; plan(R, venue); decorate(R, venue); this.room = R;
+    const R = new Room(venue.kind, Math.round(venue.x), Math.round(venue.z)); R.mats = this.mats; R.art = [TEX.art0, TEX.art1, TEX.art2, TEX.art3]; plan(R, venue); decorate(R, venue); plantMesh(R); this.room = R;
     const g = new THREE.Group(); g.visible = false;
     if (R.gb.wood.count && !this.mats.wood.map) { const O = surface('oak'), wm = this.mats.wood; wm.map = O.map; wm.normalMap = O.normalMap; wm.roughnessMap = O.roughnessMap; wm.needsUpdate = true; }
-    for (const k of ['floor', 'wall', 'ceil', 'prop', 'metal', 'emit', 'wood', 'turf']) {
+    for (const k of ['floor', 'wall', 'ceil', 'prop', 'metal', 'emit', 'wood', 'turf', 'goods', 'books', 'screen']) {
       const gb = R.gb[k]; if (!gb.count) continue; const mesh = new THREE.Mesh(gb.geometry(), this.mats[k]); mesh.frustumCulled = false;
       mesh.receiveShadow = k !== 'emit'; mesh.castShadow = k === 'prop' || k === 'metal' || k === 'wood'; g.add(mesh);
     }
@@ -306,7 +443,7 @@ export class Interior {
     const look = LOOK[venue.kind] || LOOK.shop, F = surface(look[0]), Wl = surface(look[1]), Cl = surface(look[2]), fm = this.mats.floor;
     fm.map = F.map; fm.normalMap = F.normalMap; fm.roughnessMap = F.roughnessMap; fm.roughness = look[3].rough; fm.clearcoat = look[3].clearcoat; fm.clearcoatRoughness = 0.15; fm.normalScale.set(1, 1); fm.needsUpdate = true;
     const wm = this.mats.wall; wm.map = Wl.map; wm.normalMap = Wl.normalMap; wm.roughnessMap = Wl.roughnessMap; wm.roughness = 1; wm.needsUpdate = true;
-    const cm = this.mats.ceil; cm.map = Cl.map; cm.normalMap = Cl.normalMap; cm.roughnessMap = Cl.roughnessMap; cm.roughness = 1; cm.needsUpdate = true;
+    const cm = this.mats.ceil; cm.map = Cl.map; cm.normalMap = Cl.normalMap; cm.roughnessMap = Cl.roughnessMap; cm.roughness = 1; cm.emissiveMap = Cl.map; cm.emissive.setScalar(1); cm.emissiveIntensity = look[3].glow || 0; cm.needsUpdate = true;
     // Shadows: one light from overhead (a soft directional, square over the room) that casts them, with the room's other lamps filling in.
     if (this.key) {
       const b = R.bounds, cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, half = Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + 1, K = this.key, sc = K.shadow.camera;
@@ -337,17 +474,22 @@ export class Interior {
   }
   update(dt) { this.t += dt; if (this.dust) this.dust.step(dt); }
   // ---- What the walker and the camera ask of it ------------------------------------------------------------------------------------------------
-  ground(x, z) {                                                                       // (the floor, or a raised deck: a boxing ring)
-    const d = this.room && this.room.decks; if (d && x !== undefined) for (const q of d) if (x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1) { _deck.y = this.room.oy + q.h; return _deck; }
-    return _ground;
+  // The floor, or a raised deck (a boxing ring, a step of a staircase, a gallery). y (if given) is where the feet are: the highest deck under the point that is
+  // no more than a step above them (so you walk up stairs, and under a gallery you stay on the floor).
+  ground(x, z, y) {
+    const R = this.room, d = R && R.decks; if (!d || x === undefined) return _ground;
+    const lim = y === undefined ? Infinity : y - R.oy + 0.55; let best = 0;
+    for (const q of d) if (x > q.x0 && x < q.x1 && z > q.z0 && z < q.z1 && q.h <= lim && q.h > best) best = q.h;
+    if (best <= 0) return _ground; _deck.y = R.oy + best; return _deck;
   }
   ceil() { return this.room.bounds.y1; }
   inside(x, z, pad = 0) { const b = this.room.bounds; return x > b.x0 + pad && x < b.x1 - pad && z > b.z0 + pad && z < b.z1 - pad; }
   // The boxes and posts within r of a point, in the shape the city's colliders have.
-  solids(x, z, r, out) {
-    out.length = 0; const R = this.room;
-    for (const b of R.boxes) { if (b.dead) continue; if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) out.push({ type: 'box', x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1 }); }
-    for (const c of R.circs) { if (c.dead) continue; if (Math.abs(x - c.x) < r + c.r && Math.abs(z - c.z) < r + c.r) out.push({ type: 'circ', x: c.x, z: c.z, r: c.r }); }
+  // y (if given) is where the feet are: only what is at the height of a body counts (a gallery's railing is not in the way of someone underneath it).
+  solids(x, z, r, out, y) {
+    out.length = 0; const R = this.room, at = y !== undefined, lo = at ? y + 0.04 : 0, hi = at ? y + 1.7 : 0;
+    for (const b of R.boxes) { if (b.dead || (at && (b.y0 > hi || b.y1 <= lo))) continue; if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) out.push({ type: 'box', x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1 }); }
+    for (const c of R.circs) { if (c.dead || (at && c.y0 !== undefined && (c.y0 > hi || c.y1 <= lo))) continue; if (Math.abs(x - c.x) < r + c.r && Math.abs(z - c.z) < r + c.r) out.push({ type: 'circ', x: c.x, z: c.z, r: c.r }); }
     return out;
   }
   keepIn(w, r) { const b = this.room.bounds; w.x = clamp(w.x, b.x0 + r, b.x1 - r); w.z = clamp(w.z, b.z0 + r, b.z1 - r); }

@@ -13,6 +13,7 @@ const C = (r, g, b) => new THREE.Color(r, g, b);
 const STONE = C(0.74, 0.7, 0.64), STONE_D = C(0.5, 0.47, 0.43), SLATE = C(0.22, 0.26, 0.32), WHITE = C(0.93, 0.92, 0.9), RED = C(0.72, 0.14, 0.1), DARKC = C(0.08, 0.1, 0.14), GOLD = C(0.9, 0.7, 0.25), GREEN = C(0.18, 0.4, 0.2);
 const circ = (x, z, r) => addStaticCollider({ type: 'circ', x, z, r });
 const rect = (x0, z0, x1, z1) => addStaticCollider({ type: 'box', x0, z0, x1, z1 });
+const rectUse = (use, x0, z0, x1, z1) => addStaticCollider({ type: 'box', x0, z0, x1, z1, bld: { use } });          // (a building you can walk into, and what it is)
 const centre = key => { const [i, j] = key.split(',').map(Number), b = blockRect(i, j); return { b, x: (b.x0 + b.x1) / 2, z: (b.z0 + b.z1) / 2 }; };
 const where = name => centre(Object.keys(LANDMARKS).find(k => LANDMARKS[k] === name));
 // A band between two rings of points (A at height yA, B at yB), facing `dir`.
@@ -95,11 +96,11 @@ export function initLandmarks(scene, city) {
   {
     const { b, x, z } = where('cathedral'), G = sets(), cx = x, front = b.z1 - 46, back = b.z0 + 6, wall = 24;
     const mass = (x0, z0, x1, z1, h, col = STONE) => { G.props.extrude(ccw(rectPoly({ x0, x1, z0, z1 })), 0, h, 4, 4, col, 0, false); G.props.cap(rectPoly({ x0, x1, z0, z1 }), h, 4, STONE_D); };
-    mass(cx - 13, back, cx + 13, front, wall); hipRoof(G.roof, cx - 13, back, cx + 13, front, wall, 10, SLATE, 1.0); rect(cx - 13, back, cx + 13, front);
-    mass(cx - 36, back + 40, cx + 36, back + 64, wall); hipRoof(G.roof, cx - 36, back + 40, cx + 36, back + 64, wall, 9, SLATE, 1.0); rect(cx - 36, back + 40, cx + 36, back + 64);
+    mass(cx - 13, back, cx + 13, front, wall); hipRoof(G.roof, cx - 13, back, cx + 13, front, wall, 10, SLATE, 1.0); rectUse('church', cx - 13, back, cx + 13, front);
+    mass(cx - 36, back + 40, cx + 36, back + 64, wall); hipRoof(G.roof, cx - 36, back + 40, cx + 36, back + 64, wall, 9, SLATE, 1.0); rectUse('church', cx - 36, back + 40, cx + 36, back + 64);
     for (const s of [-1, 1]) {                                                              // the towers
       const x0 = s > 0 ? cx + 14 : cx - 26, x1 = x0 + 12;
-      mass(x0, front - 12, x1, front + 4, 52); spire(G.roof, (x0 + x1) / 2, front - 4, 7.2, 52, 78, SLATE); rect(x0, front - 12, x1, front + 4);
+      mass(x0, front - 12, x1, front + 4, 52); spire(G.roof, (x0 + x1) / 2, front - 4, 7.2, 52, 78, SLATE); rectUse('church', x0, front - 12, x1, front + 4);
       for (const lvl of [20, 33, 45]) { G.props.box((x0 + x1) / 2 - 1.2, front + 4.02, (x0 + x1) / 2 + 1.2, front + 4.4, lvl, lvl + 5, 3, DARKC); G.props.box(x1 - 0.4, front - 8, x1 + 0.4 + (s > 0 ? 0.01 : 0), front - 5, lvl, lvl + 4, 3, DARKC); G.props.box(x0 - 0.4, front - 8, x0 + 0.4, front - 5, lvl, lvl + 4, 3, DARKC); }
     }
     spire(G.roof, cx, back + 52, 5, wall + 9, wall + 12, SLATE); spire(G.roof, cx, back + 52, 2.6, wall + 12, wall + 40, SLATE);

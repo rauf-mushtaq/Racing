@@ -59,12 +59,15 @@ function hitBag(b, dx, dz, k) { const s = b.foot ? 0.5 : 0.32; b.vx += dz * k * 
 
 // ---- The other people in the gym ------------------------------------------------------------------------------------------------------------------------
 const KEYS = { staff: 'ped_f1', boxer: 'hoodie', lifter: 'ped_m3', runner: 'ped_f3', runner2: 'ped_f4', sparA: 'tee', sparB: 'ped_m1', karA: 'ped_m2', karB: 'ped_m4', barista: 'ped_f2', cafe: 'denim', member: 'street', pt: 'leather' };
+// The machines (rooms.js gym items of type 'machine', each with its exercise): repetitions (or turns of the pedals, strides, waves) a second.
+export const RATE = { chest: 0.42, shoulder: 0.4, lat: 0.42, row: 0.42, pec: 0.42, legext: 0.45, legcurl: 0.45, legpress: 0.4, squat: 0.38, bench: 0.42, pullup: 0.36, kbswing: 0.6, ropes: 2.0, rower: 0.5, spin: 1.4, bike: 1.1, cross: 0.95, climber: 0.85, sled: 0.9 };
 const PAIR = r => (r === 'sparA' || r === 'sparB' ? 'spar' : r === 'karA' || r === 'karB' ? 'kar' : null);
 class Goer {
   constructor(G, spot) {
     this.G = G; this.role = spot.role; this.spot = spot; const I = G.env.interior;
-    const w = this.walker = new Walker(G.env.scene, KEYS[spot.role] || 'ped_m2', { lite: true }); w.interior = I;
-    w.place(spot.x, spot.z, spot.face); w.y = I.ground(spot.x, spot.z).y; w.show(true);
+    const w = this.walker = new Walker(G.env.scene, spot.key || KEYS[spot.role] || 'ped_m2', { lite: true }); w.interior = I;
+    w.place(spot.x, spot.z, spot.face); w.y = I.ground(spot.x, spot.z, I.room.oy + (spot.y || spot.ring || 0)).y; w.show(true);
+    if (spot.ex) { w.hold = true; this.item = G.room.items.find(i => i.id === spot.item) || null; w.ex = { kind: spot.ex, p: Math.random(), t: 0, seat: spot.seat ?? (this.item && this.item.seat), bar: spot.bar ?? (this.item && this.item.bar) }; }
     this.t = Math.random() * 3; this.next = 0.5 + Math.random(); this.seq = Math.floor(Math.random() * 8);
     if (spot.role === 'lifter') this.dumbbells = [dumbbellMesh(), dumbbellMesh()].map(m => (G.env.scene.add(m), m));
     if (spot.route) { w.noClip = true; this.leg = 1; this.pause = 0; }                    // (a member walking round the gym, along the aisles)
@@ -73,9 +76,13 @@ class Goer {
     const G = this.G, w = this.walker, r = this.role; this.t += dt;
     // A bout in the ring or on the mat sends the pair practising there off to the side (they come back when it is over).
     const off = !!G.bout && PAIR(r) === (G.bout.style === 'boxing' ? 'spar' : 'kar');
-    if (off !== !!this.off) { this.off = off; w.show(!off); if (!off) { w.place(this.spot.x, this.spot.z, this.spot.face); w.y = G.env.interior.ground(this.spot.x, this.spot.z).y; } }
+    if (off !== !!this.off) { this.off = off; w.show(!off); if (!off) { w.place(this.spot.x, this.spot.z, this.spot.face); w.y = G.env.interior.ground(this.spot.x, this.spot.z, G.room.oy + (this.spot.y || this.spot.ring || 0)).y; } }
     if (off) return;
     if (this.spot.tread) w.treadmill = this.spot.tread;
+    if (w.ex) {                                                                          // working out on a machine: the exercise runs on, and so do its moving parts
+      w.ex.p += dt * (RATE[w.ex.kind] || 0.5) * 0.85; w.ex.t += dt; w.x = this.spot.x; w.z = this.spot.z; w.h = this.spot.face;
+      w.update(dt, NOINP, 0, null); if (this.item && this.item.anim) this.item.anim(w, w.ex, dt); return;
+    }
     if (this.spot.route) {                                                               // walking from point to point, stopping now and then
       const [tx, tz] = this.spot.route[this.leg], dx = tx - (w.x - G.room.ox), dz = tz - (w.z - G.room.oz), d = Math.hypot(dx, dz);
       if (this.pause > 0) this.pause -= dt;
@@ -359,20 +366,23 @@ export class Gym {
   }
   nearest() {
     const P = this.env.walker; let best = null, bd = 1e9;
-    for (const it of this.room.items) { const d = Math.hypot(it.x - P.x, it.z - P.z); if (d < it.r && d < bd) { bd = d; best = it; } }
+    for (const it of this.room.items) { if (it.busy || Math.abs((it.deck || 0) + this.room.oy - P.y) > 1.2) continue; const d = Math.hypot(it.x - P.x, it.z - P.z); if (d < it.r && d < bd) { bd = d; best = it; } }       // (not one someone else is on; on the floor you are on)
     return best;
   }
   start(it) {
     const w = this.env.walker; if (w.down > 0.3) return;
-    w.x = it.x; w.z = it.z; w.h = it.face || 0; w.vx = w.vz = 0; w.hold = true; this.session = { it, t: 0, seq: 0, last: -1 };
+    w.x = it.x; w.z = it.z; w.h = it.face || 0; w.vx = w.vz = 0; w.hold = true; this.session = { it, t: 0, seq: 0, last: -1, dir: 1 };
+    if (it.type === 'machine') { w.ex = { kind: it.ex, p: 0, t: 0, seat: it.seat, bar: it.bar }; if (it.ex === 'sled') w.treadmill = 1.15; }
     if (it.type === 'treadmill') w.treadmill = (2.2 + 0.25 * this.stamina) * (it.speed || 1);
     if (it.type === 'weights' || it.type === 'cable') w.lift = 0;
     if ((it.type === 'bag' || it.type === 'kickbag') && !(w.body && w.body.ready('jab'))) { this.toast('LOADING...', 0.8); }
-    this.toast(it.type === 'treadmill' ? 'RUNNING: STAMINA' : 'TRAINING: STRENGTH  (USE AGAIN, OR MOVE, TO STOP)', 1.8);
+    const stat = it.type === 'treadmill' || it.stat === 'sta' ? 'STAMINA' : it.stat === 'both' ? 'STRENGTH AND STAMINA' : 'STRENGTH';
+    this.toast(`${it.label.replace(/^TRAIN: /, '')}: ${stat}  (USE AGAIN, OR MOVE, TO STOP)`, 1.8);
   }
   stop() {
-    const w = this.env.walker; if (!this.session) return; this.session = null;
+    const w = this.env.walker; if (!this.session) return; const was = this.session.it; this.session = null; if (was && was.reset) was.reset();
     w.hold = false; w.treadmill = 0; w.lift = null; if (w.body && w.body.act) w.body.stop(0.2);
+    if (w.ex) { w.ex = null; const I = this.env.interior; w.y = I.ground(w.x, w.z, w.y).y; }
     if (this.dumbbells) for (const m of this.dumbbells) m.visible = false;
   }
   // Experience into strength or stamina, up to what the membership allows.
@@ -411,7 +421,7 @@ export class Gym {
       if (f && (Math.abs(f.mx) + Math.abs(f.my) > 0.35 || f.jump) && s.t > 0.4) this.stop();
       else if (P.down > 0.3) this.stop();
       else {
-        P.x = it.x; P.z = it.z;
+        if (!(it.type === 'machine' && it.ex === 'sled')) { P.x = it.x; P.z = it.z; }
         if (it.type === 'bag' || it.type === 'kickbag') {
           const kick = it.type === 'kickbag', list = kick ? KICKS : PUNCHES, a = P.body && P.body.act, bag = R.bags[it.bag];
           P.h = it.face || 0;
@@ -423,6 +433,18 @@ export class Gym {
               this.gain('str', XP[name] || 1);
             } });
           }
+        } else if (it.type === 'machine' && P.ex) {
+          // On a machine: the repetitions (or the turns, strides and waves) run at the machine's pace, a little quicker the fitter you are; strength comes
+          // with each one, stamina with every second of cardio; the moving parts move with you.
+          const ex = P.ex, fit = it.stat === 'sta' ? this.stamina : this.strength, before = Math.floor(ex.p);
+          ex.p += dt * (RATE[ex.kind] || 0.5) * (1 + 0.025 * fit); ex.t += dt;
+          if (ex.kind === 'sled') {                                                        // pushing the sled up the turf and back
+            const [z0, z1] = it.track; P.x = it.x; P.z += s.dir * 1.15 * dt; P.h = s.dir > 0 ? 0 : Math.PI; P.treadmill = 1.15;
+            if (P.z > z1) { P.z = z1; s.dir = -1; this.toast('THE END OF THE TRACK: AND BACK', 1.0); } else if (P.z < z0) { P.z = z0; s.dir = 1; }
+          } else { P.x = it.x; P.z = it.z; P.h = it.face || 0; }
+          if (Math.floor(ex.p) !== before && it.stat !== 'sta') this.gain('str', it.stat === 'both' ? 0.7 : 1.1);
+          if (it.stat !== 'str') { s.acc = (s.acc || 0) + dt; if (s.acc >= 1) { s.acc -= 1; this.gain('sta', it.stat === 'both' ? 0.9 : 1.4); } }
+          if (it.anim) it.anim(P, ex, dt);
         } else if (it.type === 'weights' || it.type === 'cable') {
           const before = P.lift || 0; P.lift = before + dt * (2.2 + 0.08 * this.strength); P.h = it.face || 0;
           if (Math.floor(P.lift / Math.PI) !== Math.floor(before / Math.PI)) this.gain('str', 0.9);

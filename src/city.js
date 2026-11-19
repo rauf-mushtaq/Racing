@@ -1031,7 +1031,7 @@ export class City {
     for (const ff of faces) { if (ff.dir[0] < 0) b.x0 = lot.x0 + 0.3; if (ff.dir[0] > 0) b.x1 = lot.x1 - 0.3; if (ff.dir[1] < 0) b.z0 = lot.z0 + 0.3; if (ff.dir[1] > 0) b.z1 = lot.z1 - 0.3; }
     const stone = new THREE.Color(0.86, 0.82, 0.74), dark = new THREE.Color(0.16, 0.12, 0.09), gold = new THREE.Color(0.85, 0.65, 0.2), along = f.dir[0] !== 0 ? b.z1 - b.z0 : b.x1 - b.x0;
     if (kind === 'bank' || kind === 'museum') {
-      this.buildMass(ctx, b, 'civic', kind === 'museum' ? 17 : 20 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, color: kind === 'museum' ? new THREE.Color(0.9, 0.86, 0.78) : stone });
+      this.buildMass(ctx, b, 'civic', kind === 'museum' ? 17 : 20 + Math.floor(rnd() * 2) * 3.5, faces, rnd, { rect: true, use: kind, color: kind === 'museum' ? new THREE.Color(0.9, 0.86, 0.78) : stone });
       { const [vx, vz] = this.facePt(b, f, 0, 4.4); addVenue({ kind, x: vx, z: vz, dx: f.dir[0], dz: f.dir[1] }); }
       const W = Math.min(along - 6, 20);
       this.portico(ctx, b, f, W, col(kind === 'museum' ? '#e6dfcf' : '#ddd3bf'));
@@ -1040,14 +1040,14 @@ export class City {
       G.props.box(kb.x0, kb.z0, kb.x1, kb.z1, CURB, CURB + 2.2, 3, new THREE.Color(0.25, 0.27, 0.3)); this.faceSign(ctx, { x0: kb.x0 + 0.55, x1: kb.x0 + 0.55, z0: kb.z0 + 0.55, z1: kb.z0 + 0.55 }, f, 3, 0, 0.58, CURB + 1.5, 0.9, 0.45);
       addCollider({ type: 'box', ...kb }, ctx.colliders);
     } else if (kind === 'hotel') {
-      this.buildMass(ctx, b, 'modern', 40 + Math.floor(rnd() * 5) * 3.5, faces, rnd, { rect: true });
+      this.buildMass(ctx, b, 'modern', 40 + Math.floor(rnd() * 5) * 3.5, faces, rnd, { rect: true, use: 'hotel' });
       const W = Math.min(along - 8, 14);
       this.faceBox(G.props, b, f, -W / 2, W / 2, 0, 4.2, CURB + 5.2, CURB + 5.7, new THREE.Color(0.2, 0.22, 0.26));                                                                      // the canopy
       for (const t of [-W / 2 + 0.6, W / 2 - 0.6]) { const [cx, cz] = this.facePt(b, f, t, 3.7); G.props.box(cx - 0.18, cz - 0.18, cx + 0.18, cz + 0.18, CURB, CURB + 5.2, 3, gold); addCollider({ type: 'circ', x: cx, z: cz, r: 0.3 }, ctx.colliders); }
       this.faceSign(ctx, b, f, 1, 0, 0.12, CURB + 6.4, Math.min(8.5, W * 0.7), 2.1);
       for (const t of [-W / 2 - 1.5, W / 2 + 1.5]) { const [px, pz] = this.facePt(b, f, t, 1.0), [dx, dz] = f.dir; G.props.box(px - 0.07, pz - 0.07, px + 0.07, pz + 0.07, CURB, CURB + 7.5, 3, new THREE.Color(0.7, 0.7, 0.72)); G.gantry.quad([px + 0.1 * (dx ? 0 : 1), CURB + 5.4, pz + 0.1 * (dz ? 0 : 1)], [-dz * 1.9, 0, dx * 1.9], [0, 1.2, 0], 0.02, 0.02, 0.2, 0.1); addCollider({ type: 'circ', x: px, z: pz, r: 0.2 }, ctx.colliders); }   // two flagpoles
     } else {
-      this.buildMass(ctx, b, 'brick', 14, faces, rnd, { rect: true });
+      this.buildMass(ctx, b, 'brick', 14, faces, rnd, { rect: true, use: 'cinema' });
       const W = Math.min(along - 4, 13);
       this.faceBox(G.props, b, f, -W / 2, W / 2, 0, 3.4, CURB + 4.6, CURB + 5.1, new THREE.Color(0.9, 0.2, 0.55));                                                                      // the lit marquee
       this.faceSign(ctx, b, f, 2, 0, 0.1, CURB + 5.4, Math.min(10, W * 0.85), 3.4);
@@ -1213,7 +1213,7 @@ export class City {
     const mast = (x, z, y0, len) => { G.props.box(x - 0.25, z - 0.25, x + 0.25, z + 0.25, y0, y0 + len, 3, metal); light(x, z, y0 + len); };
     const tip = (poly, y0, y1, col, px = cx, pz = cz) => { G.roof.loft(poly, y0, poly.map(() => [px, pz]), y1, 6, col); };
     // a wide podium under every one of them, with a stone plinth, so they stand on something
-    const plinth = (w, h) => { sect(rect(w, w), CURB, CURB + h, 'modern', new THREE.Color(0.93, 0.91, 0.87)); addCollider({ type: 'box', x0: cx - w / 2, x1: cx + w / 2, z0: cz - w / 2, z1: cz + w / 2 }, ctx.colliders); };
+    const plinth = (w, h) => { sect(rect(w, w), CURB, CURB + h, 'modern', new THREE.Color(0.93, 0.91, 0.87)); addCollider({ type: 'box', x0: cx - w / 2, x1: cx + w / 2, z0: cz - w / 2, z1: cz + w / 2, bld: { use: 'office', h } }, ctx.colliders); };
     if (kind === 'crown') {                                                              // an art-deco tower: setbacks, corner fins, a stepped crown, a spire
       plinth(110, 12); let y = CURB + 12, c = colMod();
       for (const [w, h] of [[74, 100], [60, 44], [46, 40], [32, 30]]) { sect(chamfer(w, 5), y, y + h, 'modern', c, 0); for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) G.props.box(cx + sx * (w / 2 - 1.6) - 0.9, cz + sz * (w / 2 - 1.6) - 0.9, cx + sx * (w / 2 - 1.6) + 0.9, cz + sz * (w / 2 - 1.6) + 0.9, y, y + h + 2.5, 3, trim); y += h; }
@@ -1552,8 +1552,9 @@ export class City {
       const e = 0.6, wx = w + 2 * e, wz = d + 2 * e, rise = Math.min(4.2, Math.min(wx, wz) * 0.3), tile = TILES[(rnd() * TILES.length) | 0];
       this.pitchedRoof(ctx, b.x0, b.z0, b.x1, b.z1, top + 0.05, { e, rise: Math.min(5.5, Math.min(wx, wz) * 0.36) || rise, col: tile, base: CURB });
     }
-    if (kind === 'round') addCollider({ type: 'circ', x: cx, z: cz, r: Math.min(w, d) / 2 }, ctx.colliders);
-    else addCollider({ type: 'box', x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 }, ctx.colliders);
+    const bld = { use: opt.use || ctx.use || style, h: top - CURB };                                   // (what the building is, for walking into it: main.js buildingNear)
+    if (kind === 'round') addCollider({ type: 'circ', x: cx, z: cz, r: Math.min(w, d) / 2, bld }, ctx.colliders);
+    else addCollider({ type: 'box', x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, bld }, ctx.colliders);
     if ((style === 'apt' || style === 'brick' || style === 'modern') && (kind === 'rect' || kind === 'chamfer') && h >= 10 && h < 70) this.balconies(ctx, b, h, faces, kind === 'chamfer' ? 5.5 : 1.5, rnd);
     if (style === 'shop' && faces.length) {
       for (const f of faces.slice(0, 2)) this.shopSign(ctx, b, f, h, rnd);
@@ -1664,7 +1665,7 @@ export class City {
     const hx = (hb.x0 + hb.x1) / 2, hz = (hb.z0 + hb.z1) / 2, hh = hash3(Math.round(hx), Math.round(hz), 81), span2 = Math.min(hb.x1 - hb.x0, hb.z1 - hb.z0) + 2 * e;
     const chim = rnd() < 0.6;
     this.pitchedRoof(ctx, hb.x0, hb.z0, hb.x1, hb.z1, ey, { e, rise: Math.max(rise, span2 * (0.34 + hh * 0.12)), col: TILES[Math.floor(hh * 97) % TILES.length] || tile, gable: hh < 0.4, wall, chimney: chim ? [hx + 1.5 * (hh < 0.7 ? 1 : -1), hz] : null });
-    addCollider({ type: 'box', x0: hb.x0, z0: hb.z0, x1: hb.x1, z1: hb.z1 }, ctx.colliders);
+    addCollider({ type: 'box', x0: hb.x0, z0: hb.z0, x1: hb.x1, z1: hb.z1, bld: { use: 'home', h: hf } }, ctx.colliders);
     // Driveway and front hedge.
     const dw = 3.2;
     if (alongX) { const zf = f[1] < 0 ? lot.z0 : hb.z1, zt = f[1] < 0 ? hb.z0 : lot.z1; G.walk.flat(cx + W / 2 - dw - 1, Math.min(zf, zt), cx + W / 2 - 1, Math.max(zf, zt), CURB + 0.05, 6, WHITE); }

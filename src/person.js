@@ -388,6 +388,120 @@ export function seatedPose(B, o) {
   B.root.rotation.set(0, 0, 0);
 }
 
+// ---- On a machine, on a seat: exercises and sitting ------------------------------------------------------------------------
+// The whole stick figure is set for one moment of an exercise (or for sitting), and the walker then shifts or tips the figure as a whole (ex.dy up,
+// ex.dz forward, ex.pitch tipped back to lie down). ex: { kind, p (where in a repetition, 0..1, running on), t (seconds), seat (height of the seat, or
+// of what is held: a bar), legs (set here: 1 the legs come from this pose, 0 from the walk cycle underneath) }.
+// Targets for the hands and feet are given in the hips' frame: x to the figure's left, y up, z forward (the hips stand at the origin).
+const _hv = new THREE.Vector3(), _tq = new THREE.Quaternion(), _pl = new THREE.Vector3();
+function handTo(B, side, x, y, z, px = 0, py = -1, pz = -0.2, torsoFrame = false) {          // side 'L' is the character's right arm (at -x)
+  _hv.set(x, y, z);
+  if (!torsoFrame) { _hv.y -= 0.02; _tq.copy(B.torso.quaternion).invert(); _hv.applyQuaternion(_tq); }
+  _pl.set(side === 'L' ? -Math.abs(px) - 0.4 : Math.abs(px) + 0.4, py, pz);
+  solveArm(B, side, [side === 'L' ? -J.shoulderX : J.shoulderX, J.shoulderY, 0], 'elbow' + side, _hv, _pl, 1);
+  B['wrist' + side].rotation.set(-0.1, 0, 0);
+}
+function footTo(B, side, z, y, spread = 0, toe = 0) {                                        // the ankle to (z, y) in the leg's plane; the knee forward, the foot level
+  const L1 = J.thigh, L2 = J.shin, fy = y + 0.02, d = clamp(Math.hypot(z, fy), 0.12, L1 + L2 - 0.002);
+  const b = Math.PI - Math.acos(clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1)), a = Math.atan2(z, -fy) + Math.acos(clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1));
+  sw(B['hipJ' + side], a); B['knee' + side].rotation.x = b; B['ankle' + side].rotation.x = a - b + toe; B['hipJ' + side].rotation.z = (side === 'L' ? -1 : 1) * spread;
+}
+const rep = p => 0.5 - 0.5 * Math.cos(p * Math.PI * 2);                                    // 0 at the start of a repetition, 1 at its hardest point, 0 again
+export function exercisePose(B, ex) {
+  const p = ex.p || 0, s = rep(p), t = ex.t || 0, seat = ex.seat ?? 0.55, k = ex.kind;
+  ex.dy = 0; ex.dz = 0; ex.pitch = 0; ex.legs = 1;
+  B.root.rotation.set(0, 0, 0); B.hips.position.set(0, J.hipY, 0); B.hips.rotation.set(0, 0, 0); B.torso.rotation.set(0, 0, 0); B.head.rotation.set(0, 0, 0);
+  for (const n of ['L', 'R']) { B['hipJ' + n].rotation.set(0, 0, 0); B['knee' + n].rotation.set(0, 0, 0); B['ankle' + n].rotation.set(0, 0, 0); B['shoulder' + n].rotation.set(0, 0, 0); B['elbow' + n].rotation.set(0, 0, 0); B['wrist' + n].rotation.set(0, 0, 0); }
+  const sitAt = (hy, lean, fz = 0.42) => { B.hips.position.y = hy; B.torso.rotation.x = lean; footTo(B, 'L', fz, -hy + 0.09, 0.08); footTo(B, 'R', fz, -hy + 0.09, 0.08); };
+  const both = (x, y, z, px, py, pz, tf) => { handTo(B, 'L', -x, y, z, px, py, pz, tf); handTo(B, 'R', x, y, z, px, py, pz, tf); };
+  const breathe = Math.sin(t * 1.9) * 0.012;
+  switch (k) {
+    // Sitting: on a chair or a sofa (hands on the thighs), at a desk (hands on it), in a pew or a cinema seat (hands in the lap).
+    case 'sit': case 'desk': case 'sofa': {
+      const hy = seat + 0.1; sitAt(hy, k === 'sofa' ? -0.28 : -0.06 + breathe, k === 'sofa' ? 0.5 : 0.42);
+      if (k === 'desk') { both(0.2, 0.3 + 0.01 * Math.sin(t * 9), 0.44 + 0.015 * Math.sin(t * 7.3), 0.3, -1, -0.3); B.head.rotation.x = 0.18; }
+      else both(0.15, k === 'sofa' ? 0.02 : 0.06, 0.3, 0.2, -1, 0.1);
+      B.head.rotation.y = 0.25 * Math.sin(t * 0.21 + (ex.seed || 0)); break;
+    }
+    // Seated presses: the handles from by the chest out in front (chest), from the shoulders overhead (shoulder), arms from wide to together (pec fly).
+    case 'chest': sitAt(seat + 0.09, -0.12); both(0.2, 1.05 - seat - 0.09, 0.14 + 0.36 * s, 0.5, -1, -0.4); break;
+    case 'shoulder': sitAt(seat + 0.09, -0.08); both(0.27 - 0.06 * s, 0.6 + 0.38 * s, 0.07, 0.6, -1, 0); break;
+    case 'pec': sitAt(seat + 0.09, -0.1); both(0.52 - 0.42 * s, 0.46, 0.1 + 0.28 * s, 0.1, -1, -0.6); break;
+    // A lat pulldown: the bar from overhead (arms up, wide) down to the top of the chest, leaning back a little.
+    case 'lat': sitAt(seat + 0.09, -0.12 - 0.12 * s); both(0.44 - 0.12 * s, 1.0 - 0.48 * s, 0.08 + 0.04 * s, 0.6, -0.3, 0.2); break;
+    // A seated row: the handles pulled from arms' length to the waist, the feet on the plate.
+    case 'row': { const hy = seat + 0.09; B.hips.position.y = hy; B.torso.rotation.x = 0.08 - 0.18 * s; footTo(B, 'L', 0.52, -hy + 0.32, 0.1); footTo(B, 'R', 0.52, -hy + 0.32, 0.1); both(0.17, 1.0 - hy, 0.52 - 0.38 * s, 0.6, -1, -0.6); break; }
+    // Leg extension and leg curl: the thighs on the seat, the shins swinging; hands on the grips at the sides.
+    case 'legext': case 'legcurl': {
+      const hy = seat + 0.09; B.hips.position.y = hy; B.torso.rotation.x = -0.1;
+      const kn = k === 'legext' ? 1.5 - 1.3 * s : 0.25 + 1.3 * s;
+      for (const n of ['L', 'R']) { sw(B['hipJ' + n], 1.45); B['knee' + n].rotation.x = kn; B['ankle' + n].rotation.x = 0.2; B['hipJ' + n].rotation.z = (n === 'L' ? -1 : 1) * 0.06; }
+      both(0.3, 0.62 - hy, 0.05, 0.2, -1, -0.2); break;
+    }
+    // A leg press: lying back in the seat, the feet on the plate pushing it away and letting it come back.
+    case 'legpress': { const hy = seat + 0.08; B.hips.position.y = hy; B.torso.rotation.x = -0.62; footTo(B, 'L', 0.46 + 0.32 * s, 0.22, 0.12, -0.6); footTo(B, 'R', 0.46 + 0.32 * s, 0.22, 0.12, -0.6); both(0.3, 0.05, 0.05, 0.2, -1, -0.2); break; }
+    // A rowing machine: drive with the legs (the seat runs back), swing the back, pull the handle to the ribs; then the same in reverse, slower.
+    case 'rower': {
+      const drv = p < 0.4 ? p / 0.4 : 1 - (p - 0.4) / 0.6, legs = clamp(drv * 1.4, 0, 1), swing = clamp((drv - 0.25) / 0.5, 0, 1), arms = clamp((drv - 0.6) / 0.4, 0, 1);
+      const hy = seat + 0.09; B.hips.position.y = hy; ex.dz = -0.42 * legs; B.torso.rotation.x = 0.38 - 0.66 * swing;
+      footTo(B, 'L', 0.48 + 0.42 * legs, -hy + 0.42, 0.1, -0.5); footTo(B, 'R', 0.48 + 0.42 * legs, -hy + 0.42, 0.1, -0.5);
+      handTo(B, 'L', -0.14, 0.3, 0.62 - 0.4 * arms, 0.5, -1, -0.6); handTo(B, 'R', 0.14, 0.3, 0.62 - 0.4 * arms, 0.5, -1, -0.6); break;
+    }
+    // Spin bike or upright bike: in the saddle, leaning to the bars, the feet on the pedals going round.
+    case 'spin': case 'bike': {
+      const hy = seat + 0.09, a = p * Math.PI * 2, cz = 0.27, cy = 0.4 - hy, r = 0.17; B.hips.position.y = hy; B.torso.rotation.x = k === 'spin' ? 0.62 : 0.25;
+      footTo(B, 'L', cz + Math.sin(a) * r, cy - Math.cos(a) * r, 0.07, -0.15); footTo(B, 'R', cz - Math.sin(a) * r, cy + Math.cos(a) * r, 0.07, -0.15);
+      both(0.24, (ex.bar ?? 1.08) - hy, ex.barZ ?? 0.57, 0.5, -1, -0.3); B.head.rotation.x = k === 'spin' ? -0.45 : -0.15; break;
+    }
+    // Stair climber: standing on the steps, one foot up then the other, hands on the rails.
+    case 'climber': {
+      const hy = J.hipY + 0.3, a = p * Math.PI * 2; B.hips.position.y = hy + 0.04 * Math.sin(a * 2); B.torso.rotation.x = 0.12;
+      footTo(B, 'L', 0.12, -hy + 0.32 + 0.2 * Math.max(0, Math.sin(a)), 0.06); footTo(B, 'R', 0.12, -hy + 0.32 + 0.2 * Math.max(0, -Math.sin(a)), 0.06);
+      both(0.38, 1.17 - hy, 0.2, 0.3, -1, -0.2); break;
+    }
+    // Cross trainer: the feet on the pedals going round an ellipse, the arms pushing and pulling the handles against them.
+    case 'cross': {
+      const hy = J.hipY + 0.36, a = p * Math.PI * 2; B.hips.position.y = hy + 0.015 * Math.sin(a * 2); B.torso.rotation.x = 0.06;
+      footTo(B, 'L', 0.02 + 0.2 * Math.sin(a), -hy + 0.42 + 0.06 * Math.cos(a), 0.06); footTo(B, 'R', 0.02 - 0.2 * Math.sin(a), -hy + 0.42 - 0.06 * Math.cos(a), 0.06);
+      handTo(B, 'L', -0.3, 1.32 - hy, 0.38 - 0.16 * Math.sin(a), 0.4, -1, -0.3); handTo(B, 'R', 0.3, 1.32 - hy, 0.38 + 0.16 * Math.sin(a), 0.4, -1, -0.3); break;
+    }
+    // A squat (in the rack or the Smith machine): the bar across the back of the shoulders, down until the thighs are level, and up.
+    case 'squat': {
+      const hy = J.hipY - 0.43 * s, back = 0.24 * s; B.hips.position.y = hy; ex.dz = -back; B.torso.rotation.x = 0.5 * s; B.head.rotation.x = -0.35 * s;
+      footTo(B, 'L', back + 0.04, -hy + 0.09, 0.14); footTo(B, 'R', back + 0.04, -hy + 0.09, 0.14);
+      both(0.44, J.shoulderY + 0.06, -0.12, 0.3, -1, -0.5, true); break;
+    }
+    // Bench press: lying on the bench (the figure tipped back), the feet on the floor, the bar from the chest to arms' length.
+    case 'bench': {
+      ex.pitch = -Math.PI / 2; ex.dy = seat + 0.11; B.hips.position.y = J.hipY;
+      for (const n of ['L', 'R']) { sw(B['hipJ' + n], -0.3); B['knee' + n].rotation.x = 1.45; B['ankle' + n].rotation.x = -0.2; B['hipJ' + n].rotation.z = (n === 'L' ? -1 : 1) * 0.2; }
+      both(0.4, J.shoulderY - 0.02, 0.16 + 0.42 * s, 0.6, -0.5, -0.8, true); break;
+    }
+    // Pull-ups: hanging from the bar, pulled up until the chin is over it.
+    case 'pullup': {
+      const hy = J.hipY, hand = 0.99 - 0.42 * s; B.hips.position.y = hy; ex.dy = (ex.bar ?? 2.6) - (hy + 0.02 + hand);
+      for (const n of ['L', 'R']) { sw(B['hipJ' + n], 0.15); B['knee' + n].rotation.x = 0.55; B['ankle' + n].rotation.x = 0.5; }
+      both(0.3, hand, 0.06 + 0.06 * s, 0.6, 0.5, 0.2, true); B.head.rotation.x = -0.15; break;
+    }
+    // Battle ropes: half squatting, the arms slamming up and down by turns.
+    case 'ropes': {
+      const hy = 0.76, a = p * Math.PI * 2; B.hips.position.y = hy; B.torso.rotation.x = 0.32;
+      footTo(B, 'L', 0.06, -hy + 0.09, 0.2); footTo(B, 'R', 0.06, -hy + 0.09, 0.2);
+      handTo(B, 'L', -0.2, 0.22 + 0.17 * Math.sin(a), 0.5, 0.4, -1, -0.4); handTo(B, 'R', 0.2, 0.22 - 0.17 * Math.sin(a), 0.5, 0.4, -1, -0.4); break;
+    }
+    // Pushing the sled: the legs walk (the walk cycle underneath), the body leans hard into the poles, arms out straight.
+    case 'sled': ex.legs = 0; B.torso.rotation.x = 0.72; both(0.3, 0.4, 0.62, 0.4, -1, -0.3); B.head.rotation.x = -0.5; break;
+    // Kettlebell swing: hinge at the hips with the bell between the legs, then drive it up to chest height on straight arms.
+    case 'kbswing': {
+      const hy = J.hipY - 0.12 * (1 - s); B.hips.position.y = hy; B.torso.rotation.x = 0.85 * (1 - s) + 0.05; ex.dz = -0.12 * (1 - s);
+      footTo(B, 'L', 0.12 * (1 - s), -hy + 0.09, 0.2); footTo(B, 'R', 0.12 * (1 - s), -hy + 0.09, 0.2);
+      both(0.05, J.shoulderY - 0.53 + 0.4 * s, 0.1 + 0.42 * s, 0.4, -1, 0.3, true); break;
+    }
+    default: break;
+  }
+  return ex;
+}
+
 // The player's character: a rig with meshes. `outfit` colours the clothes.
 export const OUTFITS = {
   street: { name: 'Street', jacket: 0x46607e, pants: 0x25282f, shoes: 0xf2f2f2, trim: 0xe0662c, hair: HAIRS[1], skin: SKINS[1], hairStyle: 'tousled' },

@@ -32,10 +32,10 @@ try {
   check('walking in builds the gym (not a robbery)', inn.ok && inn.inside && inn.gym && !inn.heist, JSON.stringify(inn));
   check('it has a desk, heavy bags, a kick bag, dumbbells and treadmills', ['desk', 'bag', 'kickbag', 'weights', 'treadmill'].every(t => inn.items.includes(t)) && inn.bags >= 4, JSON.stringify(inn.items));
   check('and people training in it', inn.people >= 5, String(inn.people));
-  check('a health club: treadmills and cross trainers, a cable station, a café, a dozen people about', inn.items.filter(t => t === 'treadmill').length >= 7 && inn.items.includes('cable') && inn.people >= 11, JSON.stringify({ items: inn.items, people: inn.people }));
+  check('a big health club: over forty machines to use (treadmills and cardio, weight-stack machines, racks, benches), a cable station, fifteen people about', inn.items.filter(t => t === 'treadmill').length >= 6 && inn.items.filter(t => t === 'machine').length >= 40 && inn.items.includes('cable') && inn.people >= 15, JSON.stringify({ n: inn.items.length, people: inn.people }));
   await P.waitForFunction(() => window.__game.walker.body && window.__game.walker.body.ready('jab') && window.__game.gym.goers.every(o => o.walker.person), null, { timeout: 60000 }).catch(() => {});
 
-  const at = type => P.evaluate(t => { const g = window.__game, it = g.gym.room.items.find(i => i.type === t); g.walker.x = it.x; g.walker.z = it.z; g.walker.h = it.face || 0; g.tick(1 / 60); return g.gym.prompt; }, type);
+  const at = type => P.evaluate(t => { const g = window.__game, it = g.gym.room.items.find(i => i.type === t && !i.busy); g.walker.x = it.x; g.walker.z = it.z; g.walker.h = it.face || 0; g.walker.y = g.interior.ground(it.x, it.z, g.interior.room.oy + (it.deck || 0)).y; g.tick(1 / 60); return g.gym.prompt; }, type);          // (the treadmills are up on the gallery)
   let pr = await at('bag');
   const refused = await P.evaluate(() => { const g = window.__game; g.settings.gymTier = 0; g.settings.gymStr = 0; g.settings.gymSta = 0; g.gym.use(); return !g.gym.session; });
   check('without a membership the bag is refused', refused, pr);
@@ -81,6 +81,32 @@ try {
   });
   check('dumbbell curls: the hands go up and down holding dumbbells, and strength goes up', lift.range > 0.25 && lift.shown && lift.gain > 0, JSON.stringify(lift));
 
+  // Every machine can be used: the character takes the machine's position (sitting, lying, hanging, squatting, pedalling), its moving part goes with them,
+  // strength or stamina goes up, and use again stops it.
+  console.log('every machine');
+  const mach = await P.evaluate(() => {
+    const g = window.__game, G = g.gym, w = g.walker, out = {}; g.settings.gymTier = 3;
+    const kinds = [...new Set(G.room.items.filter(i => i.type === 'machine').map(i => i.ex))];
+    for (const k of kinds) {
+      const it = G.room.items.find(i => i.ex === k && !i.busy); if (!it) { out[k] = null; continue; }
+      w.place(it.x, it.z, it.face || 0); w.y = g.interior.ground(it.x, it.z, g.interior.room.oy + (it.deck || 0)).y; g.tick(1 / 60);
+      const near = G.room.loose.filter(o => Math.hypot(o.position.x - it.x, o.position.z - it.z) < 2.0).map(o => [o, o.position.clone(), o.rotation.x]);          // (this machine's own parts, not the next one's)
+      const s0 = g.settings.gymStr || 0, t0 = g.settings.gymSta || 0, prompt = G.prompt; G.use(); const started = !!G.session && !!w.ex && w.ex.kind === k;
+      const v = new w.mesh.position.constructor(), h0 = v.clone(); let hip = 9, hand = 0, pitch = 0, lift = 0;
+      for (let i = 0; i < 60 * 6; i++) { g.tick(1 / 60); if (w.person) { w.person.worldPos('Bip01_Pelvis', v); hip = Math.min(hip, v.y - w.y); w.person.worldPos('Bip01_R_Hand', v); if (i === 10) h0.copy(v); if (i > 10) hand = Math.max(hand, v.distanceTo(h0)); } pitch = Math.min(pitch, w.mesh.rotation.x); lift = Math.max(lift, w.mesh.position.y - w.y); }
+      const moved = near.some(([o, p, rx]) => o.position.distanceTo(p) > 0.05 || Math.abs(o.rotation.x - rx) > 0.05) || k === 'ropes' || k === 'climber' || k === 'pullup';          // (the ropes are moved in their vertices; a stair climber and a bar have nothing loose)
+      G.use(); const stopped = !G.session && !w.ex, back = near.every(([o, p]) => o.position.distanceTo(p) < 0.01 || k === 'spin' || k === 'cross' || k === 'bike' || k === 'rower');
+      out[k] = { prompt, started, hip: +hip.toFixed(2), hand: +hand.toFixed(2), pitch: +pitch.toFixed(2), lift: +lift.toFixed(2), str: +((g.settings.gymStr || 0) - s0).toFixed(1), sta: +((g.settings.gymSta || 0) - t0).toFixed(1), moved, stopped, back };
+    }
+    return out;
+  });
+  const ks = Object.keys(mach), seated = ['chest', 'shoulder', 'lat', 'row', 'pec', 'legext', 'legcurl', 'legpress', 'spin', 'bike', 'rower'];
+  check('every machine starts its exercise from its prompt, and stops on use (19 kinds)', ks.length >= 19 && ks.every(k => mach[k] && /^TRAIN: /.test(mach[k].prompt) && mach[k].started && mach[k].stopped), JSON.stringify(mach));
+  check('on the presses, pulldowns, rows, leg machines, bikes and rowers you sit (hips at seat height)', seated.every(k => mach[k] && mach[k].hip < 1.0 && mach[k].hip > 0.35), JSON.stringify(seated.map(k => [k, mach[k] && mach[k].hip])));
+  check('the bench press lies you down on the bench; pull-ups hang you from the bar; a squat goes down low', mach.bench && mach.bench.pitch < -1.4 && mach.pullup && mach.pullup.lift > 0.5 && mach.squat && mach.squat.hip < 0.6, JSON.stringify({ bench: mach.bench, pullup: mach.pullup, squat: mach.squat }));
+  check('the arms do the work on the presses, pulldowns, rows, fly, bench, rower, ropes, kettlebell and squat (the hands move through each repetition)', ['chest', 'shoulder', 'lat', 'row', 'pec', 'bench', 'rower', 'ropes', 'kbswing', 'squat', 'cross'].every(k => mach[k] && mach[k].hand > 0.2), JSON.stringify(ks.map(k => [k, mach[k] && mach[k].hand])));
+  check('what moves on a machine moves (a stack, a bar, a flywheel, a seat, the sled), and goes back after', ks.every(k => mach[k] && mach[k].moved && mach[k].back), JSON.stringify(ks.map(k => [k, mach[k] && mach[k].moved, mach[k] && mach[k].back])));
+  check('weights build strength, cardio builds stamina (and the rower, the ropes, the sled and kettlebells both)', ks.every(k => mach[k] && mach[k].str + mach[k].sta > 0) && ['spin', 'cross', 'climber', 'bike'].every(k => mach[k].sta > 0) && ['chest', 'squat', 'bench', 'pullup'].every(k => mach[k].str > 0), JSON.stringify(ks.map(k => [k, mach[k] && mach[k].str, mach[k] && mach[k].sta])));
   console.log('what strength does');
   const cap = await P.evaluate(() => { const g = window.__game, G = g.gym; g.settings.gymTier = 1; g.settings.gymStr = 0; for (let i = 0; i < 2000; i++) G.gain('str', 5); const basic = G.strength; g.settings.gymTier = 3; for (let i = 0; i < 2000; i++) G.gain('str', 5); return { basic, elite: G.strength }; });
   check('a BASIC membership stops at 4, ELITE goes to 10', cap.basic === 4 && cap.elite === 10, JSON.stringify(cap));
@@ -147,7 +173,7 @@ try {
   const hit = await P.evaluate(() => {
     const g = window.__game, m = g.melee, w = g.walker, out = {}, saved = g.settings.gymStr; for (const q of g.peds.list) q.kind = 'civ';
     const tryKick = (str) => {
-      g.settings.gymStr = str; const p = g.peds.list.find(q => q.state !== 'away' && q.state !== 'down'); if (!p) return null;
+      g.settings.gymStr = str; const p = g.peds.list.find(q => q.state !== 'away' && q.state !== 'down'); if (!p) return null; p.kind = 'civ';          // (one who walked on since: a citizen too, not a big man who would fight back)
       w.place(p.x - Math.sin(w.h) * 1.3, p.z - Math.cos(w.h) * 1.3, w.h); p.state = 'idle'; p.idleT = 99; p.speed = 0; m.cool = 0; m.queued = null; m.comboT = 0; m.move = null; m.next.kick = 'kick';
       const each = m.each; m.each = fn => fn(p, p.x, p.z, 'ped'); let info = null, deadNow = false; const st = m.strike.bind(m); m.strike = (s, i) => { info = i; const r = st(s, i); deadNow = !!p.dead; return r; };          // (dead when the kick lands: a body that ends up in the river is cleared away at once)
       m.kick(); for (let i = 0; i < 90 && m.busy; i++) g.tick(1 / 60); m.each = each; m.strike = st;

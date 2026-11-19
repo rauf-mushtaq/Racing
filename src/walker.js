@@ -3,7 +3,7 @@
 // camera. The figure itself is in person.js.
 import * as THREE from 'three';
 import { blobTex } from './textures.js';
-import { animate, buildRig, PERSON_H } from './person.js';
+import { animate, buildRig, PERSON_H, exercisePose } from './person.js';
 import { makeSmoothFigure } from './figure.js';
 import { loadPerson, personKey, COPS, PEDS } from './people.js';
 import { Mocap } from './mocap.js';
@@ -40,13 +40,13 @@ export class Walker {
     this.arms = null; this.faceYaw = null; this.placeWeapon = null;      // (a weapon in hand: see weapons.js)
     this.melee = null; this.meleeYaw = null; this.mw = 0;               // (a blow being thrown: see melee.js)
     this.hands = 0;                                                      // (0..1: hands up, for someone being held up)
-    this.hold = false; this.treadmill = 0; this.lift = null; this.sprintK = 1;   // (in a gym, gym.js: held at a machine; running on a treadmill (m/s); curling dumbbells (the curl's phase); and stamina's quicker sprint)
+    this.hold = false; this.treadmill = 0; this.lift = null; this.sprintK = 1; this.ex = null;          // (ex: on a machine or a seat: person.js exercisePose)   // (in a gym, gym.js: held at a machine; running on a treadmill (m/s); curling dumbbells (the curl's phase); and stamina's quicker sprint)
     this.interior = null;                                                // inside a building (interior.js): its own floor, walls and ceiling instead of the city's
     lay1(this.mesh); lay1(this.blob);
     this.setOutfit(outfit);
   }
   get bodyY() { return this.y + 0.9; }
-  gnd(x, z) { return this.interior ? this.interior.ground(x, z) : groundAt(x, z); }
+  gnd(x, z) { return this.interior ? this.interior.ground(x, z, this.y) : groundAt(x, z); }          // (in a building: the floor, or the step or gallery under the feet)
   worldVel() { return [this.vx, this.vz]; }
   // The character: one of the real people (people.js). The stick figure animates; until the real model has loaded (or if it cannot be loaded)
   // the smooth made-up figure stands in.
@@ -197,6 +197,15 @@ export class Walker {
       // Recorded walking, running and standing; the stick skeleton takes over the legs when crouching, in the air or knocked down, and the arms and spine with a gun up.
       const air = Math.abs(this.air), wk = armed ? this.arms.draw * (1 - air * 0.85) * (1 - dn) : 0;
       this.mw = damp(this.mw, this.melee ? 1 : 0, this.melee ? 22 : 12, dt || 1 / 60); const kick = this.melee && this.melee.kind === 'kick' ? this.mw : 0;
+      if (this.ex) {                                                                               // on a machine, a bench, a bike, a seat: the whole figure set by the exercise
+        exercisePose(B, this.ex); this.person.grip('L', this.ex.kind === 'sit' || this.ex.kind === 'sofa' ? 0.2 : 1); this.person.grip('R', this.ex.kind === 'sit' || this.ex.kind === 'sofa' ? 0.2 : 1);
+        const e = this.ex, fx = Math.sin(this.h), fz = Math.cos(this.h);
+        this.mesh.position.x += fx * e.dz; this.mesh.position.z += fz * e.dz; this.mesh.position.y += e.dy;
+        this.mesh.rotation.order = 'YXZ'; this.mesh.rotation.set(e.pitch, this.h, 0);
+        const o = { speed: this.vs || 0, phase: this.phase / (Math.PI * 2), t: this.t, pLegs: e.legs, pUpper: 1 };
+        if (body) body.pose(B, o, dt); else this.person.poseMocap(B, o);
+        this.person.updateFace(dt); this.footLift = 0; this.blobAt(); return;
+      }
       if (this.lift != null) {                                                                     // curling dumbbells: one arm, then the other
         const cl = Math.max(0, Math.sin(this.lift)), cr = Math.max(0, Math.sin(this.lift + Math.PI));
         for (const [side, c] of [['L', cl], ['R', cr]]) { const sh = B['shoulder' + side], el = B['elbow' + side]; sh.rotation.set(-0.12 - 0.15 * c, 0, side === 'L' ? -0.12 : 0.12); el.rotation.set(-(0.25 + 2.15 * c), 0, 0); B['wrist' + side].rotation.set(-0.2 * c, 0, 0); }
@@ -227,7 +236,7 @@ export class Walker {
 
   // Push out of buildings, poles, trees, cars and the sea.
   collide(obstacles) {
-    if (this.interior) { this.interior.solids(this.x, this.z, RAD + 1.2, found); }
+    if (this.interior) { this.interior.solids(this.x, this.z, RAD + 1.2, found, this.y); }
     else queryColliders(this.x, this.z, RAD + 1.2, found);
     for (const c of found) {
       if (c.type === 'box') {
@@ -281,7 +290,7 @@ export class FootCamera {
     let k = 1;
     for (let i = 0; i <= 8; i++) {                                          // walk out along the line, stopping short of anything solid
       const t = i / 8, px = _t.x + (bx + rx) * t, pz = _t.z + (bz + rz) * t, py = _t.y + sp * dist * t;
-      if (w.interior) w.interior.solids(px, pz, 0.7, found); else queryColliders(px, pz, 0.7, found);
+      if (w.interior) w.interior.solids(px, pz, 0.7, found, py - 0.9); else queryColliders(px, pz, 0.7, found);          // (indoors, only what reaches up to the camera: not a bench or a counter below it)
       let hit = w.interior ? !w.interior.inside(px, pz, 0.25) || py > w.interior.ceil() - 0.2 : false;
       for (const c of found) { if (c.type === 'box' && px > c.x0 - 0.35 && px < c.x1 + 0.35 && pz > c.z0 - 0.35 && pz < c.z1 + 0.35) hit = true; else if (c.type === 'circ' && Math.hypot(px - c.x, pz - c.z) < c.r + 0.2 && c.r > 0.9) hit = true; }
       if (hit || py < w.gnd(px, pz).y + 0.25) { k = Math.max(w.interior ? 0.07 : 0.12, (i - 1) / 8); break; }
