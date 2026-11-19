@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Car viewer</title>
+<!-- A studio to look at the dealership's cars (src/marques.js): carview.html?car=furia&paint=green&view=front. view: front, rear, side, top, all. -->
+<script type="importmap">{ "imports": { "three": "../vendor/three/build/three.module.js", "three/addons/": "../vendor/three/addons/" } }</script>
+<style>html, body { margin: 0; background: #2a2c30; overflow: hidden; } canvas { display: block; }</style>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { makeMarque } from '../src/marques.js';
+import { CARS } from '../src/marque-specs.js';
+const q = new URLSearchParams(location.search), W = innerWidth, H = innerHeight;
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0; r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap; document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9aa3ad);
+{ // a studio for the reflections: a grey room with big soft lights overhead and along one side
+  const s = new THREE.Scene(), box = new THREE.Mesh(new THREE.BoxGeometry(30, 12, 30), new THREE.MeshBasicMaterial({ color: 0x6a6e74, side: THREE.BackSide })); s.add(box);
+  for (const [x, z] of [[-6, -6], [6, -6], [-6, 6], [6, 6], [0, 0]]) { const p = new THREE.Mesh(new THREE.BoxGeometry(6, 0.2, 3), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.97, 0.92).multiplyScalar(6) })); p.position.set(x, 5.8, z); s.add(p); }
+  const w = new THREE.Mesh(new THREE.BoxGeometry(0.2, 4, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.85, 0.92, 1).multiplyScalar(3) })); w.position.set(-14.8, 3, 0); s.add(w);
+  const g = new THREE.Mesh(new THREE.BoxGeometry(30, 0.2, 30), new THREE.MeshBasicMaterial({ color: 0x3a3c40 })); g.position.y = -5.9; s.add(g);
+  scene.environment = new THREE.PMREMGenerator(r).fromScene(s, 0.03).texture;
+}
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.2); sun.position.set(6, 10, 7); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 }); scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x6d7076, roughness: 0.6 })); floor.receiveShadow = true; scene.add(floor);
+const cam = new THREE.PerspectiveCamera(32, W / H, 0.05, 200);
+const VIEWS = { front: [5.4, 1.5, 6.2], rear: [-5.2, 1.6, -6.4], side: [8.8, 1.0, 0.2], top: [3.2, 7.5, 3.0], nose: [1.6, 0.9, 5.2], tail: [-1.6, 1.1, -5.4], wheel: [3.1, 0.6, 2.6] };
+window.show = (id, paint, view = 'front') => {
+  for (const o of [...scene.children]) if (o.userData.car) scene.remove(o);
+  const car = makeMarque(id, paint, { display: q.get('display') === '1' }); car.userData.car = true; car.traverse(o => { if (o.isMesh) o.castShadow = true; }); scene.add(car);
+  const v = VIEWS[view] || VIEWS.front, c = CARS.find(x => x.id === id), k = view === 'wheel' ? 1 : (c.dims.len / 4.6);
+  cam.position.set(v[0] * k, v[1], v[2] * k); cam.lookAt(view === 'wheel' ? 0.9 : 0, view === 'top' ? 0.2 : view === 'wheel' ? 0.35 : 0.55, view === 'wheel' ? 1.3 : 0); cam.updateProjectionMatrix();
+  r.render(scene, cam); return true;
+};
+window.ready = true;
+if (q.get('car')) show(q.get('car'), q.get('paint'), q.get('view') || 'front');
+</script>
+</body></html>

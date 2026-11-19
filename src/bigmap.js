@@ -2,6 +2,7 @@
 // CITY and WORLD jump between the two, ME comes back to where you are, and the places list jumps to any named place. Tap anywhere to pick a spot: a card shows
 // what is there and how far, with SET WAYPOINT and TELEPORT HERE (not during a race or a police chase; it asks twice, so a stray tap cannot throw you across
 // the world). Everything but the land is drawn live from the same numbers the game uses (the roads, the blocks, the river), so it is sharp at any zoom.
+import { VENUES } from './venues.js';
 import { $, clamp, hash3 } from './util.js';
 import { N, SP, hw, isBlvd, EDGE, blockRect, isPark } from './city.js';
 import { LANDMARKS, SIGNATURE } from './grid.js';
@@ -197,6 +198,7 @@ export class BigMap {
       this.at(c, s, S.x, S.z, () => { c.fillStyle = col; c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.beginPath(); c.arc(0, 0, 7, 0, 7); c.fill(); c.stroke(); if (q > 0.045) this.label(c, S.name, fs - 1, '#1f2a3f', -16); if (q > 0.3) this.label(c, kind, fs - 3, '#556', 15); }); }
     const found = this.h.found(), icon = (x, z, fill, g) => this.at(c, s, x, z, () => { c.fillStyle = fill; c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, -13); c.lineTo(11, 0); c.lineTo(0, 13); c.lineTo(-11, 0); c.closePath(); c.fill(); c.stroke(); c.fillStyle = '#fff'; c.font = '700 13px Barlow, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(g, 0, 1); });
     if (found.includes('airfield')) icon(AIRFIELD.x, 3350, '#2b5db3', '✈'); for (const q of BUNKERS) if (found.includes(q.id)) icon(q.cx - 30, q.cz, '#c4202a', '!');
+    for (const v of VENUES.values()) if (v.kind === 'dealer') { icon(v.x, v.z, '#e8a317', '$'); if (q > 0.05) this.at(c, s, v.x, v.z, () => this.label(c, 'SUNSET MOTORS', fs - 1, '#1f2a3f', -22)); }       // (the car dealership)
   }
   drawMarks(c, s) {
     const route = this.h.route(), wp = this.h.waypoint(), f = this.h.focus();

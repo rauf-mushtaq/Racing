@@ -415,4 +415,57 @@ function warehouse(R, v, rnd) {
   R.light(-14, 9, 14, 1.5); R.light(10, 9, 14, 1.5); R.light(-14, 9, 32, 1.5); R.light(10, 9, 32, 1.5);
 }
 
-export const VISIT_PLANS = { office, flats, home, store, hotel, cinema, church, warehouse };
+// ---- A car showroom (dealer.js sells the cars): 64 m by 46, ten high, glass across the whole front. Seven cars on show, each on a pale plinth with a ring of
+// light round its foot (dealer.js puts the cars there: R.cars), the hypercar in the middle on a dark turntable under a great round light; reception by the
+// door, a lounge, a coffee bar, the salesmen's desks before a wall of screens, glass offices, the handover bay with its roller door, trees, light lines.
+function dealer(R, v, rnd) {
+  const W = 64, D = 46, H = 10, wall = C(0xf3f3f1), dark = C(0x1e2023);
+  R.shell(W, D, H, { floor: C(0xffffff), floorS: 5, wall, trim: dark, ceil: C(0xf6f6f4) });
+  windowIn(R, 'front', -31.7, -1.4, 0.15, H - 0.4, 3.2, C(0xc8ccd0)); windowIn(R, 'front', 1.4, 31.7, 0.15, H - 0.4, 3.2, C(0xc8ccd0)); windowIn(R, 'front', -1.4, 1.4, 2.9, H - 0.4, 2.8, C(0xc8ccd0));
+  // The cars' stands.
+  const stands = [['vitesse', 0, 19, Math.PI + 0.5, true], ['furia', -16, 11, Math.PI - 0.75], ['halcyon', 16, 11, Math.PI + 0.75], ['r9turbo', -24, 26, Math.PI - 1.15], ['r9rs', -10, 32, Math.PI - 0.4], ['sovereign', 10, 32, Math.PI + 0.4], ['bergwagen', 24, 26, Math.PI + 1.15]];
+  R.cars = [];
+  for (const [id, x, z, h, turn] of stands) {
+    const r = turn ? 3.7 : 3.35;
+    R.drum('emit', x, z, r + 0.07, 0, 0.03, C(0xdcecff).multiplyScalar(turn ? 2.4 : 1.7), false, 56);
+    R.drum('prop', x, z, r, 0, 0.07, turn ? C(0x2a2c30) : C(0xeaeae8), false, 56);
+    R.circs.push({ x: R.ox + x, z: R.oz + z, r: 2.55, y0: R.oy, y1: R.oy + 1.7 });
+    R.cars.push({ id, x: R.ox + x, z: R.oz + z, y: R.oy + 0.07, h, turn: !!turn, r });
+    if (!turn) { R.drum('prop', x, z, 1.25, H - 0.12, H - 0.04, GRAPH, false, 24); R.drum('emit', x, z, 1.05, H - 0.15, H - 0.11, C(0xfff6ea).multiplyScalar(3), false, 24); }      // a round light over each car
+    if (!turn) { const a = h + Math.PI, tx = x + Math.sin(a) * (r + 0.7) + Math.cos(a) * 1.6, tz = z + Math.cos(a) * (r + 0.7) - Math.sin(a) * 1.6; R.box('metal', tx - 0.05, tz - 0.05, tx + 0.05, tz + 0.05, 0, 1.05, STEEL); R.box('prop', tx - 0.22, tz - 0.22, tx + 0.22, tz + 0.22, 0, 0.02, GRAPH); R.box('emit', tx - 0.2, tz - 0.035, tx + 0.2, tz + 0.035, 1.05, 1.35, C(0xf4f6f8).multiplyScalar(1.3)); }   // a little lit stand with the car's details
+  }
+  R.drum('prop', 0, 19, 4.7, H - 0.32, H - 0.2, dark, false, 48); R.drum('emit', 0, 19, 4.3, H - 0.36, H - 0.3, C(0xfff8ee).multiplyScalar(2.6), false, 48);       // the great round light over the turntable
+  // Light lines across the ceiling, and the lamps.
+  for (const z of [5, 12, 26, 33, 40]) for (const x of [-20, 20]) R.panel(x, z, 18, 0.14, H, C(0xfff7ec), 4.2);
+  for (const x of [-27, 27]) R.panel(x, 19, 0.14, 30, H, C(0xfff7ec), 4.2);
+  // Reception by the door: a long white desk with a lit front, the name on the wall behind it in lights.
+  R.box('prop', 9, 4.2, 17, 5.3, 0, 1.06, C(0xf6f6f4), true); R.box('emit', 9.02, 4.18, 16.98, 4.2, 0.15, 0.95, C(0xeaf4ff).multiplyScalar(1.2)); R.box('prop', 8.95, 4.15, 17.05, 5.35, 1.06, 1.1, GRAPH);
+  R.box('prop', 9, 7.6, 17, 7.8, 0, 3.6, dark, true); R.box('emit', 10.5, 7.58, 15.5, 7.6, 2.1, 2.7, C(0xf2f6ff).multiplyScalar(1.8));
+  for (const x of [11, 15]) { R.box('prop', x - 0.25, 4.9, x + 0.25, 5.0, 1.1, 1.42, BLACK); screen(R, x - 0.22, 4.89, x + 0.22, 4.89, 1.13, 1.39, 0, -1, 0.8); }
+  people(R, [['recep', 13, 6.2, Math.PI, { key: 'agent' }]]);
+  // The lounge, front left: a rug, two sofas facing over a low table, a tree; people waiting.
+  rug(R, -30, 2.2, -21, 8.6, C(0x3a3f48));
+  { const a = sofa(R, -25.5, 3.4, 0, 3.2, C(0x2a2c30)), b2 = sofa(R, -25.5, 7.4, Math.PI, 3.2, C(0x2a2c30)); R.box('wood', -26.6, 4.9, -24.4, 5.9, 0, 0.4, C(0x6a4a2a), true);
+    R.spot('customer', a[0][0], a[0][1], 0, { sit: 'sofa', seat: 0.5 }); R.spot('customer', b2[1][0], b2[1][1], Math.PI, { sit: 'sofa', seat: 0.5 }); }
+  for (const [x, z] of [[-30, 14], [30, 14], [-30, 38], [30.2, 20]]) tree(R, x, z, 5.5);
+  // The coffee bar, back left: a counter, stools, a barista.
+  R.box('wood', -30, 40, -21, 41.2, 0, 1.05, C(0x2a2c30), true); R.box('prop', -30.05, 39.95, -20.95, 41.25, 1.05, 1.1, STONE); R.box('metal', -23, 40.3, -22, 41, 1.1, 1.55, STEEL);
+  for (let k = 0; k < 4; k++) chair(R, -28.5 + k * 2, 39.2, Math.PI, C(0x8a6a4a));
+  people(R, [['barista', -25.5, 42, Math.PI], ['customer', -26.5, 39.2, Math.PI, { sit: 'sit', seat: 0.6 }]]);
+  // The sales desks along the back before a wall of screens; glass offices in the back left corner.
+  R.box('prop', -16, D - 0.22, 16, D - 0.02, 0, H, C(0x26282c)); R.box('prop', -12.3, D - 0.3, 12.3, D - 0.22, 1.3, 7.7, BLACK); screen(R, -12, D - 0.31, 12, D - 0.31, 1.6, 7.4, 0, -1, 1.15);       // a dark wall at the back, a wall of screens on it
+  for (const x of [-7, 0, 7]) { const at = desk(R, x, D - 4.2, Math.PI, C(0xf2f2f0)); chair(R, x, D - 5.25, 0, C(0x2a2c30)); R.spot('sales', at[0], at[1], Math.PI, { sit: 'desk', seat: 0.46, key: 'agent' }); }
+  for (const [x0, x1] of [[-31.7, -24], [-23.6, -16]]) { glassPanel(R, x0, D - 7, x1, D - 6.9, 0, 3, GRAPH); glassPanel(R, x1, D - 7, x1 + 0.1, D, 0, 3, GRAPH); R.box('prop', x0, D - 7, x1 + 0.1, D, 3, 3.15, C(0xe8e8e6)); desk(R, (x0 + x1) / 2, D - 3, Math.PI, C(0xf2f2f0)); }
+  // The handover bay, back right: a roller door in the right wall, the floor marked out in front of it, a car under a cover waiting.
+  R.box('prop', W / 2 - 0.08, 31, W / 2 - 0.02, 43, 0, 5.2, C(0x9aa0a6)); for (let y = 0.25; y < 5.2; y += 0.25) R.box('prop', W / 2 - 0.09, 31, W / 2 - 0.08, 43, y, y + 0.03, C(0x7a8086));
+  R.box('prop', W / 2 - 0.1, 30.8, W / 2 - 0.02, 31, 0, 5.5, C(0xf0c020)); R.box('prop', W / 2 - 0.1, 43, W / 2 - 0.02, 43.2, 0, 5.5, C(0xf0c020));
+  for (const [x0, z0, x1, z1] of [[19, 31, 31.9, 31.15], [19, 42.85, 31.9, 43], [19, 31, 19.15, 43]]) R.box('prop', x0, z0, x1, z1, 0, 0.012, C(0xf0c020));
+  R.box('prop', 21.5, 34, 29.5, 40, 0, 0.5, C(0x3a3d44), true); R.box('prop', 21.7, 34.6, 29.3, 39.4, 0.5, 1.15, C(0x464a52)); R.box('prop', 23.2, 35.2, 27.2, 38.8, 1.15, 1.32, C(0x464a52));       // a car under its cover
+  // People: salesmen by the cars, customers walking round them.
+  people(R, [['sales', -3.2, 13.6, Math.PI - 0.4, { key: 'agent' }], ['customer', -1.8, 14.2, 0.6], ['sales', 12.6, 15.6, -0.6, { key: 'agent' }],
+    ['customer', -8, 6, 0, { route: [[-8, 6], [-21, 16], [-15, 26], [-2, 26.5], [6, 25], [14, 18], [8, 6]] }], ['customer', 20, 18, 0, { route: [[20, 18], [27, 33], [17, 38], [4, 39], [-17, 38], [-27, 33], [-20, 18], [0, 10]] }],
+    ['customer', -18, 33, Math.PI / 2], ['customer', 19.6, 21.5, -2.2]]);
+  R.light(-14, 8, 12, 1.7); R.light(14, 8, 12, 1.7); R.light(0, 8.5, 30, 1.8); R.light(0, 9.2, 19, 1.3);
+}
+
+export const VISIT_PLANS = { office, flats, home, store, hotel, cinema, church, warehouse, dealer };

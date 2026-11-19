@@ -92,6 +92,11 @@ const SURFACES = {
     const tu = (u * 2) % 1, tv = (v * 2) % 1, cut = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.003, m = fbm(u * 0.8, v * 0.8, 5), st = Math.pow(fbm(u + 7, v, 3), 3) * 0.25;
     const g = (0.62 + 0.18 * m) * (1 - st); return [g * 200, g * 198, g * 194, cut ? 0.1 : 0.55, cut ? 0.9 : 0.35 + 0.2 * m];
   }, 1.5),
+  // Large polished porcelain tiles in dark grey, a fine joint between them (a car showroom: the cars stand out on it, and it mirrors them).
+  showroom: () => surfaceTex(512, (u, v, x, y) => {
+    const tu = (u * 2) % 1, tv = (v * 2) % 1, joint = Math.min(tu, 1 - tu, tv, 1 - tv) < 0.0035, t = Math.floor(u * 2) + Math.floor(v * 2) * 2, m = fbm(u * 1.3 + t, v * 1.3, 4);
+    const g = joint ? 0.16 : (0.3 + 0.05 * m) * (0.97 + 0.06 * hash(t, 3)); return [g * 196, g * 199, g * 204, joint ? 0.12 : 0.55, joint ? 0.85 : 0.1 + 0.08 * m];
+  }, 2.4),
   // Oak boards (a museum's galleries).
   oak: () => surfaceTex(512, (u, v) => {
     const plank = Math.floor(u * 8), local = (u * 8) % 1, off = hash(plank, 1), lv = (v + off) % 1, row = Math.floor((v + off) * 2), end = (lv * 2) % 1 < 0.006;
@@ -138,6 +143,7 @@ const LOOK = {
   home: ['oak', 'plaster', 'plaster', { clearcoat: 0.5, rough: 0.8, glow: 0.38 }], store: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.4, rough: 0.9, glow: 0.42 }],
   hotel: ['marble', 'plaster', 'plaster', { clearcoat: 0.9, rough: 0.5, glow: 0.32 }], cinema: ['carpet', 'plaster', 'concrete', { clearcoat: 0, rough: 1 }],
   church: ['flags', 'ashlar', 'ashlar', { clearcoat: 0.15, rough: 0.9, glow: 0.22 }], warehouse: ['slab', 'block', 'concrete', { clearcoat: 0.3, rough: 0.9, glow: 0.15 }],
+  dealer: ['showroom', 'plaster', 'ceiling', { clearcoat: 1.0, rough: 0.2, glow: 0.5 }],
 };
 export const TEX = {};
 function makeTextures() {

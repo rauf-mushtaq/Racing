@@ -23,7 +23,7 @@ export { mergeGeoms, puddles, macro };
 const wet = (x, z, m = 3) => (inRiverBox(x, z, m) && riverSdf(x, z) < m) || roadSdf(x, z) < m;      // (in or by the river, or on one of the roads that cut across the grid)
 
 export { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, isLakeBlock, landmarkAt, signatureAt, isPlaza } from './grid.js';
-import { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, landmarkAt, signatureAt, isPlaza } from './grid.js';
+import { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, landmarkAt, signatureAt, isPlaza, dealerAt } from './grid.js';
 const CURB = 0.15, MEDIAN_H = 0.18, CORNER = 5;
 const R = 2;                          // blocks per region side
 const NR = (2 * N) / R;               // regions per side
@@ -816,6 +816,16 @@ export class City {
     const houseBlock = zone === 'sub' ? hash3(i, j, 5) < 0.93 : zone === 'low' ? hash3(i, j, 5) < 0.5 : false;
     const maxLot = zone === 'down' ? 60 : zone === 'mid' ? 44 : houseBlock ? 30 : 36;
     const lots = []; subdivide({ x0: ix0, z0: iz0, x1: ix1, z1: iz1 }, maxLot, rnd, lots);
+    // A car dealership's block: its showroom takes the big enough lot on the named face nearest the named point (grid.js DEALERS).
+    const dl = dealerAt(i, j); let dealerLot = null;
+    if (dl) {
+      let bd = 1e9;
+      for (const lot of lots) {
+        const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0, on = dl.dir[0] ? (dl.dir[0] < 0 ? lot.x0 - ix0 < 0.5 : ix1 - lot.x1 < 0.5) : (dl.dir[1] < 0 ? lot.z0 - iz0 < 0.5 : iz1 - lot.z1 < 0.5);
+        if (!on || Math.min(w, d) < 24 || Math.max(w, d) < 30 || this.nearWater(lot)) continue;
+        const c = dl.dir[0] ? (lot.z0 + lot.z1) / 2 : (lot.x0 + lot.x1) / 2, sc = Math.abs(c - dl.at); if (sc < bd) { bd = sc; dealerLot = lot; }
+      }
+    }
     for (const lot of lots) {
       ctx.setLot(lot);
       if (this.nearWater(lot)) { this.riverLot(ctx, lot, rnd); continue; }
@@ -825,6 +835,7 @@ export class City {
       if (ix1 - lot.x1 < 0.5) faces.push({ dir: [1, 0], line: i + 1, axis: 'x' });
       if (lot.z0 - iz0 < 0.5) faces.push({ dir: [0, -1], line: j, axis: 'z' });
       if (iz1 - lot.z1 < 0.5) faces.push({ dir: [0, 1], line: j + 1, axis: 'z' });
+      if (lot === dealerLot) { const fi = faces.findIndex(f => f.dir[0] === dl.dir[0] && f.dir[1] === dl.dir[1]); buildVenue(this, ctx, lot, [faces[fi], ...faces.filter((_, k) => k !== fi)], zone, 'dealer', rnd); if (performance.now() > this.deadline) yield; continue; }
       const onBlvd = faces.some(f => isBlvd(f.line)), hz = hash3(Math.round(lot.x0), Math.round(lot.z0), 61);
       const civic = faces.length && !houseBlock && lot.x1 - lot.x0 > 22 && lot.z1 - lot.z0 > 22 ? (zone === 'down' || zone === 'mid' ? (hz < 0.02 ? 'bank' : hz < 0.04 ? 'hotel' : hz < 0.055 ? 'cinema' : null) : zone === 'low' && hz < 0.012 ? 'bank' : null) : null;
       const vk = !civic && !houseBlock ? venueKindFor(zone, lot, faces) : null;
@@ -1610,7 +1621,7 @@ export class City {
   }
 
   signUV(ctx, special = -1) {
-    const n = special <= -10 ? -special - 10 : special >= 4 ? 20 + special : special >= 0 ? 28 + special : ctx.signN++ % 23, cc = n % 4, rr = (n / 4) | 0;     // (-10 - n: cell n itself; the shops' signs are cells 0 to 22, and 23 is a police station's)     // (cells 24 to 27: petrol, shop, jeweller, museum; 28 to 31: the bank, hotel, cinema and cash-machine signs)
+    const n = special <= -10 ? -special - 10 : special >= 4 ? 20 + special : special >= 0 ? 28 + special : ctx.signN++ % 22, cc = n % 4, rr = (n / 4) | 0;     // (-10 - n: cell n itself; the shops' signs are cells 0 to 21, 22 is the car dealership's and 23 a police station's)     // (cells 24 to 27: petrol, shop, jeweller, museum; 28 to 31: the bank, hotel, cinema and cash-machine signs)
     return [cc / 4 + 0.004, 1 - (rr + 1) / 8 + 0.004, (cc + 1) / 4 - 0.004, 1 - rr / 8 - 0.004];
   }
   shopSign(ctx, b, f, h, rnd) {

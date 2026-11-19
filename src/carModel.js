@@ -31,7 +31,7 @@ function sectionHalf(P, z) {
   else if (z < tail) q = Math.sqrt(Math.max(0, 1 - ((tail - z) / P.tailR) ** 2));
   if (q < 1) {
     const cy = (yb + yt) * 0.5;
-    const sx = lerp(P.endW, 1, q), sy = lerp(P.endH, 1, q);
+    const back = z < tail, sx = lerp(back ? (P.tailW ?? P.endW) : P.endW, 1, q), sy = lerp(back ? (P.tailH ?? P.endH) : P.endH, 1, q);   // (the tail can be rounded off less than the nose)
     for (const p of pts) { p[0] *= sx; p[1] = cy + (p[1] - cy) * sy; }
   }
   return pts;
@@ -448,5 +448,5 @@ export function trafficModels() {
 
 // Police vehicles: the saloon and the SUV in black and white, with their light bars added in police.js.
 export function policeModels() { return { cruiser: trafficType({ ...SALOON, name: 'cruiser', livery: true, barZ: -0.2, barY: 1.5 }), truck: trafficType({ ...SUV, name: 'police4x4', livery: true, mass: 2600, barZ: -0.55, barY: 1.84 }) }; }
-export { loft, stationsFor, archBottom, mergeByMaterial };
+export { loft, stationsFor, archBottom, mergeByMaterial, sectionHalf };
 

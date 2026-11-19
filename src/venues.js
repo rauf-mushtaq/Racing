@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { addCollider } from './city.js';
 import { hash3 } from './util.js';
+import { SIDEWALK, hw, laneOffset, laneCount } from './grid.js';
 
 const CURB = 0.15;
 export const VENUE_TYPES = {
@@ -17,6 +18,8 @@ export const VENUE_TYPES = {
   museum:   { kind: 'museum',   name: 'MUSEUM',           tier: 5, stars: 4, delay: 0, press: [3, 6], dmg: 7.5, aim: 1.2, blurb: 'Patrols, cameras, lasers', worth: '$315,000' },
   // Not a place to rob: a gym, to train in (gym.js).
   gym:      { kind: 'gym',      name: 'IRON CITY GYM',    gym: true, tier: 0, stars: 0, blurb: 'Train: hit harder, run faster' },
+  // Nor this: a car dealership, to buy a new car in (dealer.js, rooms-dealer.js). The cars are on show inside and on the forecourt out front.
+  dealer:   { kind: 'dealer',   name: 'SUNSET MOTORS',    dealer: true, tier: 0, stars: 0, blurb: 'Supercars, limousines and off-roaders for sale' },
   // Nor this: a police station, with its front desk and its cells (jail.js). Arrested, you are kept here.
   police:   { kind: 'police',   name: 'POLICE STATION',   station: true, tier: 0, stars: 0, blurb: 'The front desk, and the cells' },
   // And every other building: walk in through any wall to look round (rooms-visit.js, visit.js). Nothing to rob, people about.
@@ -194,6 +197,45 @@ function buildVenueOf(city, ctx, lot, faces, zone, kind, rnd) {
     const door = frontDoor(city, ctx, b, f, 'gym', { h: 2.8, w: 2.2, clad: black, metal: steel, room: hall });
     const [kx, kz] = city.facePt(b, f, W / 2 + 1.8, 0.9); for (let k = 0; k < 3; k++) { const o = k * 0.55 - 0.55, ax = f.dir[0] !== 0 ? 0 : o, az = f.dir[0] !== 0 ? o : 0; G.props.box(kx + ax - 0.03, kz + az - 0.03, kx + ax + 0.03, kz + az + 0.03, CURB, CURB + 0.8, 3, col(0.7, 0.72, 0.75)); }
     addCollider({ type: 'box', x0: kx - 0.7, x1: kx + 0.7, z0: kz - 0.7, z1: kz + 0.7 }, ctx.colliders);
+    return door;
+  }
+  if (kind === 'dealer') {
+    // A showroom of glass two storeys high, set back behind a forecourt of polished stone where three cars stand on show at an angle, each on its own
+    // lit plinth; a white fascia with the name in lights over the glass, a canopy over the door, and a tall sign at the pavement's edge. The cars on the
+    // forecourt are drawn by dealer.js (venue.show says where); the one you buy is waiting where venue.handover says, pointing the way the traffic goes.
+    const fore = Math.min(12, depth * 0.3), H0 = CURB;
+    if (f.dir[0] < 0) b.x0 = lot.x0 + fore; else if (f.dir[0] > 0) b.x1 = lot.x1 - fore; else if (f.dir[1] < 0) b.z0 = lot.z0 + fore; else b.z1 = lot.z1 - fore;
+    city.buildMass(ctx, b, 'glass', 10.5, faces, rnd, { rect: true, color: col(0.8, 0.83, 0.86) });
+    const W = Math.min(along - 3, 36), frame = col(0.78, 0.8, 0.83), hall = roomCol(0.96, 0.96, 0.95, 3), white = col(0.94, 0.94, 0.93), dark = col(0.08, 0.085, 0.09);
+    city.faceBox(G.props, b, f, -W / 2 - 0.3, W / 2 + 0.3, 0, 0.02, H0, H0 + 6.6, dark);                                                   // (the dark backing the glass stands on)
+    for (const s of [-1, 1]) glazing(city, ctx, b, f, s > 0 ? 1.7 : -W / 2 + 0.2, s > 0 ? W / 2 - 0.2 : -1.7, 0.08, 6.4, { metal: frame, room: hall, bay: 3.2, frame: 0.07 });
+    glazing(city, ctx, b, f, -1.7, 1.7, 3.3, 6.4, { metal: frame, room: hall, bay: 3.4, frame: 0.07 });
+    city.faceBox(G.props, b, f, -W / 2 - 0.45, W / 2 + 0.45, 0, 0.7, H0 + 6.6, H0 + 8.0, white); city.faceBox(G.props, b, f, -W / 2 - 0.45, W / 2 + 0.45, 0, 0.72, H0 + 6.6, H0 + 6.7, dark);
+    city.faceSign(ctx, b, f, -32, 0, 0.73, H0 + 6.75, Math.min(11, W * 0.42), 1.15);                                                        // (cell 22 of the sign atlas: SUNSET MOTORS)
+    city.faceBox(G.props, b, f, -2.6, 2.6, 0, 2.6, H0 + 3.15, H0 + 3.3, white);                                                              // the canopy over the door
+    const door = frontDoor(city, ctx, b, f, 'dealer', { h: 2.95, w: 2.6, clad: col(0.2, 0.21, 0.23), metal: frame, room: hall });
+    // The forecourt: polished dark stone from the glass to the pavement, with a light strip along its edge.
+    const lb = { x0: lot.x0, x1: lot.x1, z0: lot.z0, z1: lot.z1 };
+    city.faceBox(G.props, b, f, -along / 2 + 0.4, along / 2 - 0.4, 0, fore - 0.6, H0, H0 + 0.03, col(0.16, 0.165, 0.17));
+    city.faceBox(G.props, b, f, -along / 2 + 0.4, along / 2 - 0.4, fore - 0.75, fore - 0.6, H0, H0 + 0.045, col(0.9, 0.92, 0.95));
+    // Three cars on show, at an angle to the glass, each on a pale plinth (solid: you walk and drive round them); not in front of the door.
+    const nx = f.dir[0], nz = f.dir[1], ax = -nz, az = nx, faceYaw = Math.atan2(nx, nz), show = [];
+    const ids = ['furia', 'r9turbo', 'sovereign', 'halcyon', 'bergwagen', 'vitesse', 'r9rs'], k0 = Math.floor(hash3(Math.round(lot.x0), Math.round(lot.z0), 41) * ids.length);
+    const ts = along > 34 ? [-along * 0.33, along * 0.2, along * 0.38] : [-along * 0.32, along * 0.3];
+    ts.forEach((t, i) => {
+      const [px, pz] = city.facePt(b, f, t, fore * 0.5), h = faceYaw + (t < 0 ? -0.65 : 0.65) + Math.PI;
+      const pts = []; for (let k = 0; k < 28; k++) { const a = k / 28 * Math.PI * 2; pts.push([px + Math.cos(a) * 3.0, pz + Math.sin(a) * 3.0]); }
+      G.props.extrude(pts, H0, H0 + 0.08, 2, 2, col(0.86, 0.87, 0.88), 0, true); G.props.cap(pts.slice().reverse(), H0 + 0.08, 2, col(0.86, 0.87, 0.88));
+      for (const o of [-1.3, 0, 1.3]) addCollider({ type: 'circ', x: px + Math.sin(h) * o, z: pz + Math.cos(h) * o, r: 1.05 }, ctx.colliders);
+      show.push({ id: ids[(k0 + i * 2) % ids.length], x: px, z: pz, y: H0 + 0.08, h });
+    });
+    // The tall sign at the pavement's edge, by the forecourt's end.
+    const [sx, sz] = city.facePt(lb, f, along / 2 - 1.6, 0.9);
+    G.props.box(sx - 0.35, sz - 0.35, sx + 0.35, sz + 0.35, H0, H0 + 6.2, 3, white); city.faceSign(ctx, { x0: sx, x1: sx, z0: sz, z1: sz }, f, -32, 0, 0.37, H0 + 4.6, 3.4, 1.2);
+    addCollider({ type: 'box', x0: sx - 0.4, x1: sx + 0.4, z0: sz - 0.4, z1: sz + 0.4 }, ctx.colliders);
+    // Where a car you buy is left for you: in the kerb lane of the road in front of the door, facing the way the traffic on this side goes (on the right).
+    const [hx, hz] = city.facePt(lb, f, 0, SIDEWALK + hw(f.line) - laneOffset(f.line, laneCount(f.line) - 1));
+    door.show = show; door.handover = { x: hx, z: hz, y: H0, h: Math.atan2(-nz, nx) }; door.front = { ax, az, nx, nz };
     return door;
   }
   if (kind === 'police') {

@@ -541,10 +541,10 @@ export function signAtlas() {
   ];
   for (let n = 0; n < 32; n++) {
     const col = n % 4, row = (n / 4) | 0, x = col * 512, y = row * 256;
-    const special = n >= 24, police = n === 23, s = police ? { bg: '#0c1f4a', fg: '#ffffff', glow: '#7fb0ff' } : special ? SPECIAL_SCHEMES[n - 24] : schemes[(n + row) % 4], name = police ? 'POLICE' : special ? SPECIAL_NAMES[n - 24] : SIGN_NAMES[n % 16];      // (cell 23: a police station's)
+    const special = n >= 24, police = n === 23, motors = n === 22, s = police ? { bg: '#0c1f4a', fg: '#ffffff', glow: '#7fb0ff' } : motors ? { bg: '#0b0c0e', fg: '#f2f4f6', glow: '#a8d8ff' } : special ? SPECIAL_SCHEMES[n - 24] : schemes[(n + row) % 4], name = police ? 'POLICE' : motors ? 'SUNSET MOTORS' : special ? SPECIAL_NAMES[n - 24] : SIGN_NAMES[n % 16];      // (cell 23: a police station's; 22: the car dealership's)
     g.fillStyle = s.bg; g.fillRect(x + 8, y + 8, 496, 240);
     g.strokeStyle = s.glow; g.lineWidth = 10; g.strokeRect(x + 24, y + 24, 464, 208);
-    g.font = `900 ${name.length > 7 ? 76 : 104}px "Barlow Condensed", "Arial Narrow", Arial, sans-serif`;
+    g.font = `900 ${name.length > 11 ? 66 : name.length > 7 ? 76 : 104}px "Barlow Condensed", "Arial Narrow", Arial, sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.shadowColor = s.glow; g.shadowBlur = 26; g.fillStyle = s.fg; g.fillText(name, x + 256, y + 132); g.shadowBlur = 0;
   }

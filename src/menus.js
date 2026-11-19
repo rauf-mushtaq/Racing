@@ -8,6 +8,8 @@ import { setPaint, PAINTS } from './carModel.js';
 import { PEOPLE, personKey } from './people.js';
 import { TOD_NAME } from './tod.js';
 import { SPEC } from './vehicle.js';
+import { CAR_BY_ID, MPAINTS, marqueSpec, STARTER } from './marque-specs.js';
+import { setMarquePaint } from './marques.js';
 import { toText } from './bench.js';
 
 export function initMenus(C) {
@@ -83,12 +85,25 @@ export function initMenus(C) {
 
   function garagePanel() {
     game.garage = true;
-    const sw = Object.entries(PAINTS).map(([k, p]) => `<button class="sw ${settings.color === k ? 'on' : ''}" data-c="${k}"><i style="background:#${p.color.toString(16).padStart(6, '0')}"></i>${p.name}</button>`).join('');
-    showPanel(`<h2>VENTO SV</h2><p class="hint">A mid-engined, all-wheel-drive supercar with a six-speed gearbox. Its body is a 3D model of a real V8 sports coupe (credited in the README); the engine, grip and handling are the game's own, so these numbers are the game's.</p>
-      <div class="spec"><div><b>${SPEC.mass.toLocaleString('en')} kg</b>weight</div><div><b>${SPEC.Tmax} Nm</b>peak torque</div><div><b>AWD</b>drive</div><div><b>${(SPEC.redline / 1000).toFixed(0)},000 rpm</b>red line</div></div>
+    // Which of your cars you drive: the Vento, and any you have bought at the dealership (dealer.js).
+    const mine = settings.myCar && CAR_BY_ID[settings.myCar] && settings.garage && settings.garage[settings.myCar] ? settings.myCar : STARTER;
+    const owned = [STARTER, ...Object.keys(settings.garage || {}).filter(k => CAR_BY_ID[k])];
+    const cars = owned.length > 1 ? `<div class="swatches">${owned.map(k => `<button class="sw ${k === mine ? 'on' : ''}" data-car="${k}">${k === STARTER ? 'VENTO SV' : CAR_BY_ID[k].make + ' ' + CAR_BY_ID[k].model}</button>`).join('')}</div>` : '';
+    const M = mine !== STARTER ? CAR_BY_ID[mine] : null, S = M ? marqueSpec(M) : SPEC;
+    const sw = M ? M.paints.map(k => { const p = MPAINTS[k]; return `<button class="sw ${settings.garage[mine].paint === k ? 'on' : ''}" data-mp="${k}"><i style="background:#${p.color.toString(16).padStart(6, '0')}"></i>${p.name}</button>`; }).join('')
+      : Object.entries(PAINTS).map(([k, p]) => `<button class="sw ${settings.color === k ? 'on' : ''}" data-c="${k}"><i style="background:#${p.color.toString(16).padStart(6, '0')}"></i>${p.name}</button>`).join('');
+    const about = M ? `<p class="hint">${M.type}: ${M.engine}, ${M.hp.toLocaleString('en')} horsepower. ${M.blurb} Bought at Sunset Motors (a made-up make and model, like the city).</p>`
+      : `<p class="hint">A mid-engined, all-wheel-drive supercar with a six-speed gearbox. Its body is a 3D model of a real V8 sports coupe (credited in the README); the engine, grip and handling are the game's own, so these numbers are the game's.${owned.length > 1 ? '' : ' More cars are for sale at Sunset Motors, the showroom on the boulevard by where you start.'}</p>`;
+    showPanel(`${owned.length > 1 ? '<h2>YOUR CARS</h2>' + cars : ''}<h2>${M ? M.make + ' ' + M.model : 'VENTO SV'}</h2>${about}
+      <div class="spec"><div><b>${S.mass.toLocaleString('en')} kg</b>weight</div><div><b>${S.Tmax} Nm</b>peak torque</div><div><b>${M ? M.drive : 'AWD'}</b>drive</div><div><b>${S.redline.toLocaleString('en')} rpm</b>red line</div></div>
       <div class="swatches">${sw}</div>
       <h2 style="margin-top:20px">YOUR CHARACTER</h2><p class="hint">Who you play when you are on foot. Press F beside the car to get in or out.</p>
       <div class="swatches">${Object.entries(PEOPLE).map(([k, o]) => `<button class="sw ${personKey(settings.outfit) === k ? 'on' : ''}" data-o="${k}"><i style="background:linear-gradient(180deg,#${o.sw[0].toString(16).padStart(6, '0')} 0 55%,#${o.sw[1].toString(16).padStart(6, '0')} 55% 100%)"></i>${o.name}</button>`).join('')}</div>`);
+    panel.querySelectorAll('[data-car]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.car; C.chooseCar(k, k === STARTER ? null : settings.garage[k].paint); garagePanel(); }));
+    panel.querySelectorAll('[data-mp]').forEach(b => b.addEventListener('click', () => {
+      settings.garage[mine].paint = b.dataset.mp; save(); setMarquePaint(C.heroMesh, b.dataset.mp);
+      panel.querySelectorAll('[data-mp]').forEach(x => x.classList.toggle('on', x === b));
+    }));
     panel.querySelectorAll('[data-c]').forEach(b => b.addEventListener('click', () => {
       settings.color = b.dataset.c; save(); setPaint(C.heroMesh, settings.color);
       panel.querySelectorAll('[data-c]').forEach(x => x.classList.toggle('on', x === b));
