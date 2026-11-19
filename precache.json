@@ -1,8 +1,13 @@
 {
  "files": [
+  "assets/cars/chiron.glb",
+  "assets/cars/cullinan.glb",
   "assets/cars/ferrari.glb",
   "assets/cars/ferrari_lite.glb",
   "assets/cars/ferrari_traffic.glb",
+  "assets/cars/g63.glb",
+  "assets/cars/porsche911.glb",
+  "assets/cars/revuelto.glb",
   "assets/draco/draco_decoder.js",
   "assets/draco/draco_decoder.wasm",
   "assets/draco/draco_wasm_wrapper.js",
@@ -117,6 +122,7 @@
   "src/roads.js",
   "src/rooms-visit.js",
   "src/rooms.js",
+  "src/scancars.js",
   "src/scatter.js",
   "src/seated.js",
   "src/settlements.js",

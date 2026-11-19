@@ -19,7 +19,7 @@ export const VENUE_TYPES = {
   // Not a place to rob: a gym, to train in (gym.js).
   gym:      { kind: 'gym',      name: 'IRON CITY GYM',    gym: true, tier: 0, stars: 0, blurb: 'Train: hit harder, run faster' },
   // Nor this: a car dealership, to buy a new car in (dealer.js, rooms-dealer.js). The cars are on show inside and on the forecourt out front.
-  dealer:   { kind: 'dealer',   name: 'SUNSET MOTORS',    dealer: true, tier: 0, stars: 0, blurb: 'Supercars, limousines and off-roaders for sale' },
+  dealer:   { kind: 'dealer',   name: 'SUNSET MOTORS',    dealer: true, tier: 0, stars: 0, blurb: 'Supercars, luxury SUVs and off-roaders for sale' },
   // Nor this: a police station, with its front desk and its cells (jail.js). Arrested, you are kept here.
   police:   { kind: 'police',   name: 'POLICE STATION',   station: true, tier: 0, stars: 0, blurb: 'The front desk, and the cells' },
   // And every other building: walk in through any wall to look round (rooms-visit.js, visit.js). Nothing to rob, people about.

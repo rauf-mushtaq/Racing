@@ -4,8 +4,9 @@
 // and what you have. Buy it and it is yours (kept between games, settings.garage), and it becomes the car you drive (settings.myCar); DRIVE IT OUT puts
 // you in it on the forecourt, pointing the way the traffic goes. A car you already own can be driven out again, in a new colour if you like.
 // The Garage on the main menu (menus.js) lets you choose between the cars you own.
-import { CARS, CAR_BY_ID, MPAINTS, marqueSpec } from './marque-specs.js';
-import { makeMarque, setMarquePaint, disposeMarque } from './marques.js';
+import { CARS, CAR_BY_ID, MPAINTS } from './marque-specs.js';
+import { makeMarque, setMarquePaint, disposeMarque, specFor, paintsFor } from './marques.js';
+import { scanReady } from './scancars.js';
 import { Vehicle } from './vehicle.js';
 import { VENUES } from './venues.js';
 
@@ -14,11 +15,12 @@ const layer = (o, n) => o.traverse(m => m.layers.set(n));
 // How quick a car is, measured as the game drives it: flat out from rest on level road (0 to 100 km/h, and the top speed).
 const PERF = {};
 export function carPerf(id) {
-  if (PERF[id]) return PERF[id];
-  const v = new Vehicle(marqueSpec(id)), dt = 1 / 120, inp = { steer: 0, gas: 1, brake: 0, handbrake: false, nitro: false, analog: true, sens: 1, device: 'keyboard' }, g = () => ({ y: 0, grass: false });
+  const key = id + (scanReady(id) ? ':real' : '');
+  if (PERF[key]) return PERF[key];
+  const v = new Vehicle(specFor(id)), dt = 1 / 120, inp = { steer: 0, gas: 1, brake: 0, handbrake: false, nitro: false, analog: true, sens: 1, device: 'keyboard' }, g = () => ({ y: 0, grass: false });
   v.reset(0, 0, 0); let t = 0, s100 = null, top = 0;
   for (let i = 0; i < 120 * 75; i++) { v.step(dt, inp, g); t += dt; const k = v.speed * 3.6; if (s100 === null && k >= 100) s100 = t; top = Math.max(top, k); }
-  return (PERF[id] = { s100: s100 ?? 99, kmh: Math.round(top) });
+  return (PERF[key] = { s100: s100 ?? 99, kmh: Math.round(top) });
 }
 
 export class Dealer {
@@ -31,13 +33,14 @@ export class Dealer {
   }
   get settings() { return this.env.settings; }
   owned(id) { const g = this.settings.garage; return !!(g && g[id]); }
-  paintOf(id) { const g = this.settings.garage, c = CAR_BY_ID[id]; return (g && g[id] && g[id].paint) || c.paints[0]; }
+  paintOf(id) { const g = this.settings.garage, P = paintsFor(id), p = g && g[id] && g[id].paint; return p && P.includes(p) ? p : P[0]; }
+  // A car on show: built (again) if it is not there yet, or if its real model has loaded since it was built from its lofted body.
+  stand(id) { let m = this.stands.get(id); if (m && !m.userData.real && scanReady(id)) { disposeMarque(m); m = null; } if (!m) { m = makeMarque(id, this.paintOf(id), { display: true }); this.stands.set(id, m); } return m; }
   // ---- In the showroom ----------------------------------------------------------------------------------------------------------------------------
   begin(v) {
     this.end(); const I = this.env.interior, R = I.room; this.venue = v; this.active = true;
     this.cars = (R.cars || []).map(c => {
-      let m = this.stands.get(c.id); if (!m) { m = makeMarque(c.id, this.paintOf(c.id), { display: true }); this.stands.set(c.id, m); }
-      setMarquePaint(m, this.paintOf(c.id)); m.position.set(c.x, c.y, c.z); m.rotation.set(0, c.h, 0); m.visible = true;
+      const m = this.stand(c.id); setMarquePaint(m, this.paintOf(c.id)); m.position.set(c.x, c.y, c.z); m.rotation.set(0, c.h, 0); m.visible = true;
       layer(m, 1); I.group.add(m); return { ...c, mesh: m };
     });
   }
@@ -69,7 +72,7 @@ export class Dealer {
   open(id) { this.cur = id; this.choice = this.paintOf(id); this.showMenu(true); }
   // Choosing a paint: the car on its stand is painted to show it.
   pick(key) {
-    const c = CAR_BY_ID[this.cur]; if (!c || !c.paints.includes(key)) return false; this.choice = key;
+    const c = CAR_BY_ID[this.cur]; if (!c || !paintsFor(c.id).includes(key)) return false; this.choice = key;
     const m = this.stands.get(this.cur); if (m) setMarquePaint(m, key);
     this.render(); return true;
   }
@@ -100,7 +103,7 @@ export class Dealer {
         if (!this.menuOpen) return;
         if (e.code === 'Escape') { this.showMenu(false); e.preventDefault(); }
         else if (e.code === 'Enter') { this.buy(); e.preventDefault(); e.stopPropagation(); }
-        else if (/^Digit[1-6]$/.test(e.code)) { const c = CAR_BY_ID[this.cur], k = c && c.paints[+e.code.slice(5) - 1]; if (k) this.pick(k); e.preventDefault(); e.stopPropagation(); }
+        else if (/^Digit[1-6]$/.test(e.code)) { const k = this.cur && paintsFor(this.cur)[+e.code.slice(5) - 1]; if (k) this.pick(k); e.preventDefault(); e.stopPropagation(); }
       }, true);
     }
     if (!this.menu) return;
@@ -111,7 +114,7 @@ export class Dealer {
   render() {
     const c = CAR_BY_ID[this.cur]; if (!this.menu || !c) return;
     const P = carPerf(c.id), cash = this.settings.cash || 0, own = this.owned(c.id), short = Math.max(0, c.price - cash);
-    const sw = c.paints.map((k, i) => { const p = MPAINTS[k]; return `<button class="cm-sw ${k === this.choice ? 'on' : ''}" data-p="${k}"><i style="background:#${p.color.toString(16).padStart(6, '0')}"></i>${p.name}<small>${i + 1}</small></button>`; }).join('');
+    const sw = paintsFor(c.id).map((k, i) => { const p = MPAINTS[k]; return `<button class="cm-sw ${k === this.choice ? 'on' : ''}" data-p="${k}"><i style="background:#${p.color.toString(16).padStart(6, '0')}"></i>${p.name}<small>${i + 1}</small></button>`; }).join('');
     const btn = own ? `<button class="cm-buy" data-buy="1">DRIVE IT OUT (ENTER)</button>` : short > 0 ? `<button class="cm-buy" data-buy="1" disabled>YOU NEED ${money(short)} MORE</button>` : `<button class="cm-buy" data-buy="1">BUY FOR ${money(c.price)} (ENTER)</button>`;
     this.menu.innerHTML = `<div class="cm-box"><div class="cm-head"><span>${c.make}</span><b>${c.model}</b><em>${money(cash)}</em></div>
       <div class="cm-type">${c.type} · ${c.engine} · ${c.drive}</div><p class="cm-blurb">${c.blurb}</p>
@@ -126,8 +129,9 @@ export class Dealer {
     for (const v of VENUES.values()) {
       if (v.kind !== 'dealer' || !v.show) continue;
       const d = Math.hypot(v.x - x, v.z - z); let list = this.street.get(v.id);
+      if (list && d < 400 && list.some((m, i) => !m.userData.real && scanReady(v.show[i].id))) { for (const m of list) disposeMarque(m); this.street.delete(v.id); list = null; }      // (their real models have loaded since)
       if (d < 320 && !list) {
-        list = v.show.map((s, i) => { const c = CAR_BY_ID[s.id], m = makeMarque(s.id, c.paints[(i + 1) % c.paints.length], { display: true }); m.position.set(s.x, s.y, s.z); m.rotation.y = s.h; this.env.scene.add(m); return m; });
+        list = v.show.map((s, i) => { const P = paintsFor(s.id), m = makeMarque(s.id, P[(i + 1) % P.length], { display: true }); m.position.set(s.x, s.y, s.z); m.rotation.y = s.h; this.env.scene.add(m); return m; });
         this.street.set(v.id, list);
       }
       if (list) { for (const m of list) m.visible = d < 400; if (d > 900) { for (const m of list) disposeMarque(m); this.street.delete(v.id); } }

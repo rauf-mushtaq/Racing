@@ -2,7 +2,7 @@
 // drives. Plain numbers, no three.js, so the tests (and anything else) can put a car through its paces with the game's own physics (vehicle.js).
 //
 // The makes and models are made up. Each car is drawn from the shape of a kind of car you will know (a rear-engined sports coupé with round lamps on its
-// wings, a wedge-shaped V12, a stately limousine with a tall grille, a square-rigged off-roader, a sixteen-cylinder hypercar...), but carries no real
+// wings, a wedge-shaped V12, a stately luxury SUV with a tall grille, a square-rigged off-roader, a sixteen-cylinder hypercar...), but carries no real
 // maker's name, badge or crest.
 
 // dims: where the wheels are (wzf, wzr: the axles, along the car from its middle; track: between the tyres' middles), their radius, and the length and
@@ -11,15 +11,15 @@
 // between the axles (0: on the rear axle, 1: on the front), the gears, the downforce, how far the springs sag under the car's weight (m).
 export const CARS = [
   {
-    id: 'r9turbo', make: 'FALKNER', model: 'R9 TURBO', price: 168000, type: 'Rear-engined sports coupé', engine: '3.7-litre twin-turbo flat six', drive: 'AWD', hp: 650,
-    blurb: 'The shape everyone knows: round lamps up on the wings, a fastback sweeping down over the engine, wide hips over the back wheels and a light bar right across the tail. Four-wheel drive, two turbochargers and an eight-speed gearbox.',
+    id: 'r9turbo', make: 'FALKNER', model: 'R9 4S', price: 138000, type: 'Rear-engined sports coupé', engine: '3.0-litre twin-turbo flat six', drive: 'AWD', hp: 450,
+    blurb: 'The shape everyone knows: round lamps up on the wings, a fastback sweeping down over the engine, wide hips over the back wheels and a slim light across the tail. Four-wheel drive, two turbochargers and an eight-speed gearbox.',
     paints: ['silver', 'black', 'red', 'chalk', 'blue', 'yellow'],
     dims: { wzf: 1.29, wzr: -1.16, track: 1.62, wheelR: 0.35, len: 4.54, width: 1.9 },
-    phys: { mass: 1640, T: 800, peak: 4800, red: 7200, vmax: 92, drag: 0.36, mu: 1.34, front: 0.24, cgH: 0.46, cgAt: 0.38, gears: 8, down: 0.55, sag: 0.055 },
+    phys: { mass: 1515, T: 560, peak: 5000, red: 7500, vmax: 86, drag: 0.36, mu: 1.3, front: 0.24, cgH: 0.46, cgAt: 0.38, gears: 8, down: 0.55, sag: 0.055 },
   },
   {
     id: 'r9rs', make: 'FALKNER', model: 'R9 RS', price: 215000, type: 'Track-bred sports coupé', engine: '4.0-litre flat six, no turbos', drive: 'RWD', hp: 525,
-    blurb: 'The same car made for the track: lighter, lower and stiffer, a swan-neck wing standing over the tail, vents in the bonnet and louvres on the wings. A screaming engine that revs to 9,000, and the back wheels do all the work.',
+    blurb: 'The same car made for the track: lighter, lower and stiffer, with a swan-neck wing standing over the tail. A screaming engine that revs to 9,000, and the back wheels do all the work.',
     paints: ['green', 'white', 'black', 'red', 'orange', 'silver'],
     dims: { wzf: 1.29, wzr: -1.16, track: 1.64, wheelR: 0.35, len: 4.57, width: 1.9 },
     phys: { mass: 1450, T: 470, peak: 6300, red: 9000, vmax: 82, drag: 0.42, mu: 1.4, front: 0, cgH: 0.44, cgAt: 0.38, gears: 7, down: 1.4, sag: 0.045 },
@@ -34,16 +34,16 @@ export const CARS = [
   {
     id: 'bergwagen', make: 'KAISER', model: 'BERGWAGEN', price: 178000, type: 'Luxury off-roader', engine: '4.0-litre twin-turbo V8', drive: '4WD', hp: 585,
     blurb: 'A box on wheels and proud of it: upright glass, round lamps, indicators on the wings, the spare wheel on the back door and exhausts that come out of the sides. Tall, heavy and very fast for what it is.',
-    paints: ['mattblack', 'white', 'sand', 'graphite', 'green', 'silver'],
+    paints: ['white', 'mattblack', 'sand', 'graphite', 'green', 'silver'],
     dims: { wzf: 1.48, wzr: -1.41, track: 1.66, wheelR: 0.41, len: 4.87, width: 1.98 },
     phys: { mass: 2560, T: 850, peak: 4200, red: 6500, vmax: 61, drag: 0.72, mu: 1.0, front: 0.38, cgH: 0.78, cgAt: 0.52, gears: 9, down: 0, sag: 0.085, steer: 0.62 },
   },
   {
-    id: 'sovereign', make: 'ASHWORTH', model: 'SOVEREIGN', price: 455000, type: 'Grand limousine', engine: '6.75-litre twin-turbo V12', drive: 'RWD', hp: 563,
-    blurb: 'Nearly six metres of it: a tall chrome grille like the front of a temple, a long bonnet, a high waist, doors hinged at the back for the rear seats, and a cabin of wood and leather. It glides; it does not hurry.',
+    id: 'sovereign', make: 'ASHWORTH', model: 'SOVEREIGN', price: 455000, type: 'Luxury SUV', engine: '6.75-litre twin-turbo V12', drive: 'AWD', hp: 563,
+    blurb: 'The grandest car in the city, built high: a tall chrome grille like the front of a temple, a long bonnet, a high waist, doors hinged at the back for the rear seats, and a cabin of wood and leather. It glides; it does not hurry.',
     paints: ['black', 'silver', 'midnight', 'burgundy', 'white', 'champagne'],
     dims: { wzf: 1.88, wzr: -1.67, track: 1.7, wheelR: 0.4, len: 5.76, width: 2.02 },
-    phys: { mass: 2560, T: 900, peak: 3800, red: 6000, vmax: 70, drag: 0.5, mu: 1.06, front: 0, cgH: 0.6, cgAt: 0.52, gears: 8, down: 0.05, sag: 0.1, damp: 0.5 },
+    phys: { mass: 2660, T: 900, peak: 3800, red: 6000, vmax: 70, drag: 0.55, mu: 1.06, front: 0.35, cgH: 0.6, cgAt: 0.52, gears: 8, down: 0.05, sag: 0.1, damp: 0.5 },
   },
   {
     id: 'furia', make: 'TAURINO', model: 'FURIA V12', price: 495000, type: 'V12 supercar', engine: '6.5-litre V12, no turbos', drive: 'AWD', hp: 770,
@@ -83,13 +83,14 @@ export const MPAINTS = {
   burgundy: { name: 'Burgundy', color: 0x4a0d18, metal: 0.6, rough: 0.25 },
   champagne: { name: 'Champagne', color: 0xc8b48c, metal: 0.8, rough: 0.27 },
   twoblue: { name: 'French Blue', color: 0x1d3f8a, metal: 0.7, rough: 0.25 },
+  ruby: { name: 'Ruby Red', color: 0x9a1018, metal: 0.6, rough: 0.25 },
 };
 
 // What a car is like to drive, in the shape of vehicle.js's SPEC: springs from the weight on each axle and how far they sag, dampers near critical,
 // a gearbox spread from first to top with top gear reaching the red line at the car's top speed, brakes and anti-roll bars to its weight.
-export function marqueSpec(c) {
+export function marqueSpec(c, dims = null) {
   if (typeof c === 'string') c = CAR_BY_ID[c];
-  const K = c.phys, D = c.dims, m = K.mass, G = 9.81, k = m / 1650;
+  const K = c.phys, D = dims || c.dims, m = K.mass, G = 9.81, k = m / 1650;          // (dims: where the wheels of the real model are, scancars.js, if it is the one drawn)
   const cg = D.wzr + (D.wzf - D.wzr) * K.cgAt, a = D.wzf - cg, b = cg - D.wzr, L = a + b, half = D.track / 2;
   const Ff = m * G * b / L / 2, Fr = m * G * a / L / 2, sag = K.sag ?? 0.06;
   const spring = [Ff / sag, Ff / sag, Fr / sag, Fr / sag];

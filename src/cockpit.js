@@ -226,7 +226,7 @@ export function buildCockpit(body, bodyGeo, style = 'modern') {
   // --- Pillars and roof ---
   for (const s of [-1, 1]) {
     const a = new THREE.Vector3(s * L.pillarX[0], L.cowl[1], L.cowl[0] - 0.04), b = new THREE.Vector3(s * L.pillarX[1], L.roofY, -0.05);
-    const o = new THREE.Mesh(RB(0.06, 0.045, a.distanceTo(b), 0.015), alcantara); o.position.copy(a).lerp(b, 0.5); o.lookAt(b); g.add(o);
+    const o = new THREE.Mesh(RB(0.06, 0.045, a.distanceTo(b), 0.015), alcantara); o.position.copy(a).lerp(b, 0.5); o.lookAt(b); o.name = 'pillar'; g.add(o);
   }
   // Rear-view mirror.
   rb(0.26, 0.075, 0.034, piano, L.mirror[0], L.mirror[1], L.mirror[2], 0.15, 0, 0, 0.02);

@@ -69,7 +69,8 @@ import { Gym } from './gym.js';
 import { TrafficStop } from './stop.js';
 import { makeFleetCar, fleetSpec, disposeFleetCar, CAR_NAMES } from './fleetcar.js';
 import { Dealer } from './dealer.js';
-import { makeMarque, setMarquePaint } from './marques.js';
+import { makeMarque, setMarquePaint, specFor, disposeMarque } from './marques.js';
+import { preloadScans, loadScan, scanReady } from './scancars.js';
 import { CAR_BY_ID, marqueSpec, STARTER } from './marque-specs.js';
 import { Jail } from './jail.js';
 import { venueNear, VENUE_TYPES, stationNear, insideKindFor } from './venues.js';
@@ -273,6 +274,7 @@ function applyVolume() { audio.setVolume(settings.volume, settings.sound); chase
 const START = { x: laneOffset(0, 1), z: 3 * SP - 60, h: Math.PI };
 
 async function build() {
+  const scans = preloadScans();                        // (the dealership's real car models load while the city is built: scancars.js)
   // Make sure the web fonts are in before any text is drawn onto a texture.
   try { await Promise.race([Promise.all([document.fonts.load('900 52px "Barlow Condensed"'), document.fonts.load('700 40px "Barlow"')]), new Promise(r => setTimeout(r, 2500))]); } catch (e) { /* fallback fonts are fine */ }
   loadMsg('Painting the sky…'); await nextFrame();
@@ -364,7 +366,8 @@ async function build() {
     setWaypoint: p => { game.waypoint = p; if (!p) hud.nav(null); else hud.toast('WAYPOINT SET', 1.2); },
   });
   car.reset(START.x, START.z, START.h);
-  { const id = settings.myCar, g = settings.garage || {}; if (id && id !== STARTER && CAR_BY_ID[id] && g[id]) chooseCar(id, g[id].paint); }      // (the car you bought last time)
+  { const id = settings.myCar, g = settings.garage || {}; if (id && id !== STARTER && CAR_BY_ID[id] && g[id]) { await Promise.race([loadScan(id).catch(() => {}), new Promise(r => setTimeout(r, 15000))]); chooseCar(id, g[id].paint); } }      // (the car you bought last time: its real model first)
+  scans.then(() => { const id = settings.myCar; if (id && garageCars.has(id) && !garageCars.get(id).userData.real && game.state === 'menu') chooseCar(id, (settings.garage[id] || {}).paint); });      // (in case it came after)
   traffic.setDensity(trafficLevel(), car);
   applyAids();
   setupProbe();
@@ -586,7 +589,7 @@ function homeCar() {
 // ---- Your own car: the Vento you start with, or one you bought at the dealership (dealer.js; settings.garage, settings.myCar) ---------------------------
 // The car you own that you drive becomes heroMesh (and its physics heroSpec): everything that means "your car" (being given it back, the armoury in its boot,
 // not being a stolen car) follows it. Cars you own that have been built are kept (garageCars) so going back to one costs nothing.
-const garageCars = new Map(), marqueSpecs = {};
+const garageCars = new Map();
 let heroSpec = SPEC, ventoMesh = null;
 function probeOn(mesh) { if (probe) mesh.traverse(o => { for (const m of [].concat(o.material || [])) if ((m.isMeshStandardMaterial || m.isMeshPhysicalMaterial) && m.envMapIntensity !== undefined && !m.userData.noProbe) m.envMap = probe.rt.texture; }); }
 function chooseCar(id, paint) {
@@ -594,7 +597,8 @@ function chooseCar(id, paint) {
   let mesh, spec;
   if (!id || id === STARTER || !CAR_BY_ID[id]) { mesh = ventoMesh; spec = SPEC; id = STARTER; }
   else {
-    mesh = garageCars.get(id); spec = marqueSpecs[id] || (marqueSpecs[id] = marqueSpec(id));
+    mesh = garageCars.get(id); spec = specFor(id);                                          // (on the wheels of the real model when that has loaded)
+    if (mesh && !mesh.userData.real && scanReady(id) && mesh !== carMesh) { disposeMarque(mesh); garageCars.delete(id); mesh = null; }      // (built before its real model had loaded)
     if (!mesh) { mesh = makeMarque(id, paint); mesh.visible = false; scene.add(mesh); garageCars.set(id, mesh); }
     else if (paint) setMarquePaint(mesh, paint);
   }

@@ -12,7 +12,8 @@ import { curve, lerp } from './util.js';
 import { glowTex, plateTex, carShadowTex } from './textures.js';
 import { loft, stationsFor, archBottom, mergeByMaterial, sectionHalf } from './carModel.js';
 import { buildCockpit } from './cockpit.js';
-import { CAR_BY_ID, MPAINTS } from './marque-specs.js';
+import { CAR_BY_ID, MPAINTS, marqueSpec } from './marque-specs.js';
+import { scanReady, scanDims, makeScanCar, SCANS } from './scancars.js';
 
 // ---- Materials: the paint is each car's own; everything else is shared by all of them ----------------------------------------------------------------
 let SH = null;
@@ -475,8 +476,14 @@ let _plate = null, _glow = null;
 // ---- Putting a car together ---------------------------------------------------------------------------------------------------------------------------
 // id: a car of marque-specs.js; paintKey: one of MPAINTS; display: a car to look at (the showroom's, the forecourt's), with a plain dark cabin instead
 // of the cockpit. Returns the root group, its userData in the shape main.js reads (body, wheels, paint, tail, glows, cockpit, dims, cgOff...).
-export function makeMarque(id, paintKey, { display = false } = {}) {
+// The physics of a car: on the wheels of the real model if that is the one drawn (scancars.js), else on its lofted body's.
+export const specFor = id => marqueSpec(CAR_BY_ID[id], scanDims(id));
+// The paints a car can have: a real model whose paint is part of its texture keeps its own colour (scancars.js fixedPaint).
+export const paintsFor = id => (scanReady(id) && SCANS[id].fixedPaint ? [SCANS[id].fixedPaint] : CAR_BY_ID[id].paints);
+export function makeMarque(id, paintKey, { display = false, lofted = false } = {}) {
   const c = CAR_BY_ID[id]; if (!c) throw new Error('no such car: ' + id);
+  // The real model, once it has loaded (scancars.js); its centre of mass where the physics puts it.
+  if (!lofted && scanReady(id)) { const r = makeScanCar(id, paintKey || c.paints[0], { display }); if (r) { const D = r.userData.dims; r.userData.cgOff = -(D.wzr + (D.wzf - D.wzr) * c.phys.cgAt); r.userData.paintKey = paintKey || c.paints[0]; return r; } }
   const def = BUILD[id](c), P = def.P, M = shared(), D = c.dims, root = new THREE.Group(), body = new THREE.Group(); root.add(body);
   const paint = paintMat(paintKey || c.paints[0]);
   const tail = new THREE.MeshStandardMaterial({ color: 0x400404, emissive: 0xff2208, emissiveIntensity: 3.2, roughness: 0.3 });
@@ -542,9 +549,10 @@ export function makeMarque(id, paintKey, { display = false } = {}) {
 
 // Take one apart: its own geometry, its paint and lamp materials, its cockpit's (the shared materials stay).
 export function disposeMarque(root) {
-  const M = shared(); root.parent && root.parent.remove(root);
+  const M = shared(), scan = !!root.userData.scan; root.parent && root.parent.remove(root);
   root.traverse(o => {
-    if (o.geometry) o.geometry.dispose();
-    for (const m of [].concat(o.material || [])) if (!M.all.has(m) && m !== _plate) { for (const k of ['map', 'bumpMap', 'normalMap', 'roughnessMap', 'emissiveMap']) if (m[k] && m[k] !== _glow && m[k] !== carShadowTex()) m[k].dispose(); m.dispose(); }
+    if (o.geometry && !(scan && o.isMesh && o.name !== 'contact' && !o.userData.own)) o.geometry.dispose();          // (a real model's parts are shared by every car of it)
+    if (scan && o.isMesh && o.material && o.material.userData && o.material.userData.model) return;
+    for (const m of [].concat(o.material || [])) if (!M.all.has(m) && m !== _plate) { for (const k of ['map', 'bumpMap', 'normalMap', 'roughnessMap', 'emissiveMap']) if (m[k] && m[k] !== _glow && m[k] !== carShadowTex() && !m[k].userData.model) m[k].dispose(); m.dispose(); }
   });
 }
