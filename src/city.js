@@ -886,9 +886,11 @@ export class City {
   helipad(ctx, x, z) {
     const G = ctx.gb, R = 15, y = CURB + 0.06, yellow = new THREE.Color(0.95, 0.76, 0.12), conc = new THREE.Color(0.62, 0.62, 0.6);
     this.clearTrees(ctx, x - R - 2, z - R - 2, x + R + 2, z + R + 2);
+    for (let i = ctx.L.benches.length - 1; i >= 0; i--) { const p = ctx.L.benches[i]; if (Math.abs(p[0] - x) < 12.5 && Math.abs(p[1] - z) < 12.5) ctx.L.benches.splice(i, 1); }      // (the park's benches on the pad: they have no colliders, and nothing after them in this block has been numbered yet)
     G.walk.flat(x - 12, z - 12, x + 12, z + 12, y, 6, conc);
-    for (let k = 0; k < 40; k++) { const a = k / 40 * Math.PI * 2, px = x + Math.cos(a) * 10, pz = z + Math.sin(a) * 10; G.walk.flat(px - 0.45, pz - 0.45, px + 0.45, pz + 0.45, y + 0.01, 6, yellow); }
-    G.walk.flat(x - 3.2, z - 4.2, x - 2.0, z + 4.2, y + 0.01, 6, yellow); G.walk.flat(x + 2.0, z - 4.2, x + 3.2, z + 4.2, y + 0.01, 6, yellow); G.walk.flat(x - 2.0, z - 0.6, x + 2.0, z + 0.6, y + 0.01, 6, yellow);
+    // The paint, as the road markings are painted (the marking material takes the colour and sits just over what is under it).
+    for (let k = 0; k < 40; k++) { const a = k / 40 * Math.PI * 2, px = x + Math.cos(a) * 10, pz = z + Math.sin(a) * 10; G.mark.flat(px - 0.45, pz - 0.45, px + 0.45, pz + 0.45, y + 0.02, 10, yellow); }
+    G.mark.flat(x - 3.2, z - 4.2, x - 2.0, z + 4.2, y + 0.02, 10, yellow); G.mark.flat(x + 2.0, z - 4.2, x + 3.2, z + 4.2, y + 0.02, 10, yellow); G.mark.flat(x - 2.0, z - 0.6, x + 2.0, z + 0.6, y + 0.02, 10, yellow);
   }
   // Take the street trees, palms and bushes out of a rectangle (and the trees' colliders with them): the pavement in front of the steps of a bank.
   clearTrees(ctx, x0, z0, x1, z1) {
