@@ -31,4 +31,7 @@ export const signatureAt = (i, j) => SIGNATURE[i + ',' + j] || null;
 // Blocks with a car dealership (venues.js, dealer.js): its showroom goes on the lot along the block's face `dir` (-1: the west side) nearest `at` (along it).
 export const DEALERS = { '0,2': { dir: [-1, 0], at: 470 } };
 export const dealerAt = (i, j) => DEALERS[i + ',' + j] || null;
+// The park block with a helipad in the middle (rides.js: the helicopter waits there; city.js clears the trees round it and paints the pad).
+export const HELIPAD_BLOCK = [0, 6];
+export const helipadAt = (i, j) => i === HELIPAD_BLOCK[0] && j === HELIPAD_BLOCK[1];
 export const isPlaza = (i, j) => Math.abs(i) < N && Math.abs(j) < N && Math.max(Math.abs(i + 0.5), Math.abs(j + 0.5)) > 2.6 && hash3(i, j, 77) < 0.055 && !isLakeBlock(i, j) && !landmarkAt(i, j) && !signatureAt(i, j) && !(j === -1 || j === -2) ;

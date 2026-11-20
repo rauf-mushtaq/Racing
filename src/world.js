@@ -15,6 +15,9 @@ const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t
 export const SEA_Y = -1.2;
 export const WORLD = { x0: -4400, x1: 7800, z0: -7800, z1: 7800 };
 export const WORLD_LIM = { x0: -3290, x1: 7650, z0: -7650, z1: 7650 };
+// Quays you may walk out on past the edge of the world (to the boats moored at Port Meridian: rides.js); x0 is the quay's edge over the water.
+export const QUAYS = [{ x0: -3319.5, x1: -3280, z0: 471, z1: 769 }];
+export const onQuay = (x, z) => QUAYS.some(q => x > q.x0 - 1 && x < q.x1 && z > q.z0 && z < q.z1);
 
 // ---------------------------------------------------------------------------
 // Climate and base terrain

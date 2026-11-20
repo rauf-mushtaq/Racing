@@ -37,7 +37,7 @@ export class SeatedDriver {
     // The grips, from world to the torso's own frame; the one at the car's +x side (its left) is the character's left hand.
     const g0 = seat.grips[0], g1 = seat.grips[1]; let gl = null, gr = null;
     if (g0 && g1) { g0.getWorldPosition(_a); g1.getWorldPosition(_b); const x0 = this.host.userData.body.worldToLocal(_a.clone()).x, x1 = this.host.userData.body.worldToLocal(_b.clone()).x; [gl, gr] = x0 > x1 ? [_a, _b] : [_b, _a]; B.torso.updateWorldMatrix(true, false); gl = B.torso.worldToLocal(gl.clone()); gr = B.torso.worldToLocal(gr.clone()); }
-    seatedPose(B, { t: this.t, steer: this.steer, gas: this.gas, brake: this.brake, look: this.look, gripL: gl, gripR: gr });
+    seatedPose(B, { t: this.t, steer: this.steer, gas: this.gas, brake: this.brake, look: this.look, gripL: gl, gripR: gr, bike: this.host.userData.cockpit && this.host.userData.cockpit.style === 'bike' });
     if (this.person) { this.person.pose(B); this.person.grip('R', 0.8); this.person.grip('L', 0.8); }
   }
   // st: { steer (the car's steering, + is to the right of the car), speed, throttle, brake, w (yaw rate) }

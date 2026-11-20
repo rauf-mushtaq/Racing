@@ -92,6 +92,11 @@
   /* ---------- HUD ---------- */
   #hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
   #dial { position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: 14px; width: min(30vh, 290px); height: min(30vh, 290px); }
+  /* Aboard a boat or the helicopter (rides.js): a plain readout instead of the dial, and none of the gun buttons */
+  #craft-hud { display: none; position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: 18px; padding: 10px 16px; border-radius: 12px; background: rgba(10, 14, 20, 0.55); color: #f4f1e8; font: 800 22px/1.2 'Barlow Condensed', sans-serif; letter-spacing: 0.04em; }
+  body.craft #craft-hud { display: block; }
+  body.touchmode.craft #craft-hud { bottom: calc(max(26px, env(safe-area-inset-bottom)) + 150px); }
+  body.craft #t-fire, body.craft #t-aim, body.craft #t-kick, body.craft #t-swap, body.craft #t-reload { display: none !important; }
   #minimap { position: absolute; right: max(18px, env(safe-area-inset-right)); top: max(18px, env(safe-area-inset-top)); width: min(22vh, 190px); height: min(22vh, 190px); }
   #race-info { position: absolute; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.6); }
   #r-time { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -288,6 +293,7 @@
 
 <div id="hud" class="hidden">
   <canvas id="dial"></canvas>
+  <div id="craft-hud"></div>
   <canvas id="minimap"></canvas>
   <div id="race-info" class="hidden"><div id="r-time"></div><div id="r-cp"></div><div id="r-best"></div></div>
   <div id="nav" class="hidden"><div id="nav-arrow"></div><div id="nav-dist"></div></div>

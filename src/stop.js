@@ -2,8 +2,8 @@
 // every police car in the city: one patrol car is sent, lights on. When it reaches you it signals you to pull over (on foot: to stay where you are).
 // Stop, and it parks behind you and an officer walks up to your window. For something small it is a ticket, paid from your money there and then; for
 // something worse, or with a record, or with a bag of stolen money in the car, or with no money to pay the fine (or refusing to), it is an arrest: out
-// of the car, hands up, cuffs, and a few days in the cells (jail.js). Drive off, run, hit the officer, ram the patrol car or fire a gun, and the patrol
-// car calls everyone: a chase with the whole force (police.js), as before.
+// of the car, hands up, cuffs, and a few days in the cells (jail.js). Drive off, run or hide, and that one patrol car comes after you (police.js solo:
+// lose it for 15 seconds and you are away); hit the officer, ram the patrol car or fire a gun, and it calls everyone: a chase with the whole force.
 //
 //   respond   the patrol car is on its way (it knows where you are: the call gave your description)
 //   signal    it is behind you, lights and siren: pull over (stop, and stay stopped) or stand still
@@ -27,7 +27,8 @@ export const OFFENCES = {
   theft:   { name: 'TAKING A CAR WITHOUT CONSENT', why: 'You were seen getting into a car that is not yours.', fine: 0, pts: 4 },
 };
 const ARREST_AT = 4;                                // the points (what you did, and your record) at which it is an arrest instead of a ticket
-const TOO_MUCH = 7;                                 // and at which the patrol car stops being enough: everyone is called
+// The ways a stop goes wrong that bring only the one patrol car after you (the rest call every unit).
+export const SOLO = new Set(['flee', 'run', 'hide']);
 const NOINP = { mx: 0, my: 0, sprint: false, jump: false, crouch: false };
 
 // What a stop comes to: the charges, the points, the fine (if it is a fine) and the days (if it is an arrest).
@@ -74,7 +75,6 @@ export class TrafficStop {
     const now = this.clock || 0, last = this.added[kind]; if (last != null && now - last < 5) return; this.added[kind] = now;      // (one smash of several cars is one charge)
     if (this.state === 'leave') { if (this.offOut) { this.off.show(false); this.offOut = false; } if (this.c) { this.c.held = false; this.c.dark = false; } this.state = 'signal'; this.t = 0; this.d0 = 0; this.charges = {}; this.verdict = null; this.panel(true); this.toast('THE OFFICER SAW THAT: PULL OVER', 2); }
     this.charges[kind] = (this.charges[kind] || 0) + 1; const O = OFFENCES[kind];
-    if (verdictFor(this.charges, this.record).pts >= TOO_MUCH) { this.escalate('more'); return; }
     if (this.verdict) { this.verdict = this.decide(); this.choice(true); }            // (at the window: it changes what happens)
     if (O) this.toast('AND ' + O.name, 1.4);
   }
@@ -270,7 +270,7 @@ export class TrafficStop {
     const T = this.T(); this.why = { kind, was, speed: +(T.speed || 0).toFixed(2), moved: this.spot ? +Math.hypot(T.x - this.spot.x, T.z - this.spot.z).toFixed(2) : null, rammed: +(this.env.police.rammed || 0).toFixed(2) };      // (what set it off: for the tests)
     const P = this.env.walker; P.hold = false; P.hands = 0; this.choice(false); this.say('');
     const why = { flee: 'FAILING TO STOP', run: 'RUNNING FROM THE POLICE', ram: 'RAMMING A POLICE CAR', officer: 'ASSAULTING AN OFFICER', kill: 'OFFICER DOWN', gun: 'SHOTS FIRED', hide: 'RUNNING FROM THE POLICE', copcar: 'TAKING A POLICE CAR', more: 'ONE CRIME TOO MANY', robbery: 'A ROBBERY' }[kind] || 'TROUBLE';
-    this.toast(why + ': ALL UNITS', 2.2);
+    this.toast(why + (SOLO.has(kind) ? ': THE PATROL CAR IS AFTER YOU' : ': ALL UNITS'), 2.2);
     const c = this.c;
     if (this.offOut && c && !c.wreck && !this.dead) { this.state = 'fled'; this.t = 0; c.waitOff = true; c.deployed = true; c.held = true; }        // (the officer runs back to his car, which then gives chase)
     else { this.state = 'fled'; this.t = 0; if (c) { c.held = false; c.deployed = true; } if (!this.dead) { this.off.show(false); this.offOut = false; } }

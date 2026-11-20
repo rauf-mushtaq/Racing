@@ -9,7 +9,7 @@ import { loadPerson, personKey, COPS, PEDS } from './people.js';
 import { Mocap } from './mocap.js';
 import { Moves } from './moves.js';
 import { Body } from './body.js';
-import { groundAt, isWater, coastX, WORLD_LIM } from './world.js';
+import { groundAt, isWater, coastX, WORLD_LIM, QUAYS, onQuay } from './world.js';
 import { pushFromWater } from './rivercourse.js';
 import { queryColliders, EDGE } from './city.js';
 import { clamp, damp, lerp, wrapAngle } from './util.js';
@@ -258,7 +258,8 @@ export class Walker {
     // The sea, steep slopes and the edge of the world.
     if (Math.abs(this.x) > EDGE - 40 || Math.abs(this.z) > EDGE - 40) {
       const lim = coastX(this.z) + 74; if (this.x < lim) this.x = lim;
-      this.x = clamp(this.x, WORLD_LIM.x0, WORLD_LIM.x1); this.z = clamp(this.z, WORLD_LIM.z0, WORLD_LIM.z1);
+      if (onQuay(this.x, this.z)) this.x = Math.max(this.x, QUAYS[0].x0); else this.x = clamp(this.x, WORLD_LIM.x0, WORLD_LIM.x1);          // (out along the harbour quay, to the boats)
+      this.z = clamp(this.z, WORLD_LIM.z0, WORLD_LIM.z1);
       const stepLen = Math.hypot(this.vx, this.vz) * 0.12;                  // a slope steeper than about 45 degrees ahead is a wall
       if (stepLen > 0.05) { const gx = groundAt(this.x + this.vx * 0.12, this.z + this.vz * 0.12).y - groundAt(this.x, this.z).y; if (gx / stepLen > 1.1) { this.x = this.px; this.z = this.pz; this.vx *= 0.3; this.vz *= 0.3; } }
     }

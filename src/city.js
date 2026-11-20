@@ -23,7 +23,7 @@ export { mergeGeoms, puddles, macro };
 const wet = (x, z, m = 3) => (inRiverBox(x, z, m) && riverSdf(x, z) < m) || roadSdf(x, z) < m;      // (in or by the river, or on one of the roads that cut across the grid)
 
 export { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, isLakeBlock, landmarkAt, signatureAt, isPlaza } from './grid.js';
-import { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, landmarkAt, signatureAt, isPlaza, dealerAt } from './grid.js';
+import { SP, N, isBlvd, hw, medianHalf, laneW, laneCount, laneOffset, SIDEWALK, EDGE, LIMIT, REGION, isPark, blockRect, landmarkAt, signatureAt, isPlaza, dealerAt, helipadAt } from './grid.js';
 const CURB = 0.15, MEDIAN_H = 0.18, CORNER = 5;
 const R = 2;                          // blocks per region side
 const NR = (2 * N) / R;               // regions per side
@@ -809,6 +809,7 @@ export class City {
         this.tree(ctx, x, z, 1.0 + rnd() * 0.8, CURB + 0.03, rnd() < 0.25);
       }
       for (let k = 0; k < 6; k++) { const px = k < 3 ? mx + 3 : mx - 3, pz = mz - 24 + k * 16; if (!wet(px, pz, 4)) L.benches.push([px, pz, k < 3 ? -Math.PI / 2 : Math.PI / 2, CURB + 0.05]); }
+      if (helipadAt(i, j)) this.helipad(ctx, mx, mz);              // (after everything random in the park, so nothing else moves)
       return;
     }
 
@@ -880,6 +881,14 @@ export class City {
     if (wet(x, z, 2.5)) return;
     (palm ? ctx.L.palms : ctx.L.trees).push([x, z, sc, y]);
     addCollider({ type: 'circ', x, z, r: palm ? 0.4 : 0.45 }, ctx.colliders);
+  }
+  // A helipad (rides.js: the helicopter waits on it): the trees cleared from a square round it, a concrete pad, a yellow ring and an H.
+  helipad(ctx, x, z) {
+    const G = ctx.gb, R = 15, y = CURB + 0.06, yellow = new THREE.Color(0.95, 0.76, 0.12), conc = new THREE.Color(0.62, 0.62, 0.6);
+    this.clearTrees(ctx, x - R - 2, z - R - 2, x + R + 2, z + R + 2);
+    G.walk.flat(x - 12, z - 12, x + 12, z + 12, y, 6, conc);
+    for (let k = 0; k < 40; k++) { const a = k / 40 * Math.PI * 2, px = x + Math.cos(a) * 10, pz = z + Math.sin(a) * 10; G.walk.flat(px - 0.45, pz - 0.45, px + 0.45, pz + 0.45, y + 0.01, 6, yellow); }
+    G.walk.flat(x - 3.2, z - 4.2, x - 2.0, z + 4.2, y + 0.01, 6, yellow); G.walk.flat(x + 2.0, z - 4.2, x + 3.2, z + 4.2, y + 0.01, 6, yellow); G.walk.flat(x - 2.0, z - 0.6, x + 2.0, z + 0.6, y + 0.01, 6, yellow);
   }
   // Take the street trees, palms and bushes out of a rectangle (and the trees' colliders with them): the pavement in front of the steps of a bank.
   clearTrees(ctx, x0, z0, x1, z1) {

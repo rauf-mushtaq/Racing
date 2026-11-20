@@ -198,6 +198,9 @@ export class BigMap {
       this.at(c, s, S.x, S.z, () => { c.fillStyle = col; c.strokeStyle = '#fff'; c.lineWidth = 2.5; c.beginPath(); c.arc(0, 0, 7, 0, 7); c.fill(); c.stroke(); if (q > 0.045) this.label(c, S.name, fs - 1, '#1f2a3f', -16); if (q > 0.3) this.label(c, kind, fs - 3, '#556', 15); }); }
     const found = this.h.found(), icon = (x, z, fill, g) => this.at(c, s, x, z, () => { c.fillStyle = fill; c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, -13); c.lineTo(11, 0); c.lineTo(0, 13); c.lineTo(-11, 0); c.closePath(); c.fill(); c.stroke(); c.fillStyle = '#fff'; c.font = '700 13px Barlow, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(g, 0, 1); });
     if (found.includes('airfield')) icon(AIRFIELD.x, 3350, '#2b5db3', '✈'); for (const q of BUNKERS) if (found.includes(q.id)) icon(q.cx - 30, q.cz, '#c4202a', '!');
+    // The rides waiting where you left them (rides.js): your motorbike, the boats, the helicopter.
+    if (this.h.rides) for (const r of this.h.rides()) { const [col, g, name] = r.kind === 'heli' ? ['#3a7d44', 'H', 'HELICOPTER'] : r.kind === 'bike' ? ['#b33a3a', 'M', 'MOTORBIKE'] : ['#2b6cb0', '~', r.kind === 'speedboat' ? 'SPEEDBOAT' : 'WATER SCOOTER'];
+      icon(r.x, r.z, col, g); if (q > 0.08) this.at(c, s, r.x, r.z, () => this.label(c, name, fs - 2, '#1f2a3f', r.kind === 'jetski' ? 22 : -22)); }
     for (const v of VENUES.values()) if (v.kind === 'dealer') { icon(v.x, v.z, '#e8a317', '$'); if (q > 0.05) this.at(c, s, v.x, v.z, () => this.label(c, 'SUNSET MOTORS', fs - 1, '#1f2a3f', -22)); }       // (the car dealership)
   }
   drawMarks(c, s) {

@@ -85,8 +85,24 @@ export class PoliceChase {
   rnd() { this.rng = (this.rng * 1664525 + 1013904223) >>> 0; return this.rng / 4294967296; }
   get stars() { return Math.max(1, Math.min(5, Math.floor(this.heat))); }
   // Far more police than before: a single star already sends a squad, and five stars is a small army.
-  desiredCops() { return [0, 6, 10, 15, 20, 26][this.stars]; }
-  addHeat(a) { this.heat = Math.min(5.99, this.heat + a); }
+  // After something small gone wrong (you drove off from a patrol car, or ran): only that one car comes after you (solo), until you do something worse.
+  desiredCops() { return this.solo ? 1 : [0, 6, 10, 15, 20, 26][this.stars]; }
+  addHeat(a) { this.heat = Math.min(this.solo ? 1.95 : 5.99, this.heat + a); }
+  // The one patrol car calls it in: every unit (a serious crime during a solo pursuit).
+  callEveryone(near = 3) {
+    if (!this.solo || !this.active) return; this.solo = false; const p = this.target || { x: this.lastSeenX, z: this.lastSeenZ, h: 0 };
+    this.heat = Math.max(this.heat, 1.6); this.minHeat = 1; this.lastStars = this.maxStars = Math.max(this.maxStars, this.stars); this.messages.push('ALL UNITS');
+    for (let i = 0; i < near; i++) this.spawnCop(p, 0, 'near');
+  }
+  // Lost them at once (you slipped into a police car with nobody watching): the chase is over as if you had stayed hidden.
+  lose(msg = 'YOU LOST THEM') { if (!this.active || this.result !== 'running') return false; this.result = 'escaped'; this.endT = 0; this.messages.push(msg); return true; }
+  // Can anyone in the chase see this spot (a car, an officer on foot, the helicopter's light)?
+  seenAt(x, z, maxDist = 90) {
+    if (this.heliSees) return true;
+    for (const c of this.cops) if (!c.wreck && this.canSee(c.x, c.z, x, z, maxDist)) return true;
+    if (this.officers && this.officers.list) for (const o of this.officers.list) if (!o.dead && !o.retreat && this.canSee(o.x, o.z, x, z, 60)) return true;
+    return false;
+  }
   // An officer's radio call: extra cars (and a pursuit truck if asked) come from 150 to 260 metres away.
   callBackup(p, n, truck) {
     for (let i = 0; i < n && this.cops.length < CAP; i++) this.spawnCop(p, truck && i === 0 ? 1 : 0, false);
@@ -119,14 +135,16 @@ export class PoliceChase {
       ammoMissile: 6, ammoBomb: 4, kills: 0, officersDown: 0, shotAt: false, civilians: 0, maxStars: 2, spotted: true,
       blockT: 25, gunHeat: 0, cdOil: 0, cdSmoke: 0, cdShield: 0, shieldT: 0, gunOut: 0, jammed: false,
       lastSeenX: 0, lastSeenZ: 0, spawnT: 0, fireT: 1 / 16, regenMissile: 0, regenBomb: 0, endT: 0, spotCool: 0, wasSpotted: true, lastStars: 2, alt: 0, pulse: 0, shieldK: 0,
-      mode: 'chase', stopGoal: null, rammed: 0, sirenOn: true,
+      mode: 'chase', stopGoal: null, rammed: 0, sirenOn: true, solo: false, target: null,
     });
     this.cops.length = this.missiles.length = this.bombs.length = this.oils.length = this.smokes.length = this.messages.length = 0;
   }
-  // opts.heat: the wanted level to start at; opts.near: how many cruisers are right behind you. opts.stop: not a chase at all, but one patrol car sent to
-  // pull you over for something small (stop.js drives it through stopGoal; escalate() turns it into the real thing).
+  // opts.heat: the wanted level to start at; opts.near: how many cruisers are right behind you; opts.hide: how long you must stay out of sight to get
+  // away (s; a minute by default, as in the chase event). opts.stop: not a chase at all, but one patrol car sent to pull you over for something small
+  // (stop.js drives it through stopGoal; escalate() turns it into a pursuit).
   start(p, traffic, opts = {}) {
     this.reset(); if (this.officers) this.officers.clear(); if (this.heli) this.heli.reset(); this.active = true; this.lastSeenX = p.x; this.lastSeenZ = p.z; this.fx.clear();
+    this.target = p; if (opts.hide) this.hiddenNeeded = opts.hide;
     if (opts.stop) { this.mode = 'stop'; this.heat = this.minHeat = 1; this.lastStars = this.maxStars = 1; return this.patrolCar(p); }
     this.heat = opts.heat ?? 2.0; this.minHeat = Math.floor(this.heat); this.lastStars = this.maxStars = this.stars;
     for (let i = 0; i < (opts.near ?? 5); i++) this.spawnCop(p, 0, 'near');
@@ -134,9 +152,12 @@ export class PoliceChase {
   }
   // The car sent to pull someone over: an ordinary cruiser, driven briskly but not as a pursuit (it is answering a call).
   patrolCar(p) { const c = this.spawnCop(p, 0, false); c.follow = true; c.vmax = 30; this.stopCar = c; return c; }
-  // A stop gone wrong (you drove off, ran, hit the officer, fired a gun): the patrol car calls it in and the whole force comes.
-  escalate(p, heat = 1.3, near = 3) {
-    this.mode = 'chase'; this.stopGoal = null; this.sirenOn = true; this.heat = Math.max(this.heat, heat); this.minHeat = Math.floor(this.heat); this.lastStars = this.maxStars = this.stars;
+  // A stop gone wrong. Something serious (you hit the officer, rammed the car, fired a gun): the patrol car calls it in and the whole force comes. You
+  // only drove off, ran or hid (solo): that one car comes after you, and nobody else unless you make it worse. hide: as in start().
+  escalate(p, heat = 1.3, near = 3, solo = false, hide = 0) {
+    this.mode = 'chase'; this.stopGoal = null; this.sirenOn = true; this.solo = solo; this.target = p; if (hide) this.hiddenNeeded = hide;
+    if (solo) { heat = Math.min(heat, 1.5); near = 0; }
+    this.heat = Math.max(this.heat, heat); this.minHeat = Math.floor(this.heat); this.lastStars = this.maxStars = this.stars;
     this.time = 0; this.hidden = 0; this.spotted = this.wasSpotted = true; this.lastSeenX = p.x; this.lastSeenZ = p.z;
     for (const c of this.cops) { c.follow = false; c.dark = false; if (!c.officers) c.held = false; }
     for (let i = 0; i < near; i++) this.spawnCop(p, 0, 'near');
@@ -240,10 +261,11 @@ export class PoliceChase {
   }
 
   // --- A cop driving ---------------------------------------------------------------------------------------------------
-  damageCop(c, amount) {
+  // byYou: your doing (your guns, missiles, bombs, or you driving into it), not its own crash: destroying the one patrol car after you calls every unit.
+  damageCop(c, amount, byYou = true) {
     if (c.wreck) return; c.hp -= amount;
     if (c.hp <= 0) {
-      c.wreck = true; c.burn = 0; c.speed *= 0.4; this.kills++; this.heat = Math.min(5.99, this.heat + 0.35);
+      c.wreck = true; c.burn = 0; c.speed *= 0.4; this.kills++; this.heat = Math.min(5.99, this.heat + 0.35); if (this.solo && byYou) this.callEveryone();      // (the patrol car after you destroyed: every unit)
       this.messages.push(c.kind ? 'PURSUIT TRUCK DOWN' : 'CRUISER DOWN'); this.fx.explosion(c.x, c.y, c.z, 0.7); this.onBoom && this.onBoom(c.x, c.z, 0.7);
       c.vy = 5; c.air = true; c.rollRate = (this.rnd() - 0.5) * 8;
     }
@@ -264,7 +286,7 @@ export class PoliceChase {
     }
     if (c.air) {                                                                                    // thrown by an explosion
       c.vy -= 18 * dt; c.y += c.vy * dt; c.x += c.vx * dt; c.z += c.vz * dt; c.h += c.spin * dt; c.roll += c.rollRate * dt;
-      if (c.y <= gy) { c.y = gy; c.air = false; if (c.vy < -6) this.damageCop(c, -c.vy * 3.5); c.vy = 0; c.roll *= 0.2; c.speed *= 0.4; }
+      if (c.y <= gy) { c.y = gy; c.air = false; if (c.vy < -6) this.damageCop(c, -c.vy * 3.5, false); c.vy = 0; c.roll *= 0.2; c.speed *= 0.4; }
       return;
     }
     c.y = gy; c.roll *= Math.exp(-4 * dt); this.groundTilt(c, dt);
@@ -317,7 +339,7 @@ export class PoliceChase {
       const px = c.x + Math.sin(c.h) * off, pz = c.z + Math.cos(c.h) * off, hit = pushOutStatic(px, pz, 1.0);
       if (hit) {
         c.x += hit.nx * hit.pen; c.z += hit.nz * hit.pen; const into = Math.abs(hit.nx * Math.sin(c.h) + hit.nz * Math.cos(c.h));
-        if (c.speed > 10) this.damageCop(c, (c.speed - 10) * into * 0.35 * dt * 6); c.speed *= 1 - 0.9 * into * Math.min(1, dt * 6);
+        if (c.speed > 10) this.damageCop(c, (c.speed - 10) * into * 0.35 * dt * 6, false); c.speed *= 1 - 0.9 * into * Math.min(1, dt * 6);
       }
     }
     if (c.x < coastX(c.z) + 70) { c.x = coastX(c.z) + 70; c.speed *= 0.7; }
@@ -332,7 +354,7 @@ export class PoliceChase {
         const tv = traffic.velocityOf(t), rel = Math.max(0, c.speed - (tv[0] * Math.sin(c.h) + tv[1] * Math.cos(c.h))); c.speed *= 0.85;
         traffic.knock(t, tv[0] - nx * rel * c.mass / (c.mass + tm) * 0.9, tv[1] - nz * rel * c.mass / (c.mass + tm) * 0.9, (rnd() - 0.5) * rel * 0.15);
         if (traffic.damage(t, rel * 0.6)) { this.civilians++; this.heat = Math.min(5.99, this.heat + 0.12); this.fx.explosion(t.x, (t.y || 0) + 0.5, t.z, 0.7); }
-        this.damageCop(c, rel * 0.25 * tm / 2500);
+        this.damageCop(c, rel * 0.25 * tm / 2500, false);
       }
     }
     // Oil.
@@ -343,10 +365,10 @@ export class PoliceChase {
   collidePlayer(car) {
     if (!this.active || this.result !== 'running') return;
     const f = car.fwd, { offs, r: RAD } = carCircles(car);
-    const pv = this.mode === 'stop' ? car.worldVel() : null;
+    const pv = this.mode === 'stop' || this.solo ? car.worldVel() : null;
     for (const c of this.cops) {
       const dx0 = c.x - car.x, dz0 = c.z - car.z; if (dx0 * dx0 + dz0 * dz0 > 100) continue; const cf = [Math.sin(c.h), Math.cos(c.h)];
-      // (pulled over: whose fault is a knock? Whoever was closing on the other faster, before it.)
+      // (pulled over, or one patrol car after you: whose fault is a knock? Whoever was closing on the other faster, before it.)
       let yours = false; if (pv) { const dl = Math.hypot(dx0, dz0) || 1, mine = (pv[0] * dx0 + pv[1] * dz0) / dl, its = -(cf[0] * dx0 + cf[1] * dz0) * c.speed / dl; yours = mine > 4 && mine > its + 2; }
       for (const off of offs) for (const co of [-c.len * 0.3, 0, c.len * 0.3]) {
         const px = car.x + f[0] * off, pz = car.z + f[1] * off, ox = c.x + cf[0] * co, oz = c.z + cf[1] * co, dx = px - ox, dz = pz - oz, dist = Math.hypot(dx, dz), r = RAD + c.rad; if (dist >= r || dist < 1e-5) continue;
@@ -357,7 +379,7 @@ export class PoliceChase {
           const dv = j / car.s.mass; c.vx -= nx * j / mt; c.vz -= nz * j / mt; c.speed *= 0.75; c.spin += (this.rnd() - 0.5) * j / mt * 0.6; if (dv > 2) c.roll += (this.rnd() - 0.5) * 0.3;
           const dmg = Math.max(0, dv - 3) * 0.9 * (this.shieldT > 0 ? 0.2 : 1); this.health -= dmg; this.damageFlash = Math.min(1, this.damageFlash + dmg * 0.04); this.shake = Math.min(1, this.shake + dv * 0.025);
           c.hp -= Math.max(0, j / mt - 1.5) * 5 + Math.max(0, j / car.s.mass - 1.5);
-          if (c.hp <= 0 && !c.wreck) this.damageCop(c, 1);
+          if (c.hp <= 0 && !c.wreck) this.damageCop(c, 1, yours);
           if (yours) this.rammed = Math.max(this.rammed, dv);                                         // (driving into the patrol car that is pulling you over: stop.js calls everyone)
           if (this.onCrash) this.onCrash(j);
         }
@@ -431,7 +453,7 @@ export class PoliceChase {
       for (const c of this.cops) { this.updateCop(c, dt, p, traffic, p.x, p.z, false); c.speed *= Math.exp(-2 * dt); }
       return;
     }
-    this.time += dt; this.shake *= Math.exp(-4 * dt); this.damageFlash *= Math.exp(-2.5 * dt); const pspeed = p.speed;
+    this.target = p; this.time += dt; this.shake *= Math.exp(-4 * dt); this.damageFlash *= Math.exp(-2.5 * dt); const pspeed = p.speed;
     // Who can see you?
     let any = false; this.nearest = 1e9;
     for (const c of this.cops) {
@@ -445,8 +467,10 @@ export class PoliceChase {
     this.spotCool -= dt;
     if (this.spotted !== this.wasSpotted) { if (this.spotCool <= 0 && this.time > 4) { this.messages.push(this.spotted ? 'SPOTTED' : 'OUT OF SIGHT - STAY HIDDEN'); this.spotCool = 3; } this.wasSpotted = this.spotted; }
     if (this.spotted) this.heat = Math.min(5.99, this.heat + dt / 42); else this.heat = Math.max(this.minHeat || 1, this.heat - dt / 70);
+    if (this.solo) this.heat = Math.min(this.heat, 1.95);                     // (one patrol car after you stays one star, whatever else is knocked over)
     if (this.stars !== this.lastStars) { if (this.stars > this.lastStars) this.messages.push('HEAT ' + this.stars); this.lastStars = this.stars; this.maxStars = Math.max(this.maxStars, this.stars); }
-    // To get away you must stay out of sight for a whole minute. Being seen for more than half a second starts the minute again.
+    // To get away you must stay out of sight for a while (hiddenNeeded: a minute in the chase event, 15 s when you are wanted in the city). Being seen for
+    // more than half a second starts the count again.
     if (this.spotted) { this.spotAcc += dt; if (this.spotAcc > 0.5) this.hidden = 0; } else { this.spotAcc = Math.max(0, this.spotAcc - dt * 2); this.hidden += dt; }
     if (this.hideout) this.hidden = Math.min(this.hidden, 0);                 // (waiting outside a building you are in does not make them give up)
     if (this.hidden >= this.hiddenNeeded) { this.result = 'escaped'; this.messages.push('YOU LOST THEM'); return; }
@@ -466,7 +490,7 @@ export class PoliceChase {
         if (c.roam > 0 && c.rx !== 0) { gx = c.rx; gz = c.rz; }
       }
       this.updateCop(c, dt, p, traffic, gx, gz, this.spotted);
-      if (this.spotted) this.carFire(c, dt, p);
+      if (this.spotted && !this.solo) this.carFire(c, dt, p);          // (one patrol car after a driver who would not stop does not open fire)
       const farAway = Math.hypot(c.x - p.x, c.z - p.z) > 480, dead = c.wreck && c.burn > 24;
       if (dead || (!c.wreck && (farAway || c.stuck > 3))) {
         if (c.wreck) { this.cops[i] = this.cops[this.cops.length - 1]; this.cops.pop(); continue; }

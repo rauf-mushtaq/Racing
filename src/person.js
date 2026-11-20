@@ -386,6 +386,13 @@ export function seatedPose(B, o) {
   else { sw(B.shoulderR, 0.5); B.elbowR.rotation.x = -0.9; }
   B.wristL.rotation.set(-0.15, 0, 0); B.wristR.rotation.set(-0.15, 0, 0);
   B.root.rotation.set(0, 0, 0);
+  // Astride a motorbike or a jet ski: leaning forward to the bars, knees in against the tank, feet back on the pegs.
+  if (o.bike) {
+    B.torso.rotation.x = 0.42 + 0.01 * breathe; B.head.rotation.x = -0.32;
+    footTo(B, 'L', 0.06, -0.5, 0.2, 0.2); footTo(B, 'R', 0.06, -0.5, 0.2, 0.2);
+    if (o.gripR) { _pole.set(-0.6, -1, 0.1); solveArm(B, 'L', [-J.shoulderX, J.shoulderY, 0], 'elbowL', o.gripR, _pole, 1); }
+    if (o.gripL) { _pole.set(0.6, -1, 0.1); solveArm(B, 'R', [J.shoulderX, J.shoulderY, 0], 'elbowR', o.gripL, _pole, 1); }
+  }
 }
 
 // ---- On a machine, on a seat: exercises and sitting ------------------------------------------------------------------------

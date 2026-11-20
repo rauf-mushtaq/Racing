@@ -1,6 +1,6 @@
 // Pulled over (src/stop.js), and the cells (src/jail.js, the station in src/rooms.js and src/venues.js). Hitting a car sends one patrol car, not the
 // whole force; it catches up, signals, parks behind you, and an officer walks to your window; a small thing is a ticket paid from your money, and the
-// car leaves. Driving off when signalled brings everyone. Beating someone up with no money to pay the fine is an arrest: hands up, cuffs, booked into
+// car leaves. Driving off when signalled brings that patrol car after you, and nobody else. Beating someone up with no money to pay the fine is an arrest: hands up, cuffs, booked into
 // a cell; the cell is shut (bars you cannot walk through, no guns); time passes, sleeping skips the night, meals come and the lights go out; on the
 // morning you are due out the doors open and you walk out to your car. Caught at the end of a full chase is the cells too. There are police stations
 // on the streets with a lobby you can walk into.
@@ -47,8 +47,8 @@ try {
   await P.evaluate(() => { window.__game.crime(0.5, 'break'); });
   r = await until(P, "g.stop.state === 'signal'", 60);
   check('smashing something: a patrol car again, and it signals', r.ok, JSON.stringify(r));
-  const fl = await P.evaluate(() => { const g = window.__game; g.stop.t = 16; for (let i = 0; i < 10; i++) g.tick(1 / 30); return { chase: !!g.game.chaseOn, stopOn: !!g.game.stopOn, mode: g.police.mode, cops: g.police.cops.length, stars: g.police.stars, state: g.stop.state }; });
-  check('not pulling over brings the whole force: a chase', fl.chase && !fl.stopOn && fl.mode === 'chase' && fl.cops >= 3, JSON.stringify(fl));
+  const fl = await P.evaluate(() => { const g = window.__game; g.stop.t = 16; for (let i = 0; i < 10; i++) g.tick(1 / 30); const at = { chase: !!g.game.chaseOn, stopOn: !!g.game.stopOn, mode: g.police.mode, cops: g.police.cops.length, solo: g.police.solo, stars: g.police.stars, state: g.stop.state }; for (let i = 0; i < 300; i++) g.tick(1 / 30); at.later = g.police.cops.filter(c => !c.wreck).length; at.stars2 = g.police.stars; return at; });
+  check('not pulling over: that one patrol car comes after you, not the whole force (still only one ten seconds on)', fl.chase && !fl.stopOn && fl.mode === 'chase' && fl.solo && fl.cops === 1 && fl.later === 1 && fl.stars2 === 1, JSON.stringify(fl));
   await P.evaluate(() => { const g = window.__game; g.endChase(); g.game.noWanted = 0; g.tick(1 / 60); });
 
   console.log('beating someone up with no money: arrested');
