@@ -5,15 +5,11 @@ import * as THREE from 'three';
 import { C, leafGeom, plant, plantMesh, LEAF_GREENS } from './interior.js';
 export { leafGeom, plant, plantMesh, LEAF_GREENS };
 import { mergeGeoms } from './geom.js';
-import { VISIT_PLANS } from './rooms-visit.js';
+import { VISIT_PLANS, sofa, rug, pendant, tree } from './rooms-visit.js';
 
 export const glassBox = (R, x0, z0, x1, z1, y0, y1) => {
   const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), R.mats.glass); m.position.set(R.ox + (x0 + x1) / 2, R.oy + (y0 + y1) / 2, R.oz + (z0 + z1) / 2); m.renderOrder = 3; R.loose.push(m); return m;
 };
-const gem = (R, x, y, z, col, s = 0.05) => {
-  const m = new THREE.Mesh(new THREE.OctahedronGeometry(s, 0), R.mats.gem.clone()); m.material.color.set(col); m.material.emissive.set(col); m.material.emissiveIntensity = 0.45; m.position.set(R.ox + x, R.oy + y, R.oz + z); m.scale.y = 1.35; R.loose.push(m); return m;
-};
-const group = (R, objs) => { const g = new THREE.Group(); for (const o of objs) { R.loose.splice(R.loose.indexOf(o), 1); g.add(o); } R.loose.push(g); return g; };
 // Rows of goods on a shelf: little coloured boxes.
 const goods = (R, x0, z0, x1, z1, y0, rows, rnd, sx = 0.16) => {
   const cols = [0xd23a3a, 0xe8c030, 0x3a78d2, 0x3aa860, 0xf0f0ec, 0xe27a30, 0x8a4ac2];
@@ -33,6 +29,28 @@ const fridge = (R, x0, x1, z, depth, rnd) => {
 };
 const till = (R, x, z, y) => { R.box('metal', x - 0.22, z - 0.18, x + 0.22, z + 0.18, y, y + 0.14, C(0x24262a)); R.box('prop', x - 0.2, z + 0.02, x + 0.2, z + 0.18, y + 0.14, y + 0.4, C(0x202226)); R.box('emit', x - 0.12, z + 0.0, x + 0.12, z + 0.02, y + 0.26, y + 0.34, C(0x7fe3a8).multiplyScalar(2)); };
 const cash = (R, x, y, z, rnd, n = 1, col = 0x4a9a58) => { const objs = []; for (let i = 0; i < n; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.07, 0.1), new THREE.MeshStandardMaterial({ color: col, roughness: 0.7 })); m.position.set(R.ox + x + (i % 2) * 0.01, R.oy + y + 0.04 + i * 0.075, R.oz + z); R.loose.push(m); objs.push(m); } return objs; };
+// A case's jewels as one mesh: a row of cut stones (octahedra) in their own colours, lit from within (so a hall with forty cases is forty draws, not two hundred).
+const GEM_MAT = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.02, metalness: 0.2, emissive: 0xffffff, emissiveIntensity: 0.45, envMapIntensity: 2.4 });
+GEM_MAT.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_COLOR\ntotalEmissiveRadiance *= vColor.rgb;\n#endif'); };
+GEM_MAT.customProgramCacheKey = () => 'gemrow';
+const gemRow = (R, x, z, sx, wide, cols, k, big) => {
+  const list = [], n = big ? 7 : 5, c = new THREE.Color();
+  for (let i = 0; i < n; i++) {
+    const s = big && i === 3 ? 0.16 : 0.045 + 0.02 * (i === 2), g = new THREE.OctahedronGeometry(s, 0); g.scale(1, 1.35, 1);
+    const gx = x - sx * 0.6 + i * (sx * 1.2 / (n - 1)), gz = z + (i % 2 ? 0.1 : -0.1) * (wide ? 1 : 0.5), gy = big && i === 3 ? 1.25 : 1.0;
+    g.translate(R.ox + gx, R.oy + gy, R.oz + gz); c.set(cols[(k + i) % cols.length]); if (big && i === 3) c.set(0xcfeaff);
+    const a = new Float32Array(g.attributes.position.count * 3); for (let j = 0; j < a.length; j += 3) { a[j] = c.r; a[j + 1] = c.g; a[j + 2] = c.b; } g.setAttribute('color', new THREE.BufferAttribute(a, 3)); list.push(g);
+  }
+  const m = new THREE.Mesh(mergeGeoms(list), GEM_MAT); R.loose.push(m); return m;
+};
+// A pallet's load: bundles of notes or bars of gold, stacked, as one mesh.
+const CASH_MAT = new THREE.MeshStandardMaterial({ color: 0x4a9a58, roughness: 0.75 }), GOLD_MAT = new THREE.MeshStandardMaterial({ color: 0xd9b13a, roughness: 0.25, metalness: 1, envMapIntensity: 1.6 });
+const pile = (R, x, y, z, gold) => {
+  const list = [];
+  if (gold) { for (let l = 0; l < 4; l++) for (let i = 0; i < 4 - l; i++) for (let j = 0; j < 2; j++) list.push(new THREE.BoxGeometry(0.16, 0.06, 0.26).translate(R.ox + x - 0.25 + i * 0.17 + l * 0.085, R.oy + y + 0.03 + l * 0.065, R.oz + z - 0.14 + j * 0.28)); }
+  else { for (let l = 0; l < 5; l++) for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) list.push(new THREE.BoxGeometry(0.16, 0.08, 0.08).translate(R.ox + x - 0.18 + i * 0.18, R.oy + y + 0.04 + l * 0.085, R.oz + z - 0.06 + j * 0.13)); }
+  const m = new THREE.Mesh(mergeGeoms(list), gold ? GOLD_MAT : CASH_MAT); m.castShadow = true; R.loose.push(m); return m;
+};
 const ceilLights = (R, xs, zs, w = 1.4, d = 0.25, k = 3) => { for (const x of xs) for (const z of zs) R.panel(x, z, w, d, R.H, C(0xfff3dc), k); };
 
 export const PLANS = {
@@ -65,60 +83,116 @@ export const PLANS = {
     ceilLights(R, [-3, 0, 3], [2.4, 5.2, 7.6]); R.light(-3, 2.9, 3, 1); R.light(3, 2.9, 3, 1); R.light(-3, 2.9, 7, 0.9); R.light(3, 2.9, 7.5, 0.5);
     R.spot('clerk', 4.6, 3.3, Math.PI); R.spot('customer', -3.7, 4.6, 0, { aisle: true }); R.spot('customer', -0.9, 3.4, 0, { aisle: true });
   },
-  // ---- 3. Jeweller: glass cases, an owner, an armed guard, two cameras -----------------------------------------------------------------------------------
+  // ---- 3. Jeweller: a showroom as big as an office tower's lobby (56 m by 40), rows of lit glass cases, a great diamond in the middle, three guards, cameras ---
   jeweller(R, v, rnd) {
-    R.shell(10, 9, 3.4, { floor: C(0xffffff), floorS: 2.2, wall: C(0xe6dccb), trim: C(0xc9a24a), ceil: C(0xeee4d2) });
-    for (const z of [0.3, 8.7]) R.box('prop', -5, z - 0.02, 5, z + 0.02, 2.55, 2.62, C(0xc9a24a));                // gilded rail
+    const W = 56, D = 40, H = 7.5, gold = C(0xc9a24a), wood = C(0x2a1a12), top = C(0x0e0d10);
+    R.shell(W, D, H, { floor: C(0xffffff), floorS: 3, wall: C(0xe6dccb), trim: gold, ceil: C(0xeee4d2) });
+    for (const z of [0.3, D - 0.3]) R.box('prop', -W / 2, z - 0.02, W / 2, z + 0.02, H - 1.0, H - 0.92, gold);                 // a gilded band round the walls
+    for (const x of [-W / 2 + 0.3, W / 2 - 0.3]) R.box('prop', x - 0.02, 0, x + 0.02, D, H - 1.0, H - 0.92, gold);
+    // Columns of pale stone with gilded rings, down both sides of the middle aisle and out towards the walls.
+    for (const x of [-17.5, -3.5, 3.5, 17.5]) for (const z of [10, 22]) { R.drum('prop', x, z, 0.45, 0, H, C(0xf0e8da), true, 16); for (const y of [0, H - 0.5]) R.drum('prop', x, z, 0.56, y, y + 0.5, gold, false, 16); }
     const cols = [0xf5f5ff, 0xff3a6a, 0x3a8cff, 0x3affb0, 0xffd34a];
-    const cases = [[-2.3, 3.6, 1.7], [2.3, 3.6, 1.7], [-4.15, 6.2, 0], [4.15, 6.2, 0], [-4.15, 2.6, 0], [4.15, 2.6, 0]];
-    cases.forEach(([x, z, w], k) => {
-      const sx = w ? 0.85 : 0.5, sz = w ? 0.45 : 0.9;
-      R.slab('prop', x - sx, z - sz, x + sx, z + sz, 0, 0.92, C(0x2a1a12), C(0x0e0d10), true);
-      R.box('prop', x - sx + 0.06, z - sz + 0.06, x + sx - 0.06, z + sz - 0.06, 0.92, 0.95, C(0x5a1020));                  // the velvet
-      const gm = glassBox(R, x - sx, z - sz, x + sx, z + sz, 0.95, 1.45), gs = [];
-      for (let i = 0; i < 5; i++) gs.push(gem(R, x - sx * 0.6 + i * (sx * 1.2 / 4), 1.0, z + (i % 2 ? 0.1 : -0.1) * (w ? 1 : 0.5), cols[(k + i) % cols.length], 0.045 + 0.02 * (i === 2)));
-      R.box('emit', x - sx, z - sz, x + sx, z + sz, 1.45, 1.47, C(0xfff5e0).multiplyScalar(2.4));
-      const stones = group(R, gs); R.item({ id: 'case' + k, type: 'case', x, z, y: 1.1, r: 1.7, label: 'SMASH THE CASE', dur: 0, value: 2400 + Math.round(rnd() * 2600), glass: gm, gems: stones, hp: 1, loud: true, sx, sz, h: 1.45 });
-    });
-    R.slab('prop', -2.6, 7.4, 2.6, 8.2, 0, 1.1, C(0x2a1a12), C(0x151317)); till(R, 0.4, 7.8, 1.1); R.item({ id: 'till', type: 'till', x: 0.4, z: 7.75, y: 1.15, r: 2.0, label: 'EMPTY THE TILL', dur: 2.8, value: 1500 + Math.round(rnd() * 1500), staff: true });
-    R.boxes.push({ x0: R.ox - 2.6, x1: R.ox + 2.6, z0: R.oz + 7.4, z1: R.oz + 8.2, y0: R.oy, y1: R.oy + 1.1 });
-    for (const x of [-3, 3]) R.drum('prop', x, 0.9, 0.12, 0, 1.0, C(0xc9a24a), true, 8);                                  // stanchions at the door
-    for (const [x, z] of [[-4.6, 0.7], [4.6, 0.7]]) R.cams.push({ x: R.ox + x, y: R.oy + 3.2, z: R.oz + z, yaw: x < 0 ? 0.6 : -0.6, sweep: 0.7, range: 11, fov: 0.55 });
-    ceilLights(R, [-2.6, 2.6], [2.2, 5.2], 1.6, 0.3, 2.6); R.light(-2.5, 3.0, 2.5, 1); R.light(2.5, 3.0, 2.5, 1); R.light(-2.5, 3.0, 6.4, 1); R.light(2.5, 3.0, 6.4, 1);
-    R.spot('owner', 0, 8.6, Math.PI); R.spot('guard', 3.3, 1.9, Math.PI, { armed: true, post: true }); R.spot('customer', -1, 5.2, 0);
+    let k = 0;
+    const kase = (x, z, island, value, big = false) => {
+      const sx = big ? 0.9 : island ? 0.85 : 0.5, sz = big ? 0.9 : island ? 0.45 : 0.9, ht = big ? 1.75 : 1.45;
+      R.slab('prop', x - sx, z - sz, x + sx, z + sz, 0, 0.92, wood, top, true);
+      R.box('prop', x - sx + 0.06, z - sz + 0.06, x + sx - 0.06, z + sz - 0.06, 0.92, 0.95, C(0x5a1020));                        // the velvet
+      const gm = glassBox(R, x - sx, z - sz, x + sx, z + sz, 0.95, ht);
+      const stones = gemRow(R, x, z, sx, island || big, cols, k, big);
+      R.box('emit', x - sx, z - sz, x + sx, z + sz, ht, ht + 0.02, C(0xfff5e0).multiplyScalar(2.4));
+      R.item({ id: 'case' + k, type: 'case', x, z, y: 1.1, r: big ? 2.0 : 1.7, label: 'SMASH AND GRAB', dur: 0, value, glass: gm, gems: stones, hp: 1, loud: true, sx, sz, h: ht });
+      k++;
+    };
+    // Islands: four rows of six, either side of a wide aisle; cases along both side walls; and the great diamond in the middle of the aisle.
+    for (const z of [7, 13, 19, 25]) for (const x of [-21, -14, -7, 7, 14, 21]) kase(x, z, true, 1500 + Math.round(rnd() * 2000));
+    for (const s of [-1, 1]) for (const z of [5, 10.5, 16, 21.5, 27, 32]) kase(s * (W / 2 - 0.62), z, false, 1500 + Math.round(rnd() * 2000));
+    kase(0, 16, false, 14000 + Math.round(rnd() * 6000), true);
+    // The counter across the back, two tills on it, the lit wall of the house behind it.
+    R.slab('prop', -10, 34, 10, 35, 0, 1.1, wood, C(0x151317), true);
+    for (const x of [-4, 4]) { till(R, x, 34.5, 1.1); R.item({ id: 'till' + x, type: 'till', x, z: 35.4, y: 1.15, r: 2.0, label: 'EMPTY THE TILL', dur: 2.0, value: 1500 + Math.round(rnd() * 1500), staff: true }); }
+    R.box('prop', -12, D - 0.12, 12, D, 0.9, 5.2, C(0x151317)); R.box('emit', -8, D - 0.14, 8, D - 0.12, 2.6, 4.2, C(0xf2d27a).multiplyScalar(1.6));
+    // A lounge in each back corner: a rug, two sofas facing, a low table, a tree.
+    for (const s of [-1, 1]) { const x = s * 19; rug(R, x - 3.2, 30.6, x + 3.2, 36.4, C(0x3a1420)); sofa(R, x, 31.6, 0, 3.0, C(0x2a1a22)); sofa(R, x, 35.4, Math.PI, 3.0, C(0x2a1a22)); R.box('wood', x - 0.8, 33.0, x + 0.8, 34.0, 0, 0.42, C(0x3a2418), true); tree(R, s * 25.5, 37.5, 4.2); }
+    for (const x of [-3, 3]) R.drum('prop', x, 1.6, 0.12, 0, 1.0, gold, true, 8);                                         // stanchions at the door
+    // Light: rows of chandeliers down the aisle and over the cases, light lines in the ceiling.
+    for (const z of [7, 13, 19, 25, 31]) pendant(R, 0, z, H - 2.2, 0.9, C(0xfff2dc).multiplyScalar(2.6), H);
+    for (const x of [-17.5, 17.5]) for (const z of [7, 19, 31]) pendant(R, x, z, H - 1.8, 0.7, C(0xfff2dc).multiplyScalar(2.4), H);
+    for (const z of [4, 10, 16, 22, 28]) R.panel(0, z, 48, 0.12, H, C(0xfff7ec), 3.6);
+    R.light(-13, H - 0.6, 11, 1.4); R.light(13, H - 0.6, 11, 1.4); R.light(-13, H - 0.6, 28, 1.3); R.light(13, H - 0.6, 28, 1.3);
+    for (const [x, z, yaw] of [[-W / 2 + 0.6, 0.7, 0.7], [W / 2 - 0.6, 0.7, -0.7], [-W / 2 + 0.6, D - 0.6, 2.4], [W / 2 - 0.6, D - 0.6, -2.4], [0, D - 0.6, Math.PI], [0, 0.7, 0]]) R.cams.push({ x: R.ox + x, y: R.oy + H - 0.4, z: R.oz + z, yaw, sweep: 0.7, range: 24, fov: 0.6 });
+    // The house: the owner and two assistants at the counter, three guards (one at the door, one at the back, one walking the floor), and customers at the cases.
+    R.spot('owner', 0, 36.0, Math.PI); R.spot('clerk', -4, 36.0, Math.PI); R.spot('clerk', 4, 36.0, Math.PI);
+    R.spot('guard', 3.3, 2.0, Math.PI, { armed: true, post: true }); R.spot('guard', -24, 30, 1.2, { armed: true, post: true });
+    R.spot('guard', 0, 9, 0, { armed: true, patrol: [[-10.5, 4], [10.5, 4], [10.5, 28], [-10.5, 28]] });
+    for (const [x, z] of [[-7, 11.8], [14, 17.8], [-21, 23.8], [21, 5.8], [-14, 5.8], [5, 16]]) R.spot('customer', x, z, 0);
   },
-  // ---- 4. Bank: tellers behind glass, two armed guards, a manager with a key card, and a vault ----------------------------------------------------------
+  // ---- 4. Bank: a banking hall (tellers behind glass, a manager with a key card, guards) and behind it the vaults: fourteen strong rooms on a corridor, each
+  // shut by a round steel door. A key card opens a door in seconds, a drill in 26; a rocket (or a grenade) blows it off its hinges. -----------------------------
   bank(R, v, rnd) {
-    R.shell(18, 14, 4.6, { floor: C(0xffffff), floorS: 2.6, wall: C(0xe4ddd0), trim: C(0x2d6a4a), ceil: C(0xeee8dc) });
-    // The teller counter across the room, with armoured glass over it and a gap for each teller.
-    R.slab('prop', -7.5, 6.0, 7.5, 7.0, 0, 1.1, C(0x3a2a1c), C(0x1e2a24), true);
-    for (const x0 of [-7.5, -2.5, 2.5]) glassBox(R, x0 + 0.1, 6.4, x0 + 2.4, 6.6, 1.1, 2.4), glassBox(R, x0 + 2.6, 6.4, x0 + 4.9, 6.6, 1.1, 2.4);
-    for (const x of [-5, 0, 5]) { till(R, x, 6.6, 1.1); R.item({ id: 'drawer' + x, type: 'drawer', x, z: 7.5, y: 1.0, r: 1.6, label: 'EMPTY THE DRAWER', dur: 2.4, value: 3000 + Math.round(rnd() * 2600), staff: true }); }
-    R.box('prop', -7.5, 6.4, 7.5, 7.0, 2.4, 2.6, C(0x2d6a4a));                                                       // the lintel over the glass
-    // Queue posts and rope, a long bench, a plant, a sign over the counter.
-    for (let k = 0; k < 4; k++) R.drum('prop', -3 + k * 2, 3.4, 0.07, 0, 0.95, C(0xc9a24a), false, 8);
-    R.slab('prop', -8.6, 2.2, -7.6, 4.6, 0, 0.5, C(0x5a3a22), C(0x3a2a1c)); R.slab('prop', 7.6, 2.2, 8.6, 4.6, 0, 0.5, C(0x5a3a22), C(0x3a2a1c));
-    R.box('emit', -3.5, 6.95, 3.5, 7.0, 2.62, 3.1, C(0xf2d27a).multiplyScalar(1.9));
-    // The manager's glass office, back left, with a desk and a drawer that has the vault card.
-    R.box('prop', -8.9, 9.4, -4.2, 9.5, 0, 0.9, C(0x5a4636), true); glassBox(R, -8.9, 9.4, -4.2, 9.5, 0.9, 2.7); R.box('prop', -4.3, 9.4, -4.2, 13.8, 0, 0.9, C(0x5a4636), true); glassBox(R, -4.3, 9.4, -4.2, 13.8, 0.9, 2.7);
-    R.slab('prop', -7.6, 11.6, -5.8, 12.6, 0, 0.78, C(0x4a3624), C(0x2a1a10));
-    // The vault, back right: a drum of steel with a round door, and cash and gold inside.
-    R.box('wall', 3.4, 9.9, 3.9, 13.9, 0, 4.6, C(0x6e7378), true); R.box('wall', 8.5, 9.9, 9.0 - 0.01, 13.9, 0, 4.6, C(0x6e7378), true); R.box('wall', 3.4, 13.4, 9.0, 13.9, 0, 4.6, C(0x6e7378), true);
-    R.box('wall', 3.4, 9.9, 4.9, 10.4, 0, 4.6, C(0x6e7378), true); R.box('wall', 7.0, 9.9, 9.0, 10.4, 0, 4.6, C(0x6e7378), true); R.box('wall', 4.9, 9.9, 7.0, 10.4, 2.5, 4.6, C(0x6e7378), true);
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.05, 0.3, 28).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x9aa2aa, metalness: 0.95, roughness: 0.3, envMapIntensity: 1.4 })); disc.position.set(R.ox + 5.95, R.oy + 1.25, R.oz + 10.15); R.loose.push(disc);
-    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.05, 8, 20), new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.9, roughness: 0.3 })); wheel.position.set(R.ox + 5.95, R.oy + 1.25, R.oz + 9.95); R.loose.push(wheel);
-    const vaultBox = { x0: R.ox + 4.9, x1: R.ox + 7.0, z0: R.oz + 9.9, z1: R.oz + 10.4, y0: R.oy, y1: R.oy + 2.5 }; R.boxes.push(vaultBox);
-    R.item({ id: 'vault', type: 'vault', x: 5.95, z: 9.2, y: 1.25, r: 1.9, label: 'OPEN THE VAULT', dur: 26, value: 0, loud: true, obj: group(R, [disc, wheel]), box: vaultBox, needs: 'keycard' });
-    for (let k = 0; k < 6; k++) {
-      const x = [4.6, 6.2, 7.8][k % 3], z = [11.2, 12.7][(k / 3) | 0], gold = k % 3 === 2;
-      R.slab('prop', x - 0.35, z - 0.3, x + 0.35, z + 0.3, 0, 0.5, C(0x484c52), C(0x33363a), true); const objs = cash(R, x, 0.5, z, rnd, 4, gold ? 0xd9b13a : 0x4a9a58);
-      R.item({ id: 'stack' + k, type: 'stack', x, z: z - 0.8, y: 0.7, r: 1.3, label: gold ? 'TAKE THE GOLD' : 'TAKE THE CASH', dur: 1.6, value: 6500 + Math.round(rnd() * 7000), obj: group(R, objs), locked: true });
+    const W = 56, D = 48, H = 9, steel = C(0x6e7378), green = C(0x2d6a4a), stone = C(0xeee6d6), gold = C(0xc9a24a);
+    R.shell(W, D, H, { floor: C(0xffffff), floorS: 3, wall: C(0xe4ddd0), trim: green, ceil: C(0xeee8dc) });
+    // The hall: marble columns, benches, queue posts, and the teller counter across it with armoured glass over it, a window for each of six tellers.
+    for (const x of [-24, -12, 12, 24]) { R.drum('prop', x, 7, 0.6, 0, H, stone, true, 18); for (const y of [0, H - 0.6]) R.drum('prop', x, 7, 0.75, y, y + 0.6, C(0xd8cfbe), false, 18); }
+    R.slab('prop', -18, 13.5, 18, 14.5, 0, 1.1, C(0x3a2a1c), C(0x1e2a24), true);
+    R.box('prop', -18, 13.9, 18, 14.5, 2.6, 2.9, green);                                                                        // the lintel over the glass
+    for (const x of [-15, -9, -3, 3, 9, 15]) {
+      glassBox(R, x - 2.9, 13.9, x - 0.4, 14.1, 1.1, 2.6); glassBox(R, x + 0.4, 13.9, x + 2.9, 14.1, 1.1, 2.6);
+      till(R, x, 14.1, 1.1); R.item({ id: 'drawer' + x, type: 'drawer', x, z: 15.1, y: 1.0, r: 1.6, label: 'EMPTY THE DRAWER', dur: 2.0, value: 3000 + Math.round(rnd() * 2600), staff: true });
     }
-    R.box('emit', 3.95, 9.95, 8.45, 10.0, 3.3, 3.5, C(0xff3a2a).multiplyScalar(1.4));
-    for (const [x, z] of [[-8, 0.7], [8, 0.7], [0, 13.4]]) R.cams.push({ x: R.ox + x, y: R.oy + 4.3, z: R.oz + z, yaw: z > 5 ? Math.PI : x < 0 ? 0.55 : -0.55, sweep: 0.8, range: 15, fov: 0.6 });
-    ceilLights(R, [-6, 0, 6], [2, 5, 8.4, 12], 1.8, 0.3, 2.4); R.light(-5, 4.0, 3, 1.1); R.light(5, 4.0, 3, 1.1); R.light(-5, 4.0, 10, 0.9); R.light(5, 4.0, 11.5, 0.8);
-    R.spot('teller', -5, 8.1, Math.PI); R.spot('teller', 0, 8.1, Math.PI); R.spot('teller', 5, 8.1, Math.PI); R.spot('manager', -6.6, 10.6, Math.PI, { key: true });
-    R.spot('guard', -3.6, 1.9, Math.PI, { armed: true, post: true }); R.spot('guard', 6.0, 4.4, 3.1, { armed: true, post: true }); R.spot('customer', -1.5, 3.0, 0); R.spot('customer', 3.2, 4.2, 0);
+    R.box('emit', -6, 14.45, 6, 14.5, 3.0, 3.6, C(0xf2d27a).multiplyScalar(1.9));
+    for (let q = 0; q < 6; q++) R.drum('prop', -5 + q * 2, 10.5, 0.07, 0, 0.95, gold, false, 8);
+    for (const x of [-21, 21]) for (const z of [3.5, 11]) R.slab('prop', x - 2.2, z - 0.5, x + 2.2, z + 0.5, 0, 0.5, C(0x5a3a22), C(0x3a2a1c));
+    for (const x of [-26.8, 26.8]) tree(R, x, 5.5, 4.5);
+    // Behind the counter: desks, and the manager's glass office in the left corner (the key card is in the manager's pocket).
+    for (const x of [-12, -4, 4, 12]) { R.slab('prop', x - 1.2, 18.5, x + 1.2, 19.5, 0, 0.76, C(0x4a3624), C(0x2a1a10), true); R.box('prop', x - 0.3, 19.1, x + 0.3, 19.2, 0.76, 1.15, C(0x151618)); }
+    R.box('prop', -28, 15.5, -20, 15.6, 0, 0.9, C(0x5a4636), true); glassBox(R, -28, 15.5, -20, 15.6, 0.9, 2.8); R.box('prop', -20.1, 15.5, -20, 21.5, 0, 0.9, C(0x5a4636), true); glassBox(R, -20.1, 15.5, -20, 21.5, 0.9, 2.8);
+    R.slab('prop', -26, 19.5, -22.5, 20.5, 0, 0.78, C(0x4a3624), C(0x2a1a10), true);
+    // The wall between the hall and the vaults (24 m back), with a barred gate standing open in the middle.
+    R.box('wall', -W / 2, 24, -2, 24.5, 0, H, steel, true); R.box('wall', 2, 24, W / 2, 24.5, 0, H, steel, true); R.box('wall', -2, 24, 2, 24.5, 3.0, H, steel);
+    for (let q = 0; q < 6; q++) R.box('metal', -2 - 0.5 * q - 0.05, 23.7, -2 - 0.5 * q + 0.05, 23.8, 0, 3.0, C(0x30343a));   // the gate, folded back against the wall
+    R.box('emit', -1.2, 23.9, 1.2, 23.95, 3.2, 3.5, C(0xff3a2a).multiplyScalar(1.6));
+    // The vaults: six in front of the corridor (either side of the way in) and eight behind it, each 6.5 m wide with a round door onto the corridor (31 to 37 m back).
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x9aa2aa, metalness: 0.95, roughness: 0.3, envMapIntensity: 1.4 }), wheelMat = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.9, roughness: 0.3 });
+    const vault = (vid, cx, front, back) => {
+      const out = front < back ? 1 : -1;                                                                                     // (+1: the door faces -z, the strong room runs back into +z)
+      const fz0 = out > 0 ? front : front - 0.6, fz1 = out > 0 ? front + 0.6 : front, z0 = Math.min(front, back), z1 = Math.max(front, back);
+      R.box('wall', cx - 3.25, fz0, cx - 1.1, fz1, 0, H, steel, true); R.box('wall', cx + 1.1, fz0, cx + 3.25, fz1, 0, H, steel, true); R.box('wall', cx - 1.1, fz0, cx + 1.1, fz1, 2.6, H, steel);
+      R.box('metal', cx - 3.2, z0 + 0.6, cx + 3.2, z1 - 0.1, 0, 0.02, C(0x5a5e64));                                         // a steel floor
+      R.box('emit', cx - 1.4, (z0 + z1) / 2 - 0.4, cx + 1.4, (z0 + z1) / 2 + 0.4, H - 0.02, H, C(0xf4f8ff).multiplyScalar(2.2));
+      // Safe-deposit boxes from floor to head height along the back wall.
+      const bz = out > 0 ? z1 - 0.08 : z0 + 0.08; for (let r = 0; r < 6; r++) for (let c = 0; c < 10; c++) { const x = cx - 2.9 + c * 0.58; R.box('metal', x, Math.min(bz, bz - out * 0.04), x + 0.54, Math.max(bz, bz - out * 0.04), 0.2 + r * 0.36, 0.52 + r * 0.36, C(0x9ea4aa)); }
+      // The door: a drum of steel with a gold wheel and its bolts, pivoted at its own middle (so it can be blown off and fall).
+      const door = new THREE.Group(), dz = front - out * 0.15; door.position.set(R.ox + cx, R.oy + 1.3, R.oz + dz);
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 0.35, 28).rotateX(Math.PI / 2), doorMat); disc.castShadow = true; door.add(disc);
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.05, 8, 20), wheelMat); wheel.position.z = -out * 0.22; door.add(wheel);
+      for (let q = 0; q < 3; q++) { const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 0.05), wheelMat); spoke.rotation.z = q * Math.PI / 3; spoke.position.z = -out * 0.22; door.add(spoke); }
+      R.loose.push(door);
+      const box = { x0: R.ox + cx - 1.1, x1: R.ox + cx + 1.1, z0: R.oz + Math.min(dz - 0.2, fz0), z1: R.oz + Math.max(dz + 0.2, fz1), y0: R.oy, y1: R.oy + 2.6 }; R.boxes.push(box);
+      R.box('emit', cx - 1.3, out > 0 ? front - 0.05 : front, cx + 1.3, out > 0 ? front : front + 0.05, 2.75, 2.9, C(0xff3a2a).multiplyScalar(1.4));
+      R.item({ id: 'vault' + vid, type: 'vault', vid, x: cx, z: front - out * 1.6, y: 1.3, r: 2.2, label: 'DRILL THE VAULT', dur: 26, value: 0, loud: true, obj: door, box, door: { x: R.ox + cx, y: R.oy + 1.3, z: R.oz + dz, out }, needs: 'keycard' });
+      // Inside: three pallets of cash or gold bars.
+      const sz = out > 0 ? z1 - 2.6 : z0 + 2.6;
+      for (let q = 0; q < 3; q++) {
+        const x = cx - 1.8 + q * 1.8, g = (vid + q) % 3 === 2;
+        R.slab('prop', x - 0.4, sz - 0.3, x + 0.4, sz + 0.3, 0, 0.3, C(0x484c52), C(0x33363a), true);
+        R.item({ id: 'stack' + vid + '_' + q, type: 'stack', vault: vid, x, z: sz - out * 0.9, y: 0.7, r: 1.3, label: g ? 'TAKE THE GOLD' : 'TAKE THE CASH', dur: 1.2, value: 3000 + Math.round(rnd() * 4000), obj: pile(R, x, 0.3, sz, g), locked: true });
+      }
+    };
+    let vid = 0;
+    for (const cx of [-22.75, -16.25, -9.75, 9.75, 16.25, 22.75]) vault(vid++, cx, 31, 24.5);
+    for (let q = 0; q < 8; q++) vault(vid++, -22.75 + q * 6.5, 37, 48);
+    for (const x of [-26, -19.5, -13, -6.5, 6.5, 13, 19.5, 26]) R.box('wall', x - 0.25, 24.5, x + 0.25, 31, 0, H, steel, true);          // the side walls of the vaults
+    for (let q = 0; q <= 8; q++) { const x = -26 + q * 6.5; R.box('wall', x - 0.25, 37, x + 0.25, 48, 0, H, steel, true); }
+    for (const s of [-1, 1]) { R.box('wall', s > 0 ? 26.25 : -W / 2, 24.5, s > 0 ? W / 2 : -26.25, 31, 0, H, steel, true); R.box('wall', s > 0 ? 26.25 : -W / 2, 37, s > 0 ? W / 2 : -26.25, 48, 0, H, steel, true); }
+    for (const z of [5, 11, 18, 34]) R.panel(0, z, 50, 0.14, H, C(0xfff7ec), 3.8);
+    R.light(-12, H - 0.6, 8, 1.4); R.light(12, H - 0.6, 8, 1.4); R.light(-14, H - 0.8, 34, 1.2); R.light(14, H - 0.8, 34, 1.2);
+    for (const [x, z, yaw] of [[-27.4, 0.7, 0.6], [27.4, 0.7, -0.6], [0, 23.6, Math.PI], [-27.4, 34, Math.PI / 2], [27.4, 34, -Math.PI / 2], [0, 31.2, 0]]) R.cams.push({ x: R.ox + x, y: R.oy + H - 0.4, z: R.oz + z, yaw, sweep: 0.8, range: 26, fov: 0.6 });
+    // The staff and the guards: four tellers, the manager, a guard at the door, one by the counter, one at the gate to the vaults and one walking the corridor.
+    for (const x of [-9, -3, 3, 9]) R.spot('teller', x, 15.8, Math.PI);
+    R.spot('manager', -24, 18.5, Math.PI, { key: true });
+    R.spot('guard', -3.6, 2.4, Math.PI, { armed: true, post: true }); R.spot('guard', 20, 12.5, -2.4, { armed: true, post: true }); R.spot('guard', 3, 23, Math.PI, { armed: true, post: true });
+    R.spot('guard', -20, 34, 0, { armed: true, patrol: [[-24, 34], [24, 34]] });
+    for (const [x, z] of [[-1.5, 9.5], [3.2, 11.5], [-20, 4.6], [15, 6]]) R.spot('customer', x, z, 0);
   },
   // ---- 5. Museum: a grand hall, four treasures, laser beams, cameras, patrolling guards, and a security room ------------------------------------------------
   museum(R, v, rnd) {

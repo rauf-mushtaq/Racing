@@ -5,7 +5,9 @@
 // and a vault or a security system between you and the money.
 //
 // Things to take are the room's `items` (a till, a drawer, a safe, a glass case, a vault, a stack of cash, a treasure). Press the use button beside one
-// to begin: it takes a few seconds, and goes on while you stay close. Loot goes in your bag; the bag is only banked when you are away from the police.
+// to begin: it takes a few seconds, and goes on while you stay close (a jeweller's case is one press: the glass is smashed and the jewels taken at once).
+// A bank's vault doors open to the manager's key card, to a long drill, or to a rocket or a grenade, which blows the door off.
+// Loot goes in your bag; the bag is only banked when you are away from the police.
 import * as THREE from 'three';
 import { Walker } from './walker.js';
 import { makeGun, placeGun, WEAPONS } from './weapons.js';
@@ -187,7 +189,7 @@ export class Heist {
     if (this.dispatchT < 0) this.dispatchT = Math.max(0, delay);
   }
   smash(it) {
-    if (it.state !== 'ready') return; it.state = 'open'; it.label = 'GRAB THE JEWELS'; it.dur = 1.5; it.alive = false;
+    if (it.state !== 'ready') return; it.state = 'open'; it.label = 'GRAB THE JEWELS'; it.dur = 0; it.alive = false;
     if (it.glass) it.glass.visible = false; this.env.audio.clang && this.env.audio.clang(6); this.env.audio.beep && this.env.audio.beep(2400, 0.05, 0.2);
     for (let k = 0; k < 8; k++) this.env.fx.spark(it.x + (Math.random() - 0.5) * it.sx, this.room.oy + 1.2, it.z + (Math.random() - 0.5) * it.sz, (Math.random() - 0.5) * 4, 1 + Math.random() * 2, (Math.random() - 0.5) * 4, 0.7);
     this.violence(); if (this.disabledT <= 0) this.alarmNow('GLASS BROKEN', this.type.delay);
@@ -218,9 +220,9 @@ export class Heist {
     if (this.task) { this.task = null; return true; }
     const it = this.nearest(); if (!it) return false;
     const why = this.blocker(it); if (why) { this.toast(why, 1.6); return true; }
-    if (it.type === 'case' && it.state === 'ready') { this.smash(it); return true; }
+    if (it.type === 'case') { if (it.state === 'ready') this.smash(it); this.finish(it); return true; }          // (one press: smash and grab)
     let dur = it.dur, label = it.label;
-    if (it.type === 'vault') { if (this.keycard) { dur = 3; } else { dur = it.dur; if (this.disabledT <= 0) this.alarmNow('DRILLING', this.type.delay); } }
+    if (it.type === 'vault') { if (this.keycard) { dur = 3; } else { dur = it.dur; if (this.disabledT <= 0) this.alarmNow('DRILLING', this.type.delay); if (!this.tipT) { this.tipT = 1; this.toast('DRILLING: 26 S. A ROCKET IS QUICKER', 2.2); } } }
     this.task = { it, t: 0, dur }; if (it.type === 'safe' || it.type === 'vault') this.env.audio.clang && this.env.audio.clang(3);
     return true;
   }
@@ -230,7 +232,7 @@ export class Heist {
       case 'till': case 'drawer': case 'safe': case 'stack': this.take(it); break;
       case 'case': this.take(it); if (it.gems) it.gems.visible = false; break;
       case 'art': this.take(it); if (it.loud && this.disabledT <= 0) this.alarmNow('PRESSURE PLATE', this.type.delay); break;
-      case 'vault': { it.state = 'done'; if (it.obj) it.obj.visible = false; if (it.box) it.box.dead = true; for (const s of this.room.items) if (s.type === 'stack') s.locked = false; this.toast('THE VAULT IS OPEN', 1.6); this.env.audio.clang && this.env.audio.clang(8); break; }
+      case 'vault': { this.openVault(it); if (it.obj) it.obj.visible = false; this.toast('THE VAULT IS OPEN', 1.6); this.env.audio.clang && this.env.audio.clang(8); break; }
       case 'panel': { it.state = 'done'; this.disabledT = 55; for (const l of this.room.lasers) l.on = false; this.toast('SECURITY OFF FOR 55 SECONDS', 2.2); break; }
       case 'keycard': { this.keycard = true; this.toast('KEY CARD: THE VAULT WILL OPEN FASTER', 2); break; }
     }
@@ -238,6 +240,27 @@ export class Heist {
   take(it) {
     it.state = 'taken'; if (it.obj) it.obj.visible = false; if (it.gems) it.gems.visible = false; this.loot += it.value; this.value += it.value; this.stats.taken++;
     this.toast('+ $' + it.value.toLocaleString('en-US'), 1.2); this.env.audio.beep && (this.env.audio.beep(1400, 0.05, 0.2), setTimeout(() => this.env.audio.beep(2100, 0.07, 0.2), 70));
+  }
+  // A vault door is open (drilled, key card, or blown off): the way in is clear and the money in that vault (only that one) can be taken.
+  openVault(it) { it.state = 'done'; if (it.box) it.box.dead = true; for (const s of this.room.items) if (s.type === 'stack' && (it.vid === undefined || s.vault === it.vid)) s.locked = false; if (this.task && this.task.it === it) this.task = null; }
+  // A rocket or a grenade went off in here (weapons.js): a vault door near it is blown off its hinges and falls, glass cases near it shatter, and the people
+  // near it are thrown down. The alarm goes, of course. (Inside, an explosion stops at the room: nothing in the street below is touched.)
+  blast(x, y, z, radius, dmg) {
+    if (!this.active) return; const R = this.room; let doors = 0;
+    for (const it of R.items) {
+      if (it.type === 'vault' && it.state !== 'done' && it.door) {
+        const d = Math.hypot(it.door.x - x, it.door.y - y, it.door.z - z); if (d > 3.6) continue;
+        this.openVault(it); doors++;
+        if (it.obj) it.fly = { t: 0, x0: it.obj.position.x, y0: it.obj.position.y, z0: it.obj.position.z, out: it.door.out, spin: (Math.random() - 0.5) * 0.8 };
+        const fx = this.env.fx; for (let k = 0; k < 14; k++) fx.spark(it.door.x, it.door.y, it.door.z, (Math.random() - 0.5) * 9, Math.random() * 6, -it.door.out * (3 + Math.random() * 6), 0.9);
+        for (let k = 0; k < 6; k++) fx.puff(it.door.x + (Math.random() - 0.5) * 2, it.door.y + Math.random(), it.door.z - it.door.out * Math.random() * 2, 0, 0.6, -it.door.out * 0.8, 0.9, 2.2, 0.32, 0.3, 3);
+      } else if (it.type === 'case' && it.state === 'ready' && Math.hypot(it.x - x, it.z - z) < 4) this.smash(it);
+    }
+    for (const a of this.actors) { if (!a.alive || a.remove) continue; const d = Math.hypot(a.x - x, a.z - z); if (d < radius * 0.6) { const f = 1 - d / (radius * 0.6), n = d > 0.1 ? d : 1; a.hit(dmg * f, { dir: { x: (a.x - x) / n, z: (a.z - z) / n }, knock: 1 }); } }
+    const P = this.env.walker, dp = Math.hypot(P.x - x, P.z - z); if (dp < radius * 0.5 && this.env.hurt) this.env.hurt(dmg * 0.1 * (1 - dp / (radius * 0.5)));
+    this.violence(); this.heardT = 6;
+    if (doors) { this.toast(doors > 1 ? doors + ' VAULTS BLOWN OPEN' : 'VAULT BLOWN OPEN', 1.8); this.env.audio.clang && this.env.audio.clang(10); }
+    if (this.disabledT <= 0 || doors) this.alarmNow(doors ? 'VAULT DOOR BLOWN' : 'EXPLOSION', this.type.delay);
   }
   // ---- Every frame -------------------------------------------------------------------------------------------------------------------------------------
   update(dt) {
@@ -278,6 +301,13 @@ export class Heist {
       const it = this.task.it, d = Math.hypot(it.x - P.x, it.z - P.z);
       if (d <= it.r * 1.25 && P.down < 0.3) { this.task.t += dt; if (this.task.t >= this.task.dur) this.finish(it); } else if (d > it.r * 2) this.task = null;
       if (it.type === 'vault' && this.task && (Math.floor(this.task.t * 4) !== Math.floor((this.task.t - dt) * 4)) && !this.keycard) this.env.audio.beep && this.env.audio.beep(180 + Math.random() * 60, 0.05, 0.15);
+    }
+    // Vault doors blown off: thrown out into the corridor, tipping over, and down flat on the floor.
+    for (const it of R.items) {
+      const F = it.fly; if (!F || F.t >= 1) continue; F.t = Math.min(1, F.t + dt / 0.7); const s = F.t, o = it.obj;
+      o.position.set(F.x0 + F.spin * s * 1.5, R.oy + 0.2 + (F.y0 - R.oy - 0.2) * (1 - s * s) + Math.sin(s * Math.PI) * 0.8, F.z0 - F.out * s * 2.6);
+      o.rotation.set(-F.out * s * Math.PI / 2, 0, F.spin * s * 2);
+      if (F.t >= 1) this.env.audio.clang && this.env.audio.clang(6);
     }
     // The alarm: a bell, red lights, and the police on the way.
     if (this.alarm) {

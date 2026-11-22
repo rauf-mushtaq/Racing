@@ -838,7 +838,8 @@ export class City {
       if (iz1 - lot.z1 < 0.5) faces.push({ dir: [0, 1], line: j + 1, axis: 'z' });
       if (lot === dealerLot) { const fi = faces.findIndex(f => f.dir[0] === dl.dir[0] && f.dir[1] === dl.dir[1]); buildVenue(this, ctx, lot, [faces[fi], ...faces.filter((_, k) => k !== fi)], zone, 'dealer', rnd); if (performance.now() > this.deadline) yield; continue; }
       const onBlvd = faces.some(f => isBlvd(f.line)), hz = hash3(Math.round(lot.x0), Math.round(lot.z0), 61);
-      const civic = faces.length && !houseBlock && lot.x1 - lot.x0 > 22 && lot.z1 - lot.z0 > 22 ? (zone === 'down' || zone === 'mid' ? (hz < 0.02 ? 'bank' : hz < 0.04 ? 'hotel' : hz < 0.055 ? 'cinema' : null) : zone === 'low' && hz < 0.012 ? 'bank' : null) : null;
+      // (banks: about one big lot in fourteen downtown and in the middle city, one in twenty-five further out, and now and then one in the suburbs)
+      const civic = faces.length && !houseBlock && lot.x1 - lot.x0 > 22 && lot.z1 - lot.z0 > 22 ? (zone === 'down' || zone === 'mid' ? (hz < 0.07 ? 'bank' : hz < 0.09 ? 'hotel' : hz < 0.105 ? 'cinema' : null) : zone === 'low' && hz < 0.04 ? 'bank' : zone === 'sub' && hz < 0.02 ? 'bank' : null) : null;
       const vk = !civic && !houseBlock ? venueKindFor(zone, lot, faces) : null;
       if (civic) this.civic(ctx, lot, faces, zone, civic, rnd);
       else if (vk === 'museum') this.civic(ctx, lot, faces, zone, 'museum', rnd);

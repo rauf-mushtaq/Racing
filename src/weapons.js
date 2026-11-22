@@ -18,7 +18,7 @@ export const WEAPONS = {
   pistol:   { name: 'SILENCED PISTOL', slot: 1, mag: 12, reserve: 96, rate: 4.2, dmg: 17, pellets: 1, spread: 0.006, kick: 0.5, reload: 1.25, range: 140, cfg: { rx: 0.03, ry: -0.04, rz: 0.46, lx: -0.035, ly: -0.015, lz: 0.0, kick: 0.06 }, hold: 0.55 },
   smg:      { name: 'SUBMACHINE GUN',  slot: 2, mag: 30, reserve: 210, rate: 13, dmg: 7.5, pellets: 1, spread: 0.024, kick: 0.22, reload: 1.9, range: 130, cfg: { rx: 0.09, ry: -0.06, rz: 0.30, lx: 0.0, ly: 0.02, lz: 0.17, kick: 0.035 }, hold: 0.6 },
   shotgun:  { name: 'PUMP SHOTGUN',    slot: 3, mag: 6, reserve: 30, rate: 1.15, dmg: 12, pellets: 9, spread: 0.055, kick: 1.0, reload: 2.4, range: 60, cfg: { rx: 0.09, ry: -0.07, rz: 0.28, lx: 0.0, ly: 0.01, lz: 0.19, kick: 0.09 }, hold: 0.6 },
-  launcher: { name: 'ROCKET LAUNCHER', slot: 4, mag: 1, reserve: 5, rate: 0.7, dmg: 0, pellets: 0, spread: 0.0, kick: 1.0, reload: 2.6, range: 400, cfg: { launcher: true, rx: 0.14, ry: -0.05, rz: 0.26, lx: -0.02, ly: 0.0, lz: 0.2, kick: 0.12 }, hold: 0.7 },
+  launcher: { name: 'ROCKET LAUNCHER', slot: 4, mag: 1, reserve: 9, rate: 0.7, dmg: 0, pellets: 0, spread: 0.0, kick: 1.0, reload: 2.6, range: 400, cfg: { launcher: true, rx: 0.14, ry: -0.05, rz: 0.26, lx: -0.02, ly: 0.0, lz: 0.2, kick: 0.12 }, hold: 0.7 },
   knife:    { name: 'KNIFE', slot: 5, mag: 1, reserve: 0, rate: 2.4, dmg: 26, pellets: 0, spread: 0, kick: 0, reload: 0, range: 1.5, melee: true, cfg: { one: true, rx: 0.02, ry: -0.06, rz: 0.4, lx: 0, ly: 0, lz: 0, kick: 0, lowY: 0.02, lowZ: 0.34 }, hold: 0.5 },
 };
 export const ORDER = ['pistol', 'smg', 'shotgun', 'launcher', 'knife'];
@@ -544,7 +544,11 @@ export class Arsenal {
     this.env.hud.toast('GRENADE OUT', 0.7);
   }
   updateProjectiles(dt, walker) {
-    const { fx, police, traffic, audio } = this.env, boom = (x, y, z, power, radius, dmg) => { police.explode(x, z, y, power, radius, dmg, walker, traffic); };
+    const { fx, police, traffic, audio } = this.env, boom = (x, y, z, power, radius, dmg) => {
+      // Inside a building the blast stays in the room (heist.js: vault doors, glass cases, the people there); the street far below is not touched.
+      if (this.env.interior) { fx.explosion(x, y, z, power); audio.boom && audio.boom(Math.max(0.5, power), x, y, z); if (this.env.shake) this.env.shake(0.6); if (this.env.heist) this.env.heist.blast(x, y, z, radius, dmg); return; }
+      police.explode(x, z, y, power, radius, dmg, walker, traffic);
+    };
     for (let i = 0; i < this.rockets.length;) {
       const r = this.rockets[i]; r.age += dt; r.speed = Math.min(88, r.speed + 95 * dt);
       const step = r.speed * dt; r.vx = r.dx * r.speed; r.vy = r.dy * r.speed; r.vz = r.dz * r.speed;

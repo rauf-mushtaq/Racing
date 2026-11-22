@@ -469,3 +469,5 @@ function dealer(R, v, rnd) {
 }
 
 export const VISIT_PLANS = { office, flats, home, store, hotel, cinema, church, warehouse, dealer };
+// (the big jeweller and the bank, rooms.js, furnish with these too)
+export { sofa, rug, pendant, tree };

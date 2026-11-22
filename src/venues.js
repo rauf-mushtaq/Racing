@@ -1,7 +1,8 @@
 // The places you can walk into: what each is worth and how hard it is, where they are in the city, and what their fronts look like from the street.
 //
 // From the easiest to the hardest: a petrol station (a till and a clerk), a convenience store (a till, a safe, a clerk who may be armed), a jeweller
-// (glass cases, an armed guard, cameras), a bank (tellers, two guards, cameras, a vault behind a key card or a long drill) and a museum (patrolling
+// (a showroom as big as an office lobby: rows of glass cases, three guards, cameras), a bank (a banking hall with tellers and guards, and behind it
+// fourteen vaults, each opened by the manager's key card, a long drill or a rocket) and a museum (patrolling
 // guards, sweeping cameras, laser beams round the treasures, a security room to switch them all off). Harder places: quicker police, more stars,
 // guards who shoot straighter, and far more money.
 import * as THREE from 'three';
@@ -13,8 +14,8 @@ const CURB = 0.15;
 export const VENUE_TYPES = {
   petrol:   { kind: 'petrol',   name: 'PETROL STATION',   tier: 1, stars: 1, delay: 16, press: [10, 18], dmg: 4.0, aim: 0.8, blurb: 'A till and one clerk', worth: '$300 – $900' },
   shop:     { kind: 'shop',     name: 'CONVENIENCE STORE', tier: 2, stars: 1, delay: 11, press: [7, 12], dmg: 4.5, aim: 0.9, blurb: 'A till, a safe in the back', worth: '$2,400 – $6,000' },
-  jeweller: { kind: 'jeweller', name: 'DIAMOND JEWELLER', tier: 3, stars: 2, delay: 6, press: [5, 9], dmg: 5.5, aim: 1.0, blurb: 'Glass cases, an armed guard, cameras', worth: '$15,000 – $30,000' },
-  bank:     { kind: 'bank',     name: 'BANK',             tier: 4, stars: 3, delay: 3, press: [4, 8], dmg: 6.5, aim: 1.1, blurb: 'Tellers, two guards, a vault', worth: '$50,000 – $140,000' },
+  jeweller: { kind: 'jeweller', name: 'DIAMOND JEWELLER', tier: 3, stars: 2, delay: 6, press: [5, 9], dmg: 5.5, aim: 1.0, blurb: '37 glass cases, three guards, cameras', worth: '$90,000 – $130,000' },
+  bank:     { kind: 'bank',     name: 'BANK',             tier: 4, stars: 3, delay: 3, press: [4, 8], dmg: 6.5, aim: 1.1, blurb: 'Fourteen vaults: blow them open with a rocket', worth: '$200,000 – $280,000' },
   museum:   { kind: 'museum',   name: 'MUSEUM',           tier: 5, stars: 4, delay: 0, press: [3, 6], dmg: 7.5, aim: 1.2, blurb: 'Patrols, cameras, lasers', worth: '$315,000' },
   // Not a place to rob: a gym, to train in (gym.js).
   gym:      { kind: 'gym',      name: 'IRON CITY GYM',    gym: true, tier: 0, stars: 0, blurb: 'Train: hit harder, run faster' },
@@ -171,13 +172,15 @@ function buildVenueOf(city, ctx, lot, faces, zone, kind, rnd) {
   if (kind === 'jeweller') {
     city.buildMass(ctx, b, 'modern', 12 + Math.floor(rnd() * 3) * 3.5, faces, rnd, { rect: true, color: col(0.18, 0.16, 0.16) });
     // A front of polished black stone with brass: two deep-set display windows (lit cases behind them) in brass frames, brass bands, a brass door.
-    const W = Math.min(along - 4, 13), gold = col(0.92, 0.72, 0.38), stone = col(0.045, 0.042, 0.045), vel = roomCol(0.3, 0.2, 0.24, 1);
+    // (a showroom as big as an office lobby inside: the front is as wide as the lot allows, up to 24 m, with four display windows when there is room)
+    const W = Math.min(along - 4, 24), gold = col(0.92, 0.72, 0.38), stone = col(0.045, 0.042, 0.045), vel = roomCol(0.3, 0.2, 0.24, 1);
     // (the stone is built round the openings, standing 0.24 m proud, so the windows and the door are set deep into it)
     city.faceBox(G.props, b, f, -W / 2, W / 2, 0, 0.02, CURB, CURB + 3.6, stone);
-    const wins = [-1, 1].map(s => s * (W / 2 - 3.2)), P = 0.24, fb = (t0, t1, y0, y1) => city.faceBox(G.props, b, f, t0, t1, 0, P, CURB + y0, CURB + y1, stone);
-    fb(-W / 2, W / 2, 2.98, 3.6); fb(-W / 2, wins[0] - 1.95, 0, 2.98); fb(wins[1] + 1.95, W / 2, 0, 2.98);
+    const wins = (W >= 20 ? [-W / 2 + 3.2, -W / 2 + 7.8, W / 2 - 7.8, W / 2 - 3.2] : [-W / 2 + 3.2, W / 2 - 3.2]), P = 0.24, fb = (t0, t1, y0, y1) => city.faceBox(G.props, b, f, t0, t1, 0, P, CURB + y0, CURB + y1, stone);
+    fb(-W / 2, W / 2, 2.98, 3.6);
+    const gaps = [-W / 2, ...wins.filter(c => c < 0).flatMap(c => [c - 1.95, c + 1.95]), -1.3, 1.3, ...wins.filter(c => c > 0).flatMap(c => [c - 1.95, c + 1.95]), W / 2];          // (the solid stone between the openings, left to right)
+    for (let i = 0; i < gaps.length; i += 2) if (gaps[i + 1] - gaps[i] > 0.01) fb(gaps[i], gaps[i + 1], 0, 2.98);
     for (const c of wins) { fb(c - 1.95, c + 1.95, 0, 0.68); glazing(city, ctx, b, f, c - 1.85, c + 1.85, 0.75, 2.88, { metal: gold, room: vel, bay: 3.7, frame: 0.05 }); }
-    fb(wins[0] + 1.95, -1.3, 0, 2.98); fb(1.3, wins[1] - 1.95, 0, 2.98);
     city.faceBox(G.vmetal, b, f, -W / 2 - 0.05, W / 2 + 0.05, 0.22, 0.27, CURB + 3.5, CURB + 3.57, gold); city.faceBox(G.vmetal, b, f, -W / 2 - 0.05, W / 2 + 0.05, 0.22, 0.27, CURB + 0.6, CURB + 0.66, gold);
     city.faceBox(G.props, b, f, -W / 2 - 0.2, W / 2 + 0.2, 0, 0.42, CURB + 3.62, CURB + 4.8, stone);
     signOver(city, ctx, b, f, 6, 3.7, Math.min(6.5, W * 0.55), 1.0, 0.44);

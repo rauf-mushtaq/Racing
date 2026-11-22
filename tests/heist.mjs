@@ -29,7 +29,7 @@ try {
       const R = g.interior.room, H = g.heist;
       const items = R.items.reduce((m, it) => { m[it.type] = (m[it.type] || 0) + 1; return m; }, {});
       const total = R.items.filter(it => it.value).reduce((s, it) => s + it.value, 0);
-      return { items, total, staff: H.actors.filter(a => a.role !== 'customer').length, customers: H.actors.filter(a => a.role === 'customer').length, armed: H.actors.filter(a => a.armed).length, cams: R.cams.length, lasers: R.lasers.length, active: g.interior.active, inside: !!g.game.inside, layer: g.camera.layers.mask, interior: !!g.walker.interior, y: g.walker.y, floor: R.oy };
+      return { items, total, W: R.W, D: R.D, staff: H.actors.filter(a => a.role !== 'customer').length, customers: H.actors.filter(a => a.role === 'customer').length, armed: H.actors.filter(a => a.armed).length, cams: R.cams.length, lasers: R.lasers.length, active: g.interior.active, inside: !!g.game.inside, layer: g.camera.layers.mask, interior: !!g.walker.interior, y: g.walker.y, floor: R.oy };
     }, kind);
     await ev(() => window.__game.leaveVenue(true));
   }
@@ -37,8 +37,8 @@ try {
   check('walking in puts you in a room (camera on layer 1 only, walker standing on the room floor)', Object.values(r).every(x => x.active && x.inside && x.layer === 2 && x.interior && Math.abs(x.y - x.floor) < 0.5), JSON.stringify(r.petrol));
   check('a petrol station has a till and one clerk, nobody armed', r.petrol.items.till === 1 && r.petrol.staff === 1 && r.petrol.armed === 0 && r.petrol.cams === 0, JSON.stringify(r.petrol));
   check('a convenience store adds a safe', r.shop.items.safe === 1 && r.shop.items.till === 1 && r.shop.armed === 0, JSON.stringify(r.shop));
-  check('a jeweller has glass cases, an armed guard and cameras', (r.jeweller.items.case || 0) >= 5 && r.jeweller.armed >= 1 && r.jeweller.cams >= 2, JSON.stringify(r.jeweller));
-  check('a bank has tellers, two armed guards, a vault and cameras', (r.bank.items.drawer || 0) === 3 && r.bank.items.vault === 1 && r.bank.armed >= 2 && r.bank.cams >= 3 && r.bank.staff >= 6, JSON.stringify(r.bank));
+  check('a jeweller is a showroom as big as an office lobby (56 m by 40), with dozens of glass cases, three armed guards and cameras', r.jeweller.W >= 56 && r.jeweller.D >= 40 && (r.jeweller.items.case || 0) >= 30 && r.jeweller.armed >= 3 && r.jeweller.cams >= 4, JSON.stringify(r.jeweller));
+  check('a bank is as big, with six tellers\' drawers, four armed guards, cameras and fourteen vaults of money', r.bank.W >= 56 && (r.bank.items.drawer || 0) === 6 && r.bank.items.vault === 14 && (r.bank.items.stack || 0) >= 40 && r.bank.armed >= 4 && r.bank.cams >= 5 && r.bank.staff >= 6, JSON.stringify(r.bank));
   check('a museum has patrolling armed guards, cameras, laser beams and a security panel', r.museum.armed >= 3 && r.museum.cams >= 3 && r.museum.lasers >= 9 && r.museum.items.panel === 1 && r.museum.items.art === 3, JSON.stringify(r.museum));
   check('the money gets bigger: petrol < shop < jeweller < bank < museum', r.petrol.total < r.shop.total && r.shop.total < r.jeweller.total && r.jeweller.total < r.bank.total + 1 && r.bank.total < r.museum.total * 1.5 && r.museum.total > 300000, order.map(k => r[k].total).join(' < '));
   const guards = order.map(k => r[k].armed + r[k].cams + r[k].lasers);
@@ -96,9 +96,14 @@ try {
   check('a punch breaks the glass of a case, and sets off the alarm', sm.state === 'open' && !sm.glass && sm.alarm, JSON.stringify(sm));
   check('and it does not land on someone walking in the street far below the room', sm.metresAbove > 1000 && sm.passerBy !== 'down' && !sm.downT && sm.assaults === 0, JSON.stringify(sm));
   await ev(() => { window.__game.peds.list[0].state = 'away'; });                    // (the passer-by goes back to being an ordinary citizen somewhere else)
-  await ev(() => { const H = window.__game.heist; H.task = null; }); await ev(() => window.__game.heist.use()); await step(P, 60 * 2);
-  const gr = await ev(() => ({ loot: window.__game.heist.loot, state: window.__game.heist.room.items.find(i => i.type === 'case').state }));
-  check('then the jewels are taken', gr.loot === J0.value && gr.state === 'taken', JSON.stringify([gr, J0.value]));
+  await ev(() => { const H = window.__game.heist; H.task = null; });
+  const gr = await ev(() => { const H = window.__game.heist; H.use(); return { loot: H.loot, state: H.room.items.find(i => i.type === 'case').state, task: !!H.task }; });
+  check('then one press takes the jewels, at once', gr.loot === J0.value && gr.state === 'taken' && !gr.task, JSON.stringify([gr, J0.value]));
+  // A case nobody has touched: one press smashes the glass and takes the jewels together (no second press, no waiting).
+  const J1 = await ev(() => { const H = window.__game.heist, c = H.room.items.find(i => i.type === 'case' && i.state === 'ready' && i.z - H.room.oz < 10); return { x: c.x, z: c.z, value: c.value, id: c.id }; });
+  await stand(J1.x, J1.z - 1.3, 0); await step(P, 2);
+  const one = await ev(id => { const H = window.__game.heist, l0 = H.loot, prompt = H.prompt; H.use(); const c = H.room.items.find(i => i.id === id); return { prompt, got: H.loot - l0, state: c.state, glass: c.glass.visible, gems: c.gems.visible, task: !!H.task }; }, J1.id);
+  check('one press on a whole case: smashed and emptied at once', one.got === J1.value && one.state === 'taken' && !one.glass && !one.gems && !one.task && /SMASH AND GRAB/.test(one.prompt), JSON.stringify([one, J1.value]));
   // The guard shoots straight at you: the armour goes down.
   const hp0 = await ev(() => window.__game.police.health);
   await step(P, 60 * 12);
@@ -111,13 +116,13 @@ try {
   await ev(() => { const g = window.__game, H = g.heist, a = H.actors.find(x => x.role === 'guard'), w = g.walker; for (let i = 0; i < 4; i++) a.hit(30, { dir: { x: 0, z: 1 } }); });
   check('and the guard goes down', !(await ev(() => window.__game.heist.actors.find(x => x.role === 'guard').alive)));
   await ev(() => { const g = window.__game; g.police.health = 100; });
-  const wall = await ev(() => { const g = window.__game, w = g.walker, r = { ...g.arsenal.trace(w.x, w.y + 1.4, w.z, 0, 0, 1, 60) }; const r2 = { ...g.arsenal.trace(w.x, w.y + 1.4, w.z, 0, -1, 0, 60) }; return { t: r.t, D: g.interior.room.D, w: r.type, floorT: r2.t, ft: r2.type, y: w.y, inside: !!g.game.inside, state: g.game.state, health: g.police.health }; });
-  check('a shot down the room stops at the back wall, one at the floor at your feet', wall.w === 1 && wall.t < wall.D + 1 && wall.ft === 2 && wall.floorT < 2.1, JSON.stringify(wall));
+  const wall = await ev(() => { const g = window.__game, w = g.walker, r = { ...g.arsenal.trace(w.x, w.y + 3.5, w.z, 0, 0, 1, 60) }; const r2 = { ...g.arsenal.trace(w.x, w.y + 1.4, w.z, 0, -1, 0, 60) }; return { t: r.t, D: g.interior.room.D, w: r.type, floorT: r2.t, ft: r2.type, y: w.y, inside: !!g.game.inside, state: g.game.state, health: g.police.health }; });
+  check('a shot down the room (over the heads) stops at the back wall, one at the floor at your feet', wall.w === 1 && wall.t < wall.D + 1 && wall.ft === 2 && wall.floorT < 2.1, JSON.stringify(wall));
 
-  console.log('the bank: a key card, or a long drill, and then the vault');
+  console.log('the bank: a key card, a long drill or a rocket, and then the vaults');
   await enter('bank'); await step(P, 40);
-  const B = await ev(() => { const H = window.__game.heist, v = H.room.items.find(i => i.type === 'vault'); return { x: v.x, z: v.z, stacks: H.room.items.filter(i => i.type === 'stack').length, locked: H.room.items.filter(i => i.type === 'stack' && i.locked).length, mgr: !!H.actors.find(a => a.role === 'manager') }; });
-  check('the bank has a manager and six stacks locked in the vault', B.mgr && B.stacks === 6 && B.locked === 6, JSON.stringify(B));
+  const B = await ev(() => { const H = window.__game.heist, v = H.room.items.find(i => i.type === 'vault'); return { x: v.x, z: v.z, vid: v.vid, stacks: H.room.items.filter(i => i.type === 'stack').length, locked: H.room.items.filter(i => i.type === 'stack' && i.locked).length, mgr: !!H.actors.find(a => a.role === 'manager') }; });
+  check('the bank has a manager and the money locked in its vaults', B.mgr && B.stacks >= 40 && B.locked === B.stacks, JSON.stringify(B));
   await stand(B.x, B.z, 0); await step(P, 5);
   await ev(() => window.__game.heist.use()); await step(P, 5);
   const dr = await ev(() => { const H = window.__game.heist; return { task: H.task && H.task.it.type, dur: H.task && H.task.dur, alarm: H.alarm }; });
@@ -131,8 +136,23 @@ try {
   await ev(() => window.__game.heist.use()); await step(P, 100);
   check('and with it the vault opens in 3 seconds', await ev(() => { const H = window.__game.heist; H.use(); return H.keycard; }));
   await ev(() => { window.__game.heist.task = null; }); await stand(B.x, B.z, 0); await step(P, 3); await ev(() => window.__game.heist.use()); await step(P, 60 * 3 + 30);
-  const vo = await ev(() => { const H = window.__game.heist, v = H.room.items.find(i => i.type === 'vault'); return { state: v.state, locked: H.room.items.filter(i => i.type === 'stack' && i.locked).length, solid: !v.box.dead }; });
-  check('the vault door swings open and the money inside is free to take', vo.state === 'done' && vo.locked === 0 && !vo.solid, JSON.stringify(vo));
+  const vo = await ev(() => { const H = window.__game.heist, v = H.room.items.find(i => i.type === 'vault'), S = H.room.items.filter(i => i.type === 'stack'); return { state: v.state, mine: S.filter(i => i.vault === v.vid && i.locked).length, others: S.filter(i => i.vault !== v.vid && i.locked).length, total: S.length, solid: !v.box.dead }; });
+  check('that vault door opens and the money in it (and only it) is free to take', vo.state === 'done' && vo.mine === 0 && vo.others === vo.total - 3 && !vo.solid, JSON.stringify(vo));
+  // A rocket at another vault's door, from across the corridor: the door is blown off and falls, the money behind it is free, the vault next door stays shut.
+  await ev(() => { const H = window.__game.heist; H.task = null; H.alarm = false; H.dispatchT = -1; H.dispatched = false; window.__toasts = []; });
+  const RV = await ev(() => { const H = window.__game.heist, v = H.room.items.find(i => i.type === 'vault' && i.door && i.door.out > 0 && i.state !== 'done'); return { vid: v.vid, x: v.door.x, y: v.door.y, z: v.door.z, out: v.door.out }; });
+  await stand(RV.x, RV.z - 3.8, 0); await step(P, 2);
+  await ev(([x, y, z]) => { const g = window.__game; g.arsenal.launch({ x, y, z }, { x: 0, y: 0, z: 1 }); }, [RV.x, RV.y + 0.1, RV.z - 3.4]);
+  await step(P, 60);
+  const bl = await ev(vid => { const g = window.__game, H = g.heist, v = H.room.items.find(i => i.vid === vid), nb = H.room.items.find(i => i.vid === vid + 1), S = H.room.items.filter(i => i.type === 'stack' && i.vault === vid);
+    return { state: v.state, solid: !v.box.dead, free: S.filter(i => !i.locked).length, n: S.length, fell: v.fly ? +v.fly.t.toFixed(2) : -1, tipped: +Math.abs(v.obj.rotation.x).toFixed(2), down: +(v.obj.position.y - H.room.oy).toFixed(2), next: nb ? nb.state : 'none', alarm: H.alarm, toast: window.__toasts.filter(t => /BLOWN/.test(t)), rockets: g.arsenal.rockets.length, layer: g.interior.active }; }, RV.vid);
+  check('a rocket blows a vault door off: it falls flat, the money behind it is free, and the alarm goes', bl.state === 'done' && !bl.solid && bl.free === bl.n && bl.n === 3 && bl.fell === 1 && bl.tipped > 1.4 && bl.down < 0.6 && bl.alarm && bl.toast.length > 0 && bl.rockets === 0, JSON.stringify(bl));
+  check('the vault beside it (6.5 m along) is still shut', bl.next === 'ready', JSON.stringify(bl));
+  const RS = await ev(vid => { const s = window.__game.heist.room.items.find(i => i.type === 'stack' && i.vault === vid); return { x: s.x, z: s.z, value: s.value, id: s.id }; }, RV.vid);
+  await stand(RS.x, RS.z, 0); await step(P, 2);
+  const l0 = await ev(() => window.__game.heist.loot); await ev(() => window.__game.heist.use()); await step(P, 60 * 2);
+  const tk = await ev(id => { const H = window.__game.heist; return { loot: H.loot, state: H.room.items.find(i => i.id === id).state }; }, RS.id);
+  check('walk in over the door and take the money', tk.state === 'taken' && tk.loot - l0 === RS.value, JSON.stringify([tk, l0, RS.value]));
 
   console.log('the museum: lasers, cameras and a panel that switches them off');
   await enter('museum'); await step(P, 40);
