@@ -16,9 +16,9 @@ try {
   const prompt = () => P.evaluate(() => document.getElementById('prompt-txt').textContent);
 
   console.log('the rides');
-  await P.waitForFunction(() => { const g = window.__game; g.tick(1 / 30); return g.rides && g.rides.list.length === 4 && g.rides.list.every(r => r.mesh); }, null, { timeout: 90000, polling: 100 }).catch(() => {});
-  const L = await P.evaluate(() => { const g = window.__game; return { list: g.rides.list.map(r => ({ kind: r.kind, built: !!r.mesh, x: Math.round(r.x), z: Math.round(r.z) })), car: [Math.round(g.car.x), Math.round(g.car.z)] }; });
-  check('four rides, each a real model, built where they are kept: a motorbike by your car, two boats at the harbour, a helicopter on its pad', L.list.length === 4 && L.list.every(r => r.built) && Math.hypot(L.list[0].x - L.car[0], L.list[0].z - L.car[1]) < 12 && L.list[1].x < -3300 && L.list[2].x < -3300 && L.list[3].z > 1000, JSON.stringify(L));
+  await P.waitForFunction(() => { const g = window.__game; g.tick(1 / 30); return g.rides && g.rides.list.length >= 4 && g.rides.list.slice(0, 4).every(r => r.mesh); }, null, { timeout: 90000, polling: 100 }).catch(() => {});
+  const L = await P.evaluate(() => { const g = window.__game; return { list: g.rides.list.slice(0, 4).map(r => ({ kind: r.kind, built: !!r.mesh, x: Math.round(r.x), z: Math.round(r.z) })), car: [Math.round(g.car.x), Math.round(g.car.z)] }; });
+  check('four rides of your own, each a real model, built where they are kept: a motorbike by your car, two boats at the harbour, a helicopter on its pad (rooftop helicopters come after them)', L.list.length === 4 && L.list.every(r => r.built) && Math.hypot(L.list[0].x - L.car[0], L.list[0].z - L.car[1]) < 12 && L.list[1].x < -3300 && L.list[2].x < -3300 && L.list[3].z > 1000, JSON.stringify(L));
 
   console.log('the motorbike');
   const b0 = await P.evaluate(() => { const g = window.__game, r = g.rides.list.find(r => r.kind === 'bike'), w = g.walker; if (!g.game.onFoot) g.leaveCar(true); w.place(r.x + 1.2, r.z, -Math.PI / 2); for (let i = 0; i < 4; i++) g.tick(1 / 30); const pr = document.getElementById('prompt-txt').textContent, ok = g.enterCar(); g.tick(1 / 30); return { pr, ok, bike: !!g.carMesh.userData.bike, model: g.car.s.model, onFoot: g.game.onFoot, rider: g.seated.host === g.carMesh }; });
