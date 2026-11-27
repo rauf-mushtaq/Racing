@@ -31,9 +31,9 @@ export const KINDS = {
   heli: { file: 'helicopter.glb', len: 19.5, front: 'tail', tailPart: /backrotor/i, rotorPart: /propellar/i, name: 'HELICOPTER', prompt: 'FLY THE HELICOPTER', heli: true },
   // The planes (class Plane) at the desert airfield. The nose is found from a part on it (the pitot tubes, the propeller); a plane is wider than it
   // is long, so the long-axis rule is not used. vr: the speed it lifts off at; vmax: flat out; climb: how fast the nose comes up (rad/s).
-  jet: { file: 'jet.glb', len: 14.4, front: 'part', nosePart: /^Pitot_tubes$/, hide: /fan(Medium|Fast)|heater|_inside$/i, spinPart: /fanSlow/i, name: 'BUSINESS JET', prompt: 'FLY THE JET', plane: true,
+  jet: { file: 'jet.glb', len: 14.4, front: 'part', nosePart: /^Pitot_tubes$/, hide: /fan(Medium|Fast)|heater|_inside$/i, spinPart: /fanSlow/i, name: 'BUSINESS JET', prompt: 'FLY THE JET', aircraft: true,
     gear: { nose: 0.36, main: -0.04, track: 2.7, h: 1.05, r: 0.34 }, thrust: 14, vr: 52, vmax: 170, stall: 40, drag: 0.00048, climb: 0.55, roll: 1.6, price: 1450000, rpm: [2200, 6800] },
-  prop: { file: 'prop.glb', len: 7.3, front: 'part', nosePart: /^helice$/, hide: /^(propblur|propdisc)$/, spinPart: /^helice$/, name: 'LIGHT AIRCRAFT', prompt: 'FLY THE PLANE', plane: true,
+  prop: { file: 'prop.glb', len: 7.3, front: 'part', nosePart: /^helice$/, hide: /^(propblur|propdisc)$/, spinPart: /^helice$/, name: 'LIGHT AIRCRAFT', prompt: 'FLY THE PLANE', aircraft: true,
     thrust: 6.5, vr: 27, vmax: 72, stall: 21, drag: 0.0012, climb: 0.75, roll: 1.9, price: 240000, rpm: [700, 2700] },
 };
 const DIR = new URL('../assets/rides/', import.meta.url).href, DRACO = new URL('../assets/draco/', import.meta.url).href;
@@ -422,8 +422,8 @@ export class Rides {
   build(r) {
     if (r.mesh || !rideReady(r.kind)) return;
     if (r.kind === 'bike') { r.mesh = makeBike(); if (!r.mesh) return; r.mesh.name = 'bike'; r.mesh.position.set(r.x, groundAt(r.x, r.z).y, r.z); r.mesh.rotation.y = r.h; this.scene.add(r.mesh); return; }
-    r.craft = r.kind === 'heli' ? new Heli() : KINDS[r.kind].plane ? new Plane(r.kind) : new Boat(r.kind); r.mesh = r.craft.mesh;
-    r.craft.place(r.x, r.z, r.h, r.kind === 'heli' || r.craft.cfg.plane ? r.craft.floor(r.x, r.z) : undefined); if (r.kind === 'heli') r.craft.spool = 0;
+    r.craft = r.kind === 'heli' ? new Heli() : KINDS[r.kind].aircraft ? new Plane(r.kind) : new Boat(r.kind); r.mesh = r.craft.mesh;
+    r.craft.place(r.x, r.z, r.h, r.kind === 'heli' || r.craft.cfg.aircraft ? r.craft.floor(r.x, r.z) : undefined); if (r.kind === 'heli') r.craft.spool = 0;
     this.scene.add(r.mesh);
   }
   // The ride you could take from where you stand: { ride, prompt } or null.
@@ -431,9 +431,9 @@ export class Rides {
     let best = null, bd = 1e9;
     for (const r of this.list) {
       if (r.taken || !r.mesh || !r.mesh.visible) continue;
-      const x = r.craft ? r.craft.x : r.x, z = r.craft ? r.craft.z : r.z, d = Math.hypot(w.x - x, w.z - z), reach = r.kind === 'bike' ? 2.2 : r.kind === 'heli' ? 8 : r.craft && r.craft.cfg.plane ? r.craft.span * 0.55 : 16;
+      const x = r.craft ? r.craft.x : r.x, z = r.craft ? r.craft.z : r.z, d = Math.hypot(w.x - x, w.z - z), reach = r.kind === 'bike' ? 2.2 : r.kind === 'heli' ? 8 : r.craft && r.craft.cfg.aircraft ? r.craft.span * 0.55 : 16;
       if (r.craft && r.craft.wrecked) continue;
-      if (r.craft && r.craft.isCraft && r.kind !== 'heli' && !r.craft.cfg.plane && !(groundAt(w.x, w.z).y > SEA_Y + 0.6)) continue;
+      if (r.craft && r.craft.isCraft && r.kind !== 'heli' && !r.craft.cfg.aircraft && !(groundAt(w.x, w.z).y > SEA_Y + 0.6)) continue;
       if (r.kind === 'heli' && r.craft && Math.abs(w.y - r.craft.y) > 3) continue;                      // (a helicopter on a roof is not reached from the street under it)
       if (d < reach && d < bd) { bd = d; best = { ride: r, prompt: this.promptOf(r), buy: this.priceOf(r), d: r.kind === 'bike' ? d : Math.max(0.5, d * 0.2) }; }
     }
@@ -441,13 +441,13 @@ export class Rides {
   }
   // A helicopter on a roof: yours (bought), or someone else's (to steal, or to buy: its price, or 0 when it is not for sale).
   // A plane at the airfield: the same (owned under 'plane:' and its kind).
-  promptOf(r) { const k = KINDS[r.kind]; if (k.plane) return this.owned.has('plane:' + r.kind) ? 'FLY YOUR ' + (r.kind === 'jet' ? 'JET' : 'PLANE') : 'STEAL THE ' + (r.kind === 'jet' ? 'JET' : 'PLANE'); return r.roof ? (this.owned.has(r.roof) ? 'FLY YOUR HELICOPTER' : 'STEAL THE HELICOPTER') : k.prompt; }
-  priceOf(r) { const k = KINDS[r.kind]; if (k.plane) return this.owned.has('plane:' + r.kind) ? 0 : k.price; if (!r.roof || this.owned.has(r.roof)) return 0; const R = ROOFS.get(r.roof); return R ? R.price : 0; }
-  ownKey(r) { return KINDS[r.kind].plane ? 'plane:' + r.kind : r.roof; }
+  promptOf(r) { const k = KINDS[r.kind]; if (k.aircraft) return this.owned.has('plane:' + r.kind) ? 'FLY YOUR ' + (r.kind === 'jet' ? 'JET' : 'PLANE') : 'STEAL THE ' + (r.kind === 'jet' ? 'JET' : 'PLANE'); return r.roof ? (this.owned.has(r.roof) ? 'FLY YOUR HELICOPTER' : 'STEAL THE HELICOPTER') : k.prompt; }
+  priceOf(r) { const k = KINDS[r.kind]; if (k.aircraft) return this.owned.has('plane:' + r.kind) ? 0 : k.price; if (!r.roof || this.owned.has(r.roof)) return 0; const R = ROOFS.get(r.roof); return R ? R.price : 0; }
+  ownKey(r) { return KINDS[r.kind].aircraft ? 'plane:' + r.kind : r.roof; }
   // A plane wrecked, or left far away: back on the apron, as new, when you are far from where it was.
   planes(F, active) {
     for (const r of this.list) {
-      const c = r.craft; if (!c || !c.cfg.plane || c === active) continue;
+      const c = r.craft; if (!c || !c.cfg.aircraft || c === active) continue;
       const moved = Math.hypot(c.x - r.home.x, c.z - r.home.z) > 5 || c.wrecked;
       if (moved && Math.hypot(F.x - c.x, F.z - c.z) > 700 && Math.hypot(F.x - r.home.x, F.z - r.home.z) > 400) { c.wrecked = false; c.thr = 0; c.spool = 0; c.pitch = 0; c.roll = 0; c.v = 0; c.onGround = true; c.place(r.home.x, r.home.z, r.home.h, c.floor(r.home.x, r.home.z)); r.stolen = false; }
     }

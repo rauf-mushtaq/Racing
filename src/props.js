@@ -10,6 +10,7 @@ import { mergeGeoms, mergeGeomsUV } from './geom.js';
 import { TOD } from './tod.js';
 import { Q } from './quality.js';
 import { SUN_DIR } from './sky.js';
+import { SCAN_MODELS } from './scans.js';
 
 const v3 = new THREE.Vector3();
 const withUV = g => { if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2).fill(0.02), 2)); return g; };
@@ -164,6 +165,27 @@ function cactusGeo() {
   return mergeGeomsUV(parts);
 }
 // A boulder: a lumpy, flattened rock, shaded darker low down.
+// A rock: the photo-scanned boulder (scans.js) when it has loaded, put in the drawn rock's terms (about 2 m across, its top 0.65 m up, sunk 0.25 m into the
+// ground), white vertex colours so the instance's tint and the scan's own colour both show; otherwise a lumpy ball, shaded.
+function scanRock() {
+  const S = SCAN_MODELS.rock; if (!S) return null;
+  const g = S.geo.clone(); g.computeBoundingBox(); const b = g.boundingBox, k = 2 / Math.max(b.max.x - b.min.x, b.max.z - b.min.z);
+  g.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2); g.scale(k, k, k); g.translate(0, -0.25, 0);
+  for (const a of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(a)) g.deleteAttribute(a);
+  g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3));
+  const m = S.mat, mat = new THREE.MeshStandardMaterial({ map: m.map, normalMap: m.normalMap, roughnessMap: m.roughnessMap, vertexColors: true, roughness: 1, metalness: 0 });
+  return { g, mat };
+}
+// A scanned street prop (scans.js) at its real size: standing on y = 0, centred, its long side along x; `back` turns it so its tall part (a bench's
+// back) is at -z, as the drawn bench's is. Its own materials (an instanced mesh takes one per group).
+function scanProp(name, back = false) {
+  const S = SCAN_MODELS[name]; if (!S) return null;
+  const g = S.geo.clone(); g.computeBoundingBox(); let b = g.boundingBox;
+  if (b.max.z - b.min.z > b.max.x - b.min.x) { g.rotateY(Math.PI / 2); g.computeBoundingBox(); b = g.boundingBox; }
+  g.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2); g.computeBoundingBox(); b = g.boundingBox;
+  if (back) { const p = g.attributes.position, top = b.max.y * 0.7; let z = 0, n = 0; for (let i = 0; i < p.count; i++) if (p.getY(i) > top) { z += p.getZ(i); n++; } if (n && z / n > 0) g.rotateY(Math.PI); }
+  return { g, mat: S.mat };
+}
 function rockGeo() {
   const ico = new THREE.IcosahedronGeometry(1, 2); ico.deleteAttribute('uv'); ico.deleteAttribute('normal');
   const g = mergeVertices(ico), p = g.attributes.position, c = [];
@@ -305,6 +327,8 @@ export function makeProps() {
     billFrame: new THREE.MeshStandardMaterial({ color: 0x222226, roughness: 0.6, metalness: 0.4 }),
     billFace: new THREE.MeshStandardMaterial({ map: billTex, emissiveMap: billTex, emissive: 0xffffff, emissiveIntensity: TOD.lampsOn ? 0.9 : 0.35, roughness: 0.6 }),
   };
+  { const R = scanRock(); if (R) { geo.rock = R.g; mat.rock = R.mat; } }
+  for (const [k, back] of [['hydrant', false], ['bench', true]]) { const R = scanProp(k, back); if (R) { geo[k] = R.g; mat[k] = R.mat; } }
   windify(mat.treeCore, 0.2, 8, 0); windify(mat.treeCards, 0.2, 8, 0.05, 1.1); windify(mat.bushCards, 0.2, 8, 0.02, 0.7); windify(mat.bushBloom, 0.2, 8, 0.03, 0.6); windify(mat.palmTrunk, 0.42, 12, 0); windify(mat.palmFronds, 0.42, 12, 0.07, 1.3); windify(mat.pine, 0.13, 10, 0.02);
   return { geo, mat };
 }

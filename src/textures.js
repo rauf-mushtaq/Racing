@@ -4,6 +4,7 @@
 // roughness/metalness map (glass is shiny and metallic, walls are matt) and a
 // relief map so windows sit back in the wall.
 import * as THREE from 'three';
+import { scan, scanSet, scanImage } from './scans.js';
 import { mulberry32, tfbm, clamp } from './util.js';
 
 let aniso = 4, TS = 1;
@@ -79,7 +80,7 @@ export function asphalt() {
     g.stroke();
   }
   g.restore();
-  return { map: tex(c), roughnessMap: tex(cr, false), normalMap: normalFromHeight(H, S, S, 2.2) };
+  return scanSet({ map: tex(c), roughnessMap: tex(cr, false), normalMap: normalFromHeight(H, S, S, 2.2) }, 'asphalt');
 }
 
 // Pavement concrete with expansion joints, tinted by the material colour.
@@ -104,7 +105,7 @@ export function concrete() {
     const p = Math.min(S - 1, Math.round(k * step)), w = Math.max(2, S / 256);
     for (let y = 0; y < S; y++) for (let d = 0; d < w; d++) { H[y * S + Math.min(S - 1, p + d)] -= 1; H[Math.min(S - 1, p + d) * S + y] -= 1; }
   }
-  return { map: tex(c), normalMap: normalFromHeight(H, S, S, 1.6) };
+  return scanSet({ map: tex(c), normalMap: normalFromHeight(H, S, S, 1.6) }, 'concrete');
 }
 
 // Dry grass and dirt: big patches, plus short blades drawn on top so it still
@@ -130,7 +131,7 @@ export function ground() {
     g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
   }
   g.restore();
-  return tex(c);
+  return scan(tex(c), 'grass_diff.webp');
 }
 
 // Terrain detail textures for the biome shader (each tiles seamlessly).
@@ -148,7 +149,7 @@ function detailTex(fn, size = 512) {
 export function lakeTex() {
   const S = sz(512), cells = 9, pts = [], rnd = mulberry32(5);
   for (let j = 0; j < cells; j++) for (let i = 0; i < cells; i++) pts.push([(i + 0.15 + rnd() * 0.7) / cells, (j + 0.15 + rnd() * 0.7) / cells]);
-  return detailTex((u, v, a, b, d, n) => {
+  return scan(detailTex((u, v, a, b, d, n) => {
     let d1 = 9, d2 = 9;
     const ci = Math.floor(u * cells), cj = Math.floor(v * cells);
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
@@ -159,33 +160,33 @@ export function lakeTex() {
     const crack = smoothstepC(0.0, 0.012, d2 - d1);                       // 0 on a crack
     const k = (0.84 + 0.1 * (a - 0.5) + 0.05 * (d - 0.5) + (n - 0.5) * 0.04) * (0.55 + 0.45 * crack);
     return [0.9 * k, 0.84 * k, 0.72 * k];
-  });
+  }), 'lake_diff.webp');
 }
 const smoothstepC = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
 // Wind-rippled sand.
 export function sandTex() {
-  return detailTex((u, v, a, b, d, n) => {
+  return scan(detailTex((u, v, a, b, d, n) => {
     const rip = 0.5 + 0.5 * Math.sin((u * 0.8 + v * 0.6) * Math.PI * 2 * 14 + a * 9);
     const k = 0.8 + 0.16 * (a - 0.5) + 0.07 * (rip - 0.5) + (d - 0.5) * 0.08 + (n - 0.5) * 0.05;
     return [0.86 * k, 0.72 * k, 0.5 * k];
-  });
+  }), 'sand_diff.webp');
 }
 // Packed snow with soft blue shading.
 export function snowTex() {
-  return detailTex((u, v, a, b, d, n) => {
+  return scan(detailTex((u, v, a, b, d, n) => {
     const k = 0.9 + 0.08 * (b - 0.5) + (d - 0.5) * 0.06 + (n > 0.985 ? 0.12 : 0);
     return [0.9 * k, 0.94 * k, 1.0 * k];
-  });
+  }), 'snow_diff.webp');
 }
 // Layered rock: bands of brown and grey, with cracks.
 export function rockTex() {
-  return detailTex((u, v, a, b, d, n) => {
+  return scan(detailTex((u, v, a, b, d, n) => {
     const band = 0.5 + 0.5 * Math.sin(v * Math.PI * 2 * 11 + a * 7 + b * 3);
     const crack = Math.pow(Math.abs(b - 0.5) * 2, 0.35);
     const k = (0.46 + 0.015 * band + 0.14 * (a - 0.5)) * (0.72 + 0.28 * crack) + (n - 0.5) * 0.06;
     return [k * 0.97, k * 0.95, k * 0.93];
-  });
+  }), 'rock_diff.webp');
 }
 
 // Small ripples for the sea's normal map (scrolled over time).
@@ -246,7 +247,25 @@ function facadeBase(cols, rows, cw, ch, seed, drawCell, normalStrength = 2.6, o 
   const hd = new Uint8Array(W * H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) hd[(H - 1 - y) * W + x] = clamp(Hf[y * W + x], 0, 1) * 255;
   const heightMap = new THREE.DataTexture(hd, W, H, THREE.RedFormat, THREE.UnsignedByteType);
   heightMap.wrapS = heightMap.wrapT = THREE.RepeatWrapping; heightMap.magFilter = THREE.LinearFilter; heightMap.minFilter = THREE.LinearMipmapLinearFilter; heightMap.generateMipmaps = true; heightMap.needsUpdate = true;
-  return { map: tex(c), emissiveMap: tex(ce), ormMap: tex(co, false), normalMap, heightMap };
+  const map = tex(c);
+  // The photo-scanned wall (o.scan, scans.js), when it has loaded, laid into the wall round the windows at its real size (o.metres: how wide the whole
+  // front is): where the front is brick (o.scan.bricks: the heights of the bricks and the mortar in it) the scan takes the place of the drawn bricks;
+  // on a rendered, painted or stone front its light and dark (the grain, the stains, the joints) are laid over the front's own colour.
+  if (o.scan) scanImage(o.scan.file).then(img => {
+    const [ct, gt] = mk(W, H), px = Math.max(8, Math.round(W / o.metres * o.scan.tile));
+    for (let y = 0; y < H; y += px) for (let x = 0; x < W; x += px) gt.drawImage(img, x, y, px, px);
+    const S = gt.getImageData(0, 0, W, H).data, C = g.getImageData(0, 0, W, H), d = C.data, bricks = o.scan.bricks, k = o.scan.strength ?? 1;
+    let mean = 0; for (let i = 0; i < W * H; i += 7) mean += S[i * 4] * 0.3 + S[i * 4 + 1] * 0.55 + S[i * 4 + 2] * 0.15; mean /= W * H / 7;
+    for (let i = 0; i < W * H; i++) {
+      const raw = HD ? HD[i * 4] : R[i * 4]; if (R[i * 4] < 70) continue;                                // (glass)
+      if (bricks) { if (bricks.includes(raw)) { d[i * 4] = S[i * 4]; d[i * 4 + 1] = S[i * 4 + 1]; d[i * 4 + 2] = S[i * 4 + 2]; } continue; }
+      if (Hf[i] < 0.8) continue;                                                                       // (set back: a reveal, a window)
+      const l = (S[i * 4] * 0.3 + S[i * 4 + 1] * 0.55 + S[i * 4 + 2] * 0.15) / mean, m = 1 + (l - 1) * k;
+      d[i * 4] = clamp(d[i * 4] * m, 0, 255); d[i * 4 + 1] = clamp(d[i * 4 + 1] * m, 0, 255); d[i * 4 + 2] = clamp(d[i * 4 + 2] * m, 0, 255);
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0); g.putImageData(C, 0, 0); map.needsUpdate = true;
+  }).catch(e => console.warn(e.message));
+  return { map, emissiveMap: tex(ce), ormMap: tex(co, false), normalMap, heightMap };
 }
 const hrect = (gh, x, y, w, h, v) => { if (!gh) return; gh.fillStyle = `rgb(${v},${v},${v})`; gh.fillRect(x, y, w, h); };
 const shadeHex = (hex, k) => { const n = parseInt(hex.slice(1), 16); return `rgb(${clamp((n >> 16) * k, 0, 255) | 0},${clamp(((n >> 8) & 255) * k, 0, 255) | 0},${clamp((n & 255) * k, 0, 255) | 0})`; };
@@ -460,13 +479,13 @@ function civicCell(g, ge, gr, x, y, w, h, rnd, r, k, gh) {
   g.fillStyle = '#d6cebe'; g.fillRect(wx - 18, wy + wh + 8, ww + 36, 10); g.fillStyle = 'rgba(40,34,26,0.35)'; g.fillRect(wx - 18, wy + wh + 18, ww + 36, 4); hrect(gh, wx - 18, wy + wh + 8, ww + 36, 10, 255);
   if (rnd() < 0.3) interiorGlow(ge, px + 2, py + 2, pw - 4, ph - 4, rnd);
 }
-export function facadeCivic() { return { ...facadeBase(4, 4, 256, 224, 71, civicCell, 3, { height: true, grain: 0.7 }), w: 16, h: 14 }; }
+export function facadeCivic() { return { ...facadeBase(4, 4, 256, 224, 71, civicCell, 3, { height: true, grain: 0.7, metres: 16, scan: { file: 'wallstone_diff.webp', tile: 3, strength: 0.8 } }), w: 16, h: 14 }; }
 export function facadeGlass() { return { ...facadeBase(4, 4, 256, 224, 17, glassCell, 2.2, { height: true }), w: 16, h: 14 }; }
-export function facadeModern() { return { ...facadeBase(4, 4, 256, 224, 53, modernCell, 2.6, { height: true, grain: 0.8 }), w: 16, h: 14 }; }
-export function facadeApartment() { return { ...facadeBase(4, 4, 256, 224, 29, aptCell, 3, { height: true, grain: 1 }), w: 16, h: 14 }; }
-export function facadeBrick() { return { ...facadeBase(4, 4, 256, 224, 43, brickCell, 3.4, { height: true, grain: 0.5 }), w: 16, h: 14 }; }
-export function facadeHouse() { return { ...facadeBase(1, 1, 512, 384, 61, houseCell, 3, { height: true, grain: 0.8 }), w: 8, h: 6 }; }
-export function facadeShop() { return { ...facadeBase(3, 1, 341, 448, 37, shopBay, 2.4, { height: true, grain: 0.6 }), w: 12, h: 5.25 }; }
+export function facadeModern() { return { ...facadeBase(4, 4, 256, 224, 53, modernCell, 2.6, { height: true, grain: 0.8, metres: 16, scan: { file: 'wallconcrete_diff.webp', tile: 2.7, strength: 0.9 } }), w: 16, h: 14 }; }
+export function facadeApartment() { return { ...facadeBase(4, 4, 256, 224, 29, aptCell, 3, { height: true, grain: 1, metres: 16, scan: { file: 'wallplaster_diff.webp', tile: 2, strength: 1 } }), w: 16, h: 14 }; }
+export function facadeBrick() { return { ...facadeBase(4, 4, 256, 224, 43, brickCell, 3.4, { height: true, grain: 0.5, metres: 16, scan: { file: 'wallbrick_diff.webp', tile: 1, bricks: [228, 240] } }), w: 16, h: 14 }; }
+export function facadeHouse() { return { ...facadeBase(1, 1, 512, 384, 61, houseCell, 3, { height: true, grain: 0.8, metres: 8, scan: { file: 'wallplaster_diff.webp', tile: 2, strength: 1 } }), w: 8, h: 6 }; }
+export function facadeShop() { return { ...facadeBase(3, 1, 341, 448, 37, shopBay, 2.4, { height: true, grain: 0.6, metres: 12, scan: { file: 'wallplaster_diff.webp', tile: 2, strength: 0.8 } }), w: 12, h: 5.25 }; }
 
 // ---------------------------------------------------------------------------
 // Roofs, rails and signs
@@ -652,7 +671,7 @@ export function leafTex() {
   };
   for (let i = 0; i < 300; i++) { const r = Math.sqrt(rnd()) * S * 0.45, a = rnd() * 6.28; leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, 34 + rnd() * 30, rnd() * 6.28, 0.42 + rnd() * 0.2); }   // behind: darker
   for (let i = 0; i < 380; i++) { const r = Math.sqrt(rnd()) * S * 0.46, a = rnd() * 6.28; leaf(S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r, 30 + rnd() * 34, rnd() * 6.28, 0.62 + rnd() * 0.42); }
-  return tex(c, true, false);
+  return scan(tex(c, true, false), 'leafcard.webp');
 }
 
 // A sprig of small flowers (cream, to be tinted pink, red, orange, violet or white per bush) among a few leaves, for the flowering shrubs (bougainvillea and hibiscus).
@@ -726,7 +745,7 @@ export function bushLeafTex() {
   const at = (k) => { const r = Math.pow(rnd(), 0.62) * S * 0.44 * k, a = rnd() * 6.28; return [S / 2 + Math.cos(a) * r, S / 2 + Math.sin(a) * r]; };
   for (let i = 0; i < 230; i++) { const [x, y] = at(0.95); leaf(x, y, 30 + rnd() * 26, rnd() * 6.28, 0.34 + rnd() * 0.16, rnd()); }
   for (let i = 0; i < 300; i++) { const [x, y] = at(1); leaf(x, y, 30 + rnd() * 30, rnd() * 6.28, 0.62 + rnd() * 0.42, rnd()); }
-  return tex(c, true, false);
+  return scan(tex(c, true, false), 'bushcard.webp');
 }
 
 // A clipped hedge seen close: a dense wall of small leaves over the dark of the twigs inside, tiling seamlessly (one copy is a metre square), with a
@@ -767,7 +786,7 @@ export function palmBarkTex() {
     const o = (y * W + x) * 4; img.data[o] = clamp(146 * k, 0, 255); img.data[o + 1] = clamp(128 * k, 0, 255); img.data[o + 2] = clamp(106 * k, 0, 255); img.data[o + 3] = 255;
   }
   g.putImageData(img, 0, 0);
-  return { map: tex(c), normalMap: normalFromHeight(Hf, W, H, 2.2) };
+  return scanSet({ map: tex(c), normalMap: normalFromHeight(Hf, W, H, 2.2) }, 'palmbark');
 }
 export function barkTex() {
   const W = 128, H = 256, rnd = mulberry32(68), [c, g] = mk(W, H), img = g.createImageData(W, H), Hf = new Float32Array(W * H), f = lowField(64, 8, 3, 69), f2 = lowField(64, 3, 2, 70);
@@ -779,5 +798,5 @@ export function barkTex() {
     const o = (y * W + x) * 4; img.data[o] = clamp(118 * k * (1 - moss) + 70 * moss, 0, 255); img.data[o + 1] = clamp(104 * k * (1 - moss) + 88 * moss, 0, 255); img.data[o + 2] = clamp(90 * k * (1 - moss) + 40 * moss, 0, 255); img.data[o + 3] = 255;
   }
   g.putImageData(img, 0, 0);
-  return { map: tex(c), normalMap: normalFromHeight(Hf, W, H, 2.6) };
+  return scanSet({ map: tex(c), normalMap: normalFromHeight(Hf, W, H, 2.6) }, 'bark');
 }

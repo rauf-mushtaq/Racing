@@ -4,6 +4,7 @@
 // the floor, and the bullets all work from the room's own list of boxes, never the city's. The streets round the door go on being simulated, so the police
 // really do arrive outside it.
 import * as THREE from 'three';
+import { scanSet } from './scans.js';
 import { GB, circlePoly, mergeGeoms } from './geom.js';
 import { clamp, mulberry32 } from './util.js';
 import { attachSSR } from './ssr.js';
@@ -130,7 +131,9 @@ const SURFACES = {
     const g = (joint ? 0.86 : 0.95 + 0.04 * hash(c, r)) - chip; return [g * 240, g * 238, g * 230, joint ? 0.05 : 0.5 + 0.35 * Math.max(0, round) - pits + 0.05 * fbm(u, v, 40), joint ? 0.7 : 0.55 + pits];
   }, 3),
 };
-export function surface(name) { return SURF[name] || (SURF[name] = SURFACES[name]()); }
+// Each surface is drawn here, then the photo-scan of the real material takes its place when it has loaded (scans.js; those with one).
+const SCANNED = new Set(['vinyl', 'marble', 'granite', 'rubber', 'gymfloor', 'flags', 'ashlar', 'slab', 'showroom', 'oak', 'plaster', 'brick', 'concrete']);
+export function surface(name) { return SURF[name] || (SURF[name] = SCANNED.has(name) ? scanSet(SURFACES[name](), 'in_' + name) : SURFACES[name]()); }
 // Which surfaces a kind of place has: [floor, walls, ceiling], and how the floor shines.
 const LOOK = {
   petrol: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }], shop: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }],

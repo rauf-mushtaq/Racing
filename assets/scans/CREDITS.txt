@@ -1,0 +1,22 @@
+Photo-scanned surfaces from Poly Haven (polyhaven.com/textures), CC0 (public domain):
+grass: "Sparse Grass" (sparse_grass) by Amal Kumar
+asphalt: "Asphalt 01" (asphalt_01) by Dario Barresi, Charlotte Baglioni
+concrete: "Concrete Pavement" (concrete_pavement) by Charlotte Baglioni
+sand: "Coast Sand 01" (coast_sand_01) by Rob Tuytel
+snow: "Snow 02" (snow_02) by Rob Tuytel
+rock: "Rock Face 03" (rock_face_03) by Dario Barresi, Rico Cilliers
+lake: "Mud Cracked Dry 03" (mud_cracked_dry_03) by Dario Barresi, Dimitrios Savva
+bark: "Bark Brown 02" (bark_brown_02) by Rob Tuytel
+palmbark: "Palm Tree Bark" (palm_tree_bark) by Dimitrios Savva, Rico Cilliers
+wallbrick: "Red Brick 03" (red_brick_03) by Rob Tuytel
+wallplaster: "Painted Plaster Wall" (painted_plaster_wall) by Amal Kumar
+wallconcrete: "Concrete Wall 008" (concrete_wall_008) by Dario Barresi, Charlotte Baglioni
+wallstone: "Large Sandstone Blocks" (large_sandstone_blocks) by Rob Tuytel
+in_vinyl: "Floor Tiles 08" (floor_tiles_08) by Rob Tuytel
+in_marble: "Marble 01" (marble_01) by Rob Tuytel
+in_granite: "Granite Tile" (granite_tile) by Charlotte Baglioni
+in_rubber: "Rubber Tiles" (rubber_tiles) by Amal Kumar
+in_flags: "Floor Tiles 02" (floor_tiles_02) by Rob Tuytel
+in_ashlar: "White Sandstone Blocks 02" (white_sandstone_blocks_02) by Rob Tuytel
+in_slab: "Concrete Floor 02" (concrete_floor_02) by Rob Tuytel
+in_oak: "Oak Wood Planks" (oak_wood_planks) by Dimitrios Savva

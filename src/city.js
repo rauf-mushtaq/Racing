@@ -12,6 +12,7 @@ import { mulberry32, clamp, hash3 } from './util.js';
 import { buildVenue, venueKindFor, addVenue } from './venues.js';
 import { GB, rectPoly, chamferRect, roundedRect, circlePoly, scalePoly, offsetPoly, mergeGeoms, ccw, quadToward, tube } from './geom.js';
 import { makeProps } from './props.js';
+import { loadScanModels } from './scans.js';
 import { TOD } from './tod.js';
 import { Q } from './quality.js';
 import { attachSSR } from './ssr.js';
@@ -445,6 +446,7 @@ export class City {
     const facC = await step('Carving stone…', T.facadeCivic);
     const misc = await step('Hanging the signs…', () => ({ roof: T.roofTex(), tile: T.roofTileTex(), plain: T.plainTex(), rail: T.railTex(), sign: T.signAtlas(), gantry: T.gantryAtlas() }));
     this.tx = { asp, con, grass };
+    await step('Gathering the scans…', loadScanModels);
     this.props = makeProps();
     const std = o => new THREE.MeshStandardMaterial(o);
     const fac = (f, ei, env, fx) => facadeFx(std({
