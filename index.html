@@ -224,6 +224,8 @@
   body.footmode #touch .foot-only { display: grid; }
   body.footmode #t-left, body.footmode #t-right, body.footmode #t-gas, body.footmode #t-brake, body.footmode #t-nitro, body.footmode #t-hand, body.footmode #t-gad, body.footmode #t-reset { display: none; }
   #touch #t-use { display: none; } #touch #t-use.show { display: grid; }
+  #touch #t-buy { display: none; } #touch #t-buy.show { display: grid; }
+  #t-buy { right: calc(max(26px, env(safe-area-inset-right)) + 162px); bottom: calc(max(30px, env(safe-area-inset-bottom)) + 196px); width: 130px; height: 70px; background: rgba(60,190,110,0.5) !important; border-color: #8cf0a8 !important; font-size: 17px; }
   #t-jump { right: max(26px, env(safe-area-inset-right)); bottom: max(30px, env(safe-area-inset-bottom)); width: 104px; height: 104px; border-radius: 50% !important; }
   #t-sprint { right: calc(max(26px, env(safe-area-inset-right)) + 118px); bottom: calc(max(30px, env(safe-area-inset-bottom)) + 22px); width: 88px; height: 88px; border-radius: 50% !important; }
   #t-crouch { right: calc(max(26px, env(safe-area-inset-right)) + 8px); bottom: calc(max(30px, env(safe-area-inset-bottom)) + 120px); width: 82px; height: 60px; }
@@ -355,6 +357,7 @@
   <div class="tb foot-only" id="t-reload" data-tap="reload">RELOAD</div>
   <div class="tb foot-only" id="t-nade" data-tap="grenade">NADE</div>
   <div class="tb" id="t-use" data-tap="use">GET IN</div>
+  <div class="tb" id="t-buy" data-tap="buy">BUY</div>
   <div id="t-gad">
     <div class="tb gad fire" data-k="fire" data-g="fire">GUNS</div>
     <div class="tb gad" data-k="missile" data-g="missile">MISSILE<b class="cnt"></b></div>

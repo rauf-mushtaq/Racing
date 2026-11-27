@@ -125,6 +125,7 @@
   "src/rivercourse.js",
   "src/roadcut.js",
   "src/roads.js",
+  "src/roofs.js",
   "src/rooms-visit.js",
   "src/rooms.js",
   "src/scancars.js",

@@ -128,6 +128,7 @@ function office(R, v, rnd) {
   for (let k = 0; k < 6; k++) { const x = -7.5 + k * 3; R.box('metal', x - 0.12, 17.6, x + 0.12, 19.0, 0, 1.0, STEEL, true); R.box('emit', x - 0.1, 17.58, x + 0.1, 17.6, 0.8, 0.95, C(0x5dff8a).multiplyScalar(1.5)); if (k < 5) glassBox(R, x + 0.12, 18.25, x + 1.2, 18.3, 0.3, 1.0); }
   people(R, [['guard', 10.5, 18.3, -Math.PI / 2, { key: 'agent' }]]);
   // The lifts: six steel doors along the back under the gallery, a number over each.
+  R.lifts = []; for (let k = 0; k < 6; k++) R.lifts.push([-12.5 + k * 5, D - 1.0]);          // (where you stand to call one: visit.js; a tower with a helipad, roofs.js, goes up to the roof)
   for (let k = 0; k < 6; k++) { const x = -12.5 + k * 5; R.box('prop', x - 1.3, D - 0.1, x + 1.3, D, 0, 3.2, C(0x8a8d92)); R.box('metal', x - 0.95, D - 0.14, x - 0.01, D - 0.1, 0.0, 2.6, C(0xc6cbd0)); R.box('metal', x + 0.01, D - 0.14, x + 0.95, D - 0.1, 0.0, 2.6, C(0xc6cbd0)); R.box('emit', x - 0.25, D - 0.12, x + 0.25, D - 0.1, 2.8, 3.0, C(0xffa040).multiplyScalar(1.6)); R.box('metal', x + 1.4, D - 0.13, x + 1.52, D - 0.1, 1.0, 1.3, STEEL); }
   // The café, front right: a counter, a menu board, tables and chairs.
   R.box('wood', 14, 6, 22, 7, 0, 1.08, OAK, true); R.box('prop', 13.95, 5.95, 22.05, 7.05, 1.08, 1.12, STONE); R.box('metal', 20.5, 6.2, 21.3, 6.9, 1.12, 1.6, STEEL);
@@ -306,6 +307,7 @@ function hotel(R, v, rnd) {
   R.stairs(-2, 25.5, 2, 31, '+z', 0, G, 'prop', C(0xefe8dc), 'ab', gold);
   gallery(R, -W / 2, 31, W / 2, D, G, C(0xe8e0d0), [[-16, 31], [-8, 31], [8, 31], [16, 31]]);
   R.rail(-W / 2, 31, -2, 31, G, gold); R.rail(2, 31, W / 2, 31, G, gold);
+  R.lifts = [-18, -6, 6, 18].map(x => [x, D - 1.0]);
   for (let k = 0; k < 4; k++) { const x = -18 + k * 12; if (Math.abs(x) < 3) continue; R.box('metal', x - 1.0, D - 0.14, x + 1.0, D - 0.1, 0, 2.6, gold); R.box('prop', x - 1.3, D - 0.1, x + 1.3, D, 0, 3.0, C(0x5a3a22)); }
   people(R, [['guest', 0, 4, 0, { route: [[0, 5], [-6, 12], [-6, 24], [0, 25], [0, 31.8], [10, 33], [-10, 33], [0, 31.8], [0, 25], [6, 24], [6, 12]] }], ['porter', 4, 3.5, 0, { key: 'agent', route: [[4, 3.5], [16, 6], [18, 24], [4, 4]] }]]);
   R.light(-12, 9, 9, 1.6); R.light(12, 9, 9, 1.6); R.light(0, 9, 22, 1.8); R.light(0, G + 3, 33, 1.0);

@@ -17,6 +17,7 @@ import { marqueSpec } from './marque-specs.js';
 import { clamp, wrapAngle } from './util.js';
 import { groundAt, heightAt, SEA_Y, WORLD } from './world.js';
 import { queryColliders } from './city.js';
+import { ROOFS } from './roofs.js';
 const CURB = 0.15;                     // (the kerb height: building colliders' heights are measured from it, city.js)
 
 // Per model: the file; the real length (m); which way the nose is (flip: the model's nose is at -z; narrow: the narrower end is the bow; tail: the
@@ -264,14 +265,14 @@ export class Heli extends Craft {
   // What it would rest on at (x, z): the ground, or the top of a building under its middle.
   floor(x, z) {
     let y = Math.max(groundAt(x, z).y, heightAt(x, z) < SEA_Y ? SEA_Y : -1e9); const cs = queryColliders(x, z, 2, this._q || (this._q = []));
-    for (const c of cs) if (c.bld && c.type === 'box' && x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) y = Math.max(y, CURB + c.bld.h);
+    for (const c of cs) if (c.bld && (c.type === 'box' ? x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1 : Math.hypot(x - c.x, z - c.z) < c.r)) y = Math.max(y, CURB + c.bld.h + (c.bld.base || 0));          // (base: the building's lift on a hill)
     return y;
   }
   // A building (taller than where it is flying) in the way of its body.
   blocked(x, z, y) {
     const cs = queryColliders(x, z, 5, this._q || (this._q = []));
     for (const c of cs) {
-      if (!c.bld) continue; const top = CURB + c.bld.h; if (y > top - 0.5) continue;
+      if (!c.bld) continue; const top = CURB + c.bld.h + (c.bld.base || 0); if (y > top - 0.5) continue;
       if (c.type === 'box') { const dx = Math.max(c.x0 - x, 0, x - c.x1), dz = Math.max(c.z0 - z, 0, z - c.z1); if (Math.hypot(dx, dz) < 3.5) return true; }
       else if (Math.hypot(x - c.x, z - c.z) < c.r + 3.5) return true;
     }
@@ -318,7 +319,7 @@ export class Heli extends Craft {
 // spots: [{ kind, x, z, h }]. The bike stands on the road; the boats float; the helicopter sits on its pad. Each is built when its model has loaded
 // and shown only within a few hundred metres.
 export class Rides {
-  constructor(scene) { this.scene = scene; this.list = []; }
+  constructor(scene) { this.scene = scene; this.list = []; this.owned = new Set(); this.roofT = 0; }
   init(spots) {
     for (const s of spots) this.list.push({ ...s, home: { ...s }, mesh: null, craft: null, taken: false });
     return preloadRides([...new Set(spots.map(s => s.kind))]).then(() => { for (const r of this.list) this.build(r); });
@@ -337,11 +338,35 @@ export class Rides {
       if (r.taken || !r.mesh || !r.mesh.visible) continue;
       const x = r.craft ? r.craft.x : r.x, z = r.craft ? r.craft.z : r.z, d = Math.hypot(w.x - x, w.z - z), reach = r.kind === 'bike' ? 2.2 : r.kind === 'heli' ? 8 : 16;
       if (r.craft && r.craft.isCraft && r.kind !== 'heli' && !(groundAt(w.x, w.z).y > SEA_Y + 0.6)) continue;
-      if (d < reach && d < bd) { bd = d; best = { ride: r, prompt: KINDS[r.kind].prompt, d: r.kind === 'bike' ? d : Math.max(0.5, d * 0.2) }; }
+      if (r.kind === 'heli' && r.craft && Math.abs(w.y - r.craft.y) > 3) continue;                      // (a helicopter on a roof is not reached from the street under it)
+      if (d < reach && d < bd) { bd = d; best = { ride: r, prompt: this.promptOf(r), buy: this.priceOf(r), d: r.kind === 'bike' ? d : Math.max(0.5, d * 0.2) }; }
     }
     return best;
   }
+  // A helicopter on a roof: yours (bought), or someone else's (to steal, or to buy: its price, or 0 when it is not for sale).
+  promptOf(r) { return r.roof ? (this.owned.has(r.roof) ? 'FLY YOUR HELICOPTER' : 'STEAL THE HELICOPTER') : KINDS[r.kind].prompt; }
+  priceOf(r) { if (!r.roof || this.owned.has(r.roof)) return 0; const R = ROOFS.get(r.roof); return R ? R.price : 0; }
+  // The helicopters on the roofs with a helipad (roofs.js): the nearest few within 650 m stand on their pads; one far away that nobody is flying goes
+  // (and is back on its pad when you come near again, wherever it was left).
+  roofs(F, active) {
+    if (!rideReady('heli')) return;
+    let n = 0; for (const r of this.list) if (r.roof) n++;
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const r = this.list[i]; if (!r.roof || !r.craft || r.craft === active) continue;
+      if (Math.hypot(F.x - r.craft.x, F.z - r.craft.z) > 900) { this.scene.remove(r.mesh); this.list.splice(i, 1); n--; const R = ROOFS.get(r.roof); if (R && R.ride === r) R.ride = null; }
+    }
+    const near = []; for (const R of ROOFS.values()) { if (R.ride) continue; const d = Math.hypot(F.x - R.pad.x, F.z - R.pad.z); if (d < 650) near.push([d, R]); }
+    near.sort((a, b) => a[0] - b[0]);
+    for (const [, R] of near) {
+      if (n >= 8) break;
+      const r = { kind: 'heli', x: R.pad.x, z: R.pad.z, h: R.pad.h, roof: R.id, mesh: null, craft: null, taken: false };
+      r.home = { ...r }; this.build(r); if (!r.craft) continue;
+      if (r.craft.y < R.y - 1) { this.scene.remove(r.mesh); r.craft = null; r.mesh = null; continue; }                            // (the roof is not built yet: not there)
+      this.list.push(r); R.ride = r; n++;
+    }
+  }
   update(dt, F, active) {
+    if ((this.roofT -= dt) <= 0) { this.roofT = 1; this.roofs(F, active); }
     for (const r of this.list) {
       if (!r.mesh) continue; const x = r.craft ? r.craft.x : r.x, z = r.craft ? r.craft.z : r.z, d = Math.hypot(F.x - x, F.z - z);
       if (r.taken && r.kind === 'bike') continue;

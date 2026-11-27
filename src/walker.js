@@ -19,6 +19,9 @@ import { clamp, damp, lerp, wrapAngle } from './util.js';
 export const lay1 = o => { o.traverse(c => c.layers.enable(1)); return o; };
 export const SPEED = { walk: 1.9, jog: 3.9, sprint: 6.7, crouch: 1.45 };
 const RAD = 0.34, GRAV = 15, JUMP = 5.0, NOMOVE = { mx: 0, my: 0, sprint: false, jump: false, crouch: false };
+// On a roof the solid things are its lift room and whatever stands on it (a helicopter: main.js puts its body in roof.things as circles).
+const _rg = { y: 0, kind: 'tile', grass: false };
+function roofSolids(R, out) { out.length = 0; if (R.hut) out.push({ type: 'box', x0: R.hut.x0, x1: R.hut.x1, z0: R.hut.z0, z1: R.hut.z1 }); if (R.things) for (const t of R.things) out.push(t); return out; }
 const found = [], _fp = new THREE.Vector3(), _kv = new THREE.Vector3(), _kk = new THREE.Vector3();
 const FISTS = /^(jab|cross|hook|body|haymaker|combo|guard)/;
 
@@ -41,12 +44,14 @@ export class Walker {
     this.melee = null; this.meleeYaw = null; this.mw = 0;               // (a blow being thrown: see melee.js)
     this.hands = 0;                                                      // (0..1: hands up, for someone being held up)
     this.hold = false; this.treadmill = 0; this.lift = null; this.sprintK = 1; this.ex = null;          // (ex: on a machine or a seat: person.js exercisePose)   // (in a gym, gym.js: held at a machine; running on a treadmill (m/s); curling dumbbells (the curl's phase); and stamina's quicker sprint)
+    this.roof = null; this.climbY = null;                                // on a rooftop (roofs.js), or partway up a ladder
     this.interior = null;                                                // inside a building (interior.js): its own floor, walls and ceiling instead of the city's
     lay1(this.mesh); lay1(this.blob);
     this.setOutfit(outfit);
   }
   get bodyY() { return this.y + 0.9; }
-  gnd(x, z) { return this.interior ? this.interior.ground(x, z, this.y) : groundAt(x, z); }          // (in a building: the floor, or the step or gallery under the feet)
+  // (in a building: the floor, or the step or gallery under the feet; on a ladder: the rung; on a roof (roofs.js): the roof)
+  gnd(x, z) { return this.interior ? this.interior.ground(x, z, this.y) : this.climbY != null ? (_rg.y = this.climbY, _rg) : this.roof ? (_rg.y = this.roof.y, _rg) : groundAt(x, z); }          // (in a building: the floor, or the step or gallery under the feet)
   worldVel() { return [this.vx, this.vz]; }
   // The character: one of the real people (people.js). The stick figure animates; until the real model has loaded (or if it cannot be loaded)
   // the smooth made-up figure stands in.
@@ -63,6 +68,8 @@ export class Walker {
 
   // Stand somewhere, facing a way.
   place(x, z, h) {
+    const R = this.roof; if (R && (x < R.x0 - 3 || x > R.x1 + 3 || z < R.z0 - 3 || z > R.z1 + 3)) this.roof = null;          // (put somewhere off the roof: back in the street)
+    this.climbY = null;
     this.x = this.px = x; this.z = this.pz = z; this.h = h; this.vx = this.vz = this.vy = 0; this.speed = 0; this.crouch = 0; this.crouching = false; this.down = 0; this.downT = 0;
     if (this.body) { this.body.ragOn = false; this.body.act = null; this.body.old = null; this.body.snapW = 0; this.body.dead = false; }
     this.y = this.gnd(x, z).y; this.grounded = true; this.air = 0; this.phase = 0;
@@ -94,7 +101,7 @@ export class Walker {
   flinch(dx, dz, k = 1, head = false) { if (this.body) this.body.flinch(dx, dz, k, this.h, head); }
   // Pushed out of walls, poles and cars (for a body in a ragdoll: a point p and its radius). Returns true if it moved.
   pushOut(p, r) {
-    if (this.interior) this.interior.solids(p.x, p.z, r + 1.2, found); else queryColliders(p.x, p.z, r + 1.2, found);
+    if (this.interior) this.interior.solids(p.x, p.z, r + 1.2, found); else if (this.roof) roofSolids(this.roof, found); else queryColliders(p.x, p.z, r + 1.2, found);
     let moved = false;
     for (const c of found) {
       if (c.type === 'box') { const qx = clamp(p.x, c.x0, c.x1), qz = clamp(p.z, c.z0, c.z1), dx = p.x - qx, dz = p.z - qz, d = Math.hypot(dx, dz); if (d >= r || d < 1e-4) continue; p.x += dx / d * (r - d); p.z += dz / d * (r - d); moved = true; }
@@ -237,6 +244,8 @@ export class Walker {
   // Push out of buildings, poles, trees, cars and the sea.
   collide(obstacles) {
     if (this.interior) { this.interior.solids(this.x, this.z, RAD + 1.2, found, this.y); }
+    else if (this.roof) roofSolids(this.roof, found);                    // (up on a roof: only what is on it, not the building under your feet)
+    else if (this.climbY != null) found.length = 0;
     else queryColliders(this.x, this.z, RAD + 1.2, found);
     for (const c of found) {
       if (c.type === 'box') {
@@ -254,6 +263,8 @@ export class Walker {
       for (const o of list) { const dx = this.x - o.x, dz = this.z - o.z, d = Math.hypot(dx, dz), r = RAD + o.r; if (d >= r || d < 1e-5) continue; this.x += dx / d * (r - d); this.z += dz / d * (r - d); }
     }
     if (this.interior) { this.interior.keepIn(this, RAD); return; }
+    if (this.roof) { const R = this.roof; this.x = clamp(this.x, R.x0 + RAD, R.x1 - RAD); this.z = clamp(this.z, R.z0 + RAD, R.z1 - RAD); return; }          // (the parapet keeps you on the roof)
+    if (this.climbY != null) return;
     pushFromWater(this, 0.7);                                               // the river is a wall (the bridges are fine)
     // The sea, steep slopes and the edge of the world.
     if (Math.abs(this.x) > EDGE - 40 || Math.abs(this.z) > EDGE - 40) {
@@ -291,7 +302,7 @@ export class FootCamera {
     let k = 1;
     for (let i = 0; i <= 8; i++) {                                          // walk out along the line, stopping short of anything solid
       const t = i / 8, px = _t.x + (bx + rx) * t, pz = _t.z + (bz + rz) * t, py = _t.y + sp * dist * t;
-      if (w.interior) w.interior.solids(px, pz, 0.7, found, py - 0.9); else queryColliders(px, pz, 0.7, found);          // (indoors, only what reaches up to the camera: not a bench or a counter below it)
+      if (w.interior) w.interior.solids(px, pz, 0.7, found, py - 0.9); else if (w.roof) roofSolids(w.roof, found); else queryColliders(px, pz, 0.7, found);          // (indoors, only what reaches up to the camera: not a bench or a counter below it)
       let hit = w.interior ? !w.interior.inside(px, pz, 0.25) || py > w.interior.ceil() - 0.2 : false;
       for (const c of found) { if (c.type === 'box' && px > c.x0 - 0.35 && px < c.x1 + 0.35 && pz > c.z0 - 0.35 && pz < c.z1 + 0.35) hit = true; else if (c.type === 'circ' && Math.hypot(px - c.x, pz - c.z) < c.r + 0.2 && c.r > 0.9) hit = true; }
       if (hit || py < w.gnd(px, pz).y + 0.25) { k = Math.max(w.interior ? 0.07 : 0.12, (i - 1) / 8); break; }

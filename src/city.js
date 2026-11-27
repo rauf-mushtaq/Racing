@@ -3,6 +3,7 @@
 // street lights and signs. The city is built in regions of 2 x 2 blocks that
 // stream in around the player (and out again behind), merged by material so
 // each region is a few dozen draw calls.
+import { addRoof } from './roofs.js';
 import { addPool } from './pools.js';
 import { poolMaterial, rippleTex } from './water.js';
 import * as THREE from 'three';
@@ -1524,7 +1525,11 @@ export class City {
     else if (tower && Math.min(w, d) > 20 && r < 0.8) { kind = 'rounded'; poly = roundedRect(b.x0, b.z0, b.x1, b.z1, 4 + rnd() * 3, 4); }
     const rc = new THREE.Color(0.55 + rnd() * 0.15, 0.53 + rnd() * 0.12, 0.52 + rnd() * 0.1);
     const trim = new THREE.Color(0.93, 0.92, 0.9).multiplyScalar(0.9 + rnd() * 0.1);
-    const plan = !tower || h < 56 ? [[1, 1]] : rnd() < 0.5 ? [[0.62, 1], [0.38, 0.78]] : [[0.5, 1], [0.3, 0.82], [0.2, 0.62]];
+    const plan0 = !tower || h < 56 ? [[1, 1]] : rnd() < 0.5 ? [[0.62, 1], [0.38, 0.78]] : [[0.5, 1], [0.3, 0.82], [0.2, 0.62]];
+    // A helipad on the roof (roofs.js): about a third of the towers of 45 m and up that are wide enough, not round, and not a place you walk into. Such a tower
+    // rises straight to a flat roof (no setbacks, no crown: the random numbers are drawn as before all the same, so the city round it comes out the same).
+    const pad = tower && !opt.rect && !ctx.use && kind !== 'round' && h >= 45 && Math.min(w, d) >= 26 && hash3(Math.round(b.x0), Math.round(b.z0), 97) < 0.34;
+    const plan = pad ? [[1, 1]] : plan0;
     let y = CURB, topP = poly;
     plan.forEach(([frac, sc], t) => {
       const last = t === plan.length - 1;
@@ -1547,14 +1552,16 @@ export class City {
     }
     if (tower && h > 105 && rnd() < 0.55) {
       const tc = clamp(h * 0.08, 6, 14), small = scalePoly(topP, 0.55);                                   // tapered crown and mast
-      G.roof.loft(topP, top, small, top + tc, 8, METAL); G.roof.cap(small, top + tc, 8, METAL);
-      const [mx, mz] = [cx, cz]; G.roof.box(mx - 0.2, mz - 0.2, mx + 0.2, mz + 0.2, top + tc, top + tc + 12 + rnd() * 10, 4, METAL);
+      if (!pad) G.roof.loft(topP, top, small, top + tc, 8, METAL); if (!pad) G.roof.cap(small, top + tc, 8, METAL);
+      const [mx, mz] = [cx, cz], mh = 12 + rnd() * 10; if (!pad) G.roof.box(mx - 0.2, mz - 0.2, mx + 0.2, mz + 0.2, top + tc, top + tc + mh, 4, METAL);
     } else {
       for (let k = 0; k < 1 + rnd() * 2; k++) {
         const ax = b.x0 + 2 + rnd() * Math.max(1, w - 6), az = b.z0 + 2 + rnd() * Math.max(1, d - 6);
         if (kind === 'round' && Math.hypot(ax - cx, az - cz) > Math.min(w, d) / 2 - 3) continue;
-        G.props.box(ax, az, ax + 1.6 + rnd() * 1.5, az + 1.2 + rnd(), top, top + 1.1 + rnd(), 4, new THREE.Color(0.62, 0.62, 0.6));
-        if (rnd() < 0.7) G.props.cap(circlePoly(ax + 0.8, az + 0.6, 0.38, 10), top + 1.12, 3, new THREE.Color(0.2, 0.2, 0.22));                // (the fan of an air-conditioning unit)
+        const bw = 1.6 + rnd() * 1.5, bd = 1.2 + rnd(), bh = 1.1 + rnd(), fan = rnd() < 0.7;
+        if (pad) continue;                                                                                    // (the roof is kept clear for the helicopter)
+        G.props.box(ax, az, ax + bw, az + bd, top, top + bh, 4, new THREE.Color(0.62, 0.62, 0.6));
+        if (fan) G.props.cap(circlePoly(ax + 0.8, az + 0.6, 0.38, 10), top + 1.12, 3, new THREE.Color(0.2, 0.2, 0.22));                // (the fan of an air-conditioning unit)
       }
       // A water tank on legs and a television aerial on the roof of the ordinary buildings: the things you see from above.
       if (!tower && style !== 'civic' && h > 9 && w > 9 && d > 9 && kind !== 'round') {          // (not on the bank: it was built as a tower before, and drew no numbers here)
@@ -1575,9 +1582,10 @@ export class City {
       const e = 0.6, wx = w + 2 * e, wz = d + 2 * e, rise = Math.min(4.2, Math.min(wx, wz) * 0.3), tile = TILES[(rnd() * TILES.length) | 0];
       this.pitchedRoof(ctx, b.x0, b.z0, b.x1, b.z1, top + 0.05, { e, rise: Math.min(5.5, Math.min(wx, wz) * 0.36) || rise, col: tile, base: CURB });
     }
-    const bld = { use: opt.use || ctx.use || style, h: top - CURB };                                   // (what the building is, for walking into it: main.js buildingNear)
+    const bld = { use: opt.use || ctx.use || style, h: top - CURB, base: ctx.hilly ? ctx.base : (ctx.baseY || 0) };          // (base: how far the building is lifted on hilly ground, so its roof is at CURB + h + base)                                   // (what the building is, for walking into it: main.js buildingNear)
     if (kind === 'round') addCollider({ type: 'circ', x: cx, z: cz, r: Math.min(w, d) / 2, bld }, ctx.colliders);
     else addCollider({ type: 'box', x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, bld }, ctx.colliders);
+    if (pad) this.rooftop(ctx, b, top, faces);
     if ((style === 'apt' || style === 'brick' || style === 'modern') && (kind === 'rect' || kind === 'chamfer') && h >= 10 && h < 70) this.balconies(ctx, b, h, faces, kind === 'chamfer' ? 5.5 : 1.5, rnd);
     if (style === 'shop' && faces.length) {
       for (const f of faces.slice(0, 2)) this.shopSign(ctx, b, f, h, rnd);
@@ -1587,6 +1595,37 @@ export class City {
     if (!tower && faces.length && ctx.L.bills.length < 2 && rnd() < 0.05) ctx.L.bills.push({ x: cx, z: cz, y: top + 2 + ctx.base, yaw: Math.atan2(faces[0].dir[0], faces[0].dir[1]) });
   }
 
+  // The roof of a tower with a helipad (roofs.js): the pad (concrete, a yellow ring and an H) in the middle, a lift room in one corner with its door
+  // towards the pad, and a steel ladder with a safety cage up the outside of the wall from the pavement to over the parapet. No random numbers.
+  rooftop(ctx, b, top, faces) {
+    const G = ctx.gb, cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, w = b.x1 - b.x0, d = b.z1 - b.z0, y = top + 0.03, lift = ctx.hilly ? ctx.base : (ctx.baseY || 0);
+    // (the paint is drawn with the building's own pieces, not the road markings': those follow the ground under them, and on a hill that is below the roof)
+    const yellow = new THREE.Color(0.95, 0.76, 0.12), conc = new THREE.Color(0.58, 0.58, 0.56), white = new THREE.Color(0.92, 0.92, 0.9);
+    // The lift room, in the corner away from the street, so the pad is shifted the other way to clear it.
+    const f = faces[0] || { dir: [0, -1] }, sx = f.dir[0] !== 0 ? -f.dir[0] : 1, sz = f.dir[1] !== 0 ? -f.dir[1] : 1;
+    const hx = sx > 0 ? b.x1 - 5 : b.x0 + 5, hz = sz > 0 ? b.z1 - 5 : b.z0 + 5;
+    const hut = { x0: hx - 1.7, x1: hx + 1.7, z0: hz - 1.7, z1: hz + 1.7 };
+    G.props.box(hut.x0, hut.z0, hut.x1, hut.z1, top, top + 3.0, 4, new THREE.Color(0.7, 0.7, 0.68)); G.props.box(hut.x0 - 0.1, hut.z0 - 0.1, hut.x1 + 0.1, hut.z1 + 0.1, top + 3.0, top + 3.2, 4, new THREE.Color(0.4, 0.4, 0.42));
+    const dz = -sz, door = { x: hx, z: hz + dz * 2.5 };                                                     // (the door is in the side towards the middle of the roof)
+    G.props.box(hx - 0.55, dz > 0 ? hut.z1 : hut.z0 - 0.04, hx + 0.55, dz > 0 ? hut.z1 + 0.04 : hut.z0, top, top + 2.2, 3, new THREE.Color(0.25, 0.27, 0.3));
+    G.props.box(hx - 0.25, Math.min(dz > 0 ? hut.z1 : hut.z0, (dz > 0 ? hut.z1 : hut.z0) + dz * 0.05), hx + 0.25, Math.max(dz > 0 ? hut.z1 : hut.z0, (dz > 0 ? hut.z1 : hut.z0) + dz * 0.05), top + 2.35, top + 2.5, 3, new THREE.Color(0.3, 1.0, 0.5));
+    const px = cx - sx * 2.0, pz = cz - sz * 2.0, R = Math.min(8.5, Math.min(w, d) / 2 - 3);
+    G.roof.flat(px - R - 1, pz - R - 1, px + R + 1, pz + R + 1, y, 8, conc);
+    for (let k = 0; k < 44; k++) { const a = k / 44 * Math.PI * 2, qx = px + Math.cos(a) * R, qz = pz + Math.sin(a) * R; G.props.flat(qx - 0.4, qz - 0.4, qx + 0.4, qz + 0.4, y + 0.03, 10, yellow); }
+    G.props.flat(px - 3.2, pz - 4.2, px - 2.0, pz + 4.2, y + 0.03, 10, white); G.props.flat(px + 2.0, pz - 4.2, px + 3.2, pz + 4.2, y + 0.03, 10, white); G.props.flat(px - 2.0, pz - 0.6, px + 2.0, pz + 0.6, y + 0.03, 10, white);
+    // The ladder: on the street face, 8 m in from a corner, standing 0.35 m off the wall; rails, rungs every 0.3 m, hoops of the cage every 1.5 m from 3 m up.
+    const fd = faces[0] ? f.dir : [0, -1], along = fd[0] !== 0 ? [0, 1] : [1, 0], lw = fd[0] !== 0 ? d : w, t = lw / 2 - 8;
+    const wallX = fd[0] < 0 ? b.x0 : fd[0] > 0 ? b.x1 : cx, wallZ = fd[1] < 0 ? b.z0 : fd[1] > 0 ? b.z1 : cz;
+    const lx = (fd[0] !== 0 ? wallX : cx) + along[0] * t + fd[0] * 0.35, lz = (fd[1] !== 0 ? wallZ : cz) + along[1] * t + fd[1] * 0.35, steel = new THREE.Color(0.32, 0.33, 0.35);
+    const piece = (u0, u1, o0, o1, y0, y1) => { const ax = lx + along[0] * u0 + fd[0] * o0, az = lz + along[1] * u0 + fd[1] * o0, bx = lx + along[0] * u1 + fd[0] * o1, bz = lz + along[1] * u1 + fd[1] * o1; G.props.box(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz), y0, y1, 3, steel); };
+    const yTop = top + 1.1;
+    for (const u of [-0.26, 0.22]) piece(u, u + 0.04, -0.03, 0.03, CURB, yTop);                             // the rails
+    for (let yy = CURB + 0.3; yy < yTop - 0.1; yy += 0.3) piece(-0.24, 0.24, -0.02, 0.02, yy, yy + 0.035);    // rungs
+    for (let yy = CURB + 3; yy < top - 0.5; yy += 1.5) { piece(-0.42, -0.38, 0, 0.7, yy, yy + 0.05); piece(0.38, 0.42, 0, 0.7, yy, yy + 0.05); piece(-0.42, 0.42, 0.66, 0.7, yy, yy + 0.05); }
+    for (let yy = CURB + 2.6; yy < yTop - 0.2; yy += 8) { piece(-0.24, 0.24, -0.35, -0.02, yy, yy + 0.05); }   // stand-offs to the wall
+    const ladder = { x: lx + fd[0] * 0.75, z: lz + fd[1] * 0.75, tx: lx - fd[0] * 1.6, tz: lz - fd[1] * 1.6, h: Math.atan2(-fd[0], -fd[1]), lx, lz };
+    addRoof({ bx0: b.x0, bx1: b.x1, bz0: b.z0, bz1: b.z1, x0: b.x0 + 1.1, x1: b.x1 - 1.1, z0: b.z0 + 1.1, z1: b.z1 - 1.1, y: top + lift, pad: { x: px, z: pz, r: R, h: Math.atan2(sx, sz) }, hut: { ...hut, door }, ladder });
+  }
   // A front door in the middle bay of a street face (the bays are 4 m wide from the corners): a door of two dark leaves set back in a stone surround,
   // a step, and a flat canopy over it.
   entrance(ctx, b, f, trim, stone) {

@@ -57,7 +57,7 @@ export class Input {
   emit(name, ...a) { for (const f of this.handlers[name] || []) f(...a); }
   edgeKey(code, e) {
     // F gets in and out of the car (Shift+F is the fullscreen toggle now).
-    const map = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'pause', KeyE: 'shiftUp', KeyQ: 'shiftDown', Enter: 'confirm', KeyU: 'mute', KeyM: 'map', Tab: 'map', KeyF: e && e.shiftKey ? 'fullscreen' : 'use' };
+    const map = { KeyC: 'camera', KeyR: 'reset', Escape: 'pause', KeyP: 'pause', KeyE: 'shiftUp', KeyQ: 'shiftDown', Enter: 'confirm', KeyU: 'mute', KeyY: 'buy', KeyM: 'map', Tab: 'map', KeyF: e && e.shiftKey ? 'fullscreen' : 'use' };
     if (map[code]) this.emit(map[code]);
     // The weapons on foot (the game ignores these in the car): R reloads, G throws a grenade, 1 to 4 choose a gun, 0 puts it away.
     if (code === 'KeyR') this.emit('reload'); else if (code === 'KeyG') this.emit('grenade'); else if (code === 'KeyZ' || code === 'KeyB') this.emit('kick'); else if (/^Digit[0-5]$/.test(code)) this.emit('weapon', +code.slice(5));

@@ -54,6 +54,8 @@ export class Visit {
       if (far && (this.frame + i) % 3) continue; p.update(Math.min(p.acc, 0.1)); p.acc = 0;
     }
     this._prompt = Math.hypot(R.exit.x - P.x, R.exit.z - P.z) < 1.7 && P.y < R.oy + 0.3 ? 'LEAVE' : '';
+    // A tower with a helipad on its roof (roofs.js): the lifts at the back of the lobby go up to it.
+    if (!this._prompt && this.venue && this.venue.roof && R.lifts && P.y < R.oy + 0.3) for (const [x, z] of R.lifts) if (Math.hypot(R.ox + x - P.x, R.oz + z - P.z) < 1.8) { this._prompt = 'LIFT TO THE ROOF'; break; }
   }
-  use() { return this._prompt === 'LEAVE' ? 'exit' : false; }
+  use() { return this._prompt === 'LEAVE' ? 'exit' : this._prompt === 'LIFT TO THE ROOF' ? 'roof' : false; }
 }
