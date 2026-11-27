@@ -29,6 +29,12 @@ export const KINDS = {
   jetski: { file: 'jetski.glb', len: 3.3, front: 'narrow', hide: /^Registration$/, name: 'WATER SCOOTER', prompt: 'TAKE THE WATER SCOOTER', boat: true, draft: 0.32, pose: 'bike',
     thrust: 8.5, k1: 0.06, k2: 0.0125, turn: 1.6, grip: 3.2, plane: 7, mass: 420 },
   heli: { file: 'helicopter.glb', len: 19.5, front: 'tail', tailPart: /backrotor/i, rotorPart: /propellar/i, name: 'HELICOPTER', prompt: 'FLY THE HELICOPTER', heli: true },
+  // The planes (class Plane) at the desert airfield. The nose is found from a part on it (the pitot tubes, the propeller); a plane is wider than it
+  // is long, so the long-axis rule is not used. vr: the speed it lifts off at; vmax: flat out; climb: how fast the nose comes up (rad/s).
+  jet: { file: 'jet.glb', len: 14.4, front: 'part', nosePart: /^Pitot_tubes$/, hide: /fan(Medium|Fast)|heater|_inside$/i, spinPart: /fanSlow/i, name: 'BUSINESS JET', prompt: 'FLY THE JET', plane: true,
+    gear: { nose: 0.36, main: -0.04, track: 2.7, h: 1.05, r: 0.34 }, thrust: 14, vr: 52, vmax: 170, stall: 40, drag: 0.00048, climb: 0.55, roll: 1.6, price: 1450000, rpm: [2200, 6800] },
+  prop: { file: 'prop.glb', len: 7.3, front: 'part', nosePart: /^helice$/, hide: /^(propblur|propdisc)$/, spinPart: /^helice$/, name: 'LIGHT AIRCRAFT', prompt: 'FLY THE PLANE', plane: true,
+    thrust: 6.5, vr: 27, vmax: 72, stall: 21, drag: 0.0012, climb: 0.75, roll: 1.9, price: 240000, rpm: [700, 2700] },
 };
 const DIR = new URL('../assets/rides/', import.meta.url).href, DRACO = new URL('../assets/draco/', import.meta.url).href;
 let draco = null; const templates = {}, loading = {};
@@ -68,7 +74,11 @@ function prepare(scene, cfg) {
   const box = () => { const b = new THREE.Box3(); for (const p of parts) { p.g.computeBoundingBox(); b.union(p.g.boundingBox); } return b; };
   const apply = M => { for (const p of parts) p.g.applyMatrix4(M); };
   let b = box(), s = b.getSize(new THREE.Vector3());
-  if (s.x > s.z) { apply(new THREE.Matrix4().makeRotationY(-Math.PI / 2)); b = box(); s = b.getSize(new THREE.Vector3()); }
+  if (cfg.front === 'part') {                                                // (a plane: turn it so the part on its nose is at +z)
+    const t = new THREE.Box3(); for (const p of parts) if (p.names.some(n => cfg.nosePart.test(n))) { p.g.computeBoundingBox(); t.union(p.g.boundingBox); }
+    const c = t.getCenter(new THREE.Vector3()), m = b.getCenter(new THREE.Vector3());
+    apply(new THREE.Matrix4().makeRotationY(-Math.atan2(c.x - m.x, c.z - m.z))); b = box(); s = b.getSize(new THREE.Vector3());
+  } else if (s.x > s.z) { apply(new THREE.Matrix4().makeRotationY(-Math.PI / 2)); b = box(); s = b.getSize(new THREE.Vector3()); }
   // Which end is the nose.
   let flip = !!cfg.flip;
   if (cfg.front === 'narrow') {
@@ -315,6 +325,91 @@ export class Heli extends Craft {
   hud() { return Math.round(this.speed * 3.6) + ' KM/H · ' + Math.round(this.alt) + ' M UP' + (this.spool < 0.85 ? ' · ROTOR ' + Math.round(this.spool * 100) + '%' : ''); }
 }
 
+// A plane. W opens the throttle and S closes it (on the ground, S with the throttle shut is the brakes); Space pulls the nose up and Z pushes it
+// down; A/D roll it into a bank, and a banked plane turns (tan bank = speed x turn rate / g), the nose dropping a little unless you hold it up. On
+// the ground the nose wheel steers it and it rolls on its wheels: it lifts off only once it is going fast enough to fly (cfg.vr). In the air it goes
+// where its nose points, losing speed in a climb and gaining it in a dive; too slow (cfg.stall) and the wing stops lifting: the nose drops and it
+// sinks until it has the speed back. Put it down gently, wings level and the nose not down, and it rolls out on its wheels; hit the ground (or a
+// building) hard and it is wrecked: it burns where it stops and you are thrown clear (main.js).
+export class Plane extends Craft {
+  constructor(kind) {
+    super(kind); const T = templates[kind], cfg = this.cfg;
+    const M = craftMesh(T, { part: p => p.names.some(n => cfg.spinPart.test(n)) ? 'spin' : null });
+    this.mesh = M.root; this.mesh.name = kind; this.len = T.size.z; this.span = T.size.x; this.spin = M.spin || null;
+    // A jet with its wheels left out of the model: a nose wheel and two main wheels on legs, drawn while it is low (they fold away in the air).
+    this.lift = 0; this.gear = null;
+    if (cfg.gear) {
+      const G = cfg.gear, g = new THREE.Group(), tyre = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.85 }), leg = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.8, roughness: 0.35 });
+      for (const [x, z] of [[0, G.nose * this.len], [G.track / 2, G.main * this.len], [-G.track / 2, G.main * this.len]]) {
+        const w = new THREE.Mesh(new THREE.CylinderGeometry(G.r, G.r, 0.22, 16).rotateZ(Math.PI / 2), tyre); w.position.set(x, G.r, z); w.castShadow = true; g.add(w);
+        const l = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, G.h + 0.25, 8), leg); l.position.set(x, G.r + (G.h + 0.25) / 2, z); l.castShadow = true; g.add(l);
+      }
+      M.body.add(g); this.gear = g; this.lift = G.h + 0.1;
+      for (const c of M.body.children) if (c !== g) c.position.y += this.lift;
+    }
+    contactShadow(this.span * 0.8, this.len * 0.9, this.mesh);
+    this.ud = { body: M.body, cockpit: { eye: new THREE.Vector3(0, T.size.y * 0.55 + this.lift, this.len * 0.32), seat: null, update() {} }, craft: this, noRider: true };
+    this.mesh.userData = this.ud;
+    this.thr = 0; this.spool = 0; this.onGround = true; this.alt = 0; this.sight = 600; this.v = 0; this.climbV = 0; this.ang = 0; this.wrecked = false;
+    this.cam = { dist: 12 + this.len * 1.3, height: 4 + this.len * 0.3, look: 2 + this.lift };
+  }
+  floor(x, z) { return Heli.prototype.floor.call(this, x, z); }
+  blocked(x, z, y) { return Heli.prototype.blocked.call(this, x, z, y); }
+  canLeave() { return this.wrecked ? null : !this.onGround ? 'LAND FIRST' : this.speed > 3 ? 'STOP FIRST' : null; }
+  landing() { const a = this.h + Math.PI / 2, d = this.span / 2 * 0.3 + 2.2, x = this.x + Math.sin(a) * d, z = this.z + Math.cos(a) * d; return { x, z, y: this.floor(x, z), h: this.h }; }
+  update(dt, f = {}) {
+    const c = this.cfg, on = f.engine !== false && !this.wrecked;
+    if (!on) { this.thr = Math.max(0, this.thr - dt); }
+    else this.thr = clamp(this.thr + clamp(f.my || 0, -1, 1) * dt * 0.55, 0, 1);
+    const boost = on && f.sprint && this.thr > 0.95 ? 1.25 : 1;                                       // (Shift at full throttle: everything it has)
+    this.spool += ((on ? 0.25 + 0.75 * this.thr : 0) - this.spool) * Math.min(1, dt * 1.5);
+    const pull = on ? (f.jump ? 1 : 0) - (f.crouch ? 1 : 0) : 0, bankIn = on ? clamp(f.mx || 0, -1, 1) : 0;
+    let v = this.v;
+    // Speed: thrust, drag and (in the air) the slope it is flying up or down.
+    const thrust = this.thr * c.thrust * boost * (1 - 0.65 * clamp(v / (c.vmax * boost), 0, 1) ** 2);
+    v += (thrust - c.drag * v * v - (this.onGround ? 0.12 + (this.thr < 0.05 && (f.my || 0) < 0 ? 6 : 0) : 9.8 * Math.sin(this.pitch))) * dt;
+    v = Math.max(0, v);
+    if (this.onGround) {
+      // Rolling: the nose wheel steers (less as it goes faster); the nose can come up once it is fast enough to fly.
+      this.roll += (0 - this.roll) * Math.min(1, dt * 4);
+      this.w = -bankIn * 0.6 * clamp(v / 6, 0, 1) / (1 + v / 18); this.h = wrapAngle(this.h + this.w * dt);
+      const canRot = v > c.vr * 0.9; this.pitch = clamp(this.pitch + (canRot && pull > 0 ? c.climb * 0.6 : -0.6) * dt, 0, 0.22);
+      this.climbV = v > c.vr && this.pitch > 0.06 ? v * Math.sin(this.pitch) : 0;
+    } else {
+      // Flying: bank from the stick (it rolls back level when let go), the turn from the bank, the nose up or down from Space and Z.
+      const rollT = bankIn * 1.05;                                                                   // (a positive roll is banked right, and turns right: w < 0)
+      this.roll += clamp(rollT - this.roll, -c.roll * dt, c.roll * dt);
+      const lift = clamp((v - c.stall) / (c.vr - c.stall), 0, 1);                                     // (below the stall speed the wing gives up)
+      this.w = v > 1 ? -9.8 * Math.tan(this.roll) / Math.max(v, c.stall) * lift : 0; this.h = wrapAngle(this.h + this.w * dt);
+      const sag = 0.08 * Math.abs(Math.sin(this.roll)) + (1 - lift) * 0.5;                            // (a bank, or too little speed, lets the nose drop)
+      this.pitch = clamp(this.pitch + (pull * c.climb * (0.4 + 0.6 * lift) - sag) * dt, -0.9, 0.75);
+      this.climbV = v * Math.sin(this.pitch) * lift - (1 - lift) * 9;
+    }
+    // Move along the nose, then the buildings and the ground.
+    const fx = Math.sin(this.h), fz = Math.cos(this.h), hv = v * Math.cos(this.pitch);
+    let nx = this.x + fx * hv * dt, nz = this.z + fz * hv * dt, ny = this.y + this.climbV * dt;
+    if (!this.onGround || v > 8) if (this.blocked(nx, nz, ny + 1)) { this.crash(v); nx = this.x; nz = this.z; v = 0; }
+    nx = clamp(nx, WORLD.x0 + 50, WORLD.x1 - 50); nz = clamp(nz, WORLD.z0 + 50, WORLD.z1 - 50); ny = Math.min(ny, 1800);
+    const fl = this.floor(nx, nz);
+    if (ny <= fl) {
+      if (!this.onGround) {
+        const sink = -this.climbV;
+        if (sink > 9 || Math.abs(this.roll) > 0.5 || this.pitch < -0.2 || v > c.vmax * 0.75) this.crash(v);
+        else if (sink > 4) this.bump = sink * 1.5;
+      } else if (fl - this.y > 1.2 && v > 6) this.crash(v);                                           // (rolled into a step: a kerb, a wall)
+      ny = fl; this.onGround = true; if (this.pitch < 0) this.pitch = 0;
+    } else if (ny > fl + 0.3) this.onGround = false;
+    if (this.wrecked) { v *= Math.exp(-dt * 3); this.thr = 0; }
+    this.v = v; this.x = nx; this.z = nz; this.y = ny; this.vx = fx * hv; this.vz = fz * hv; this.vy = this.climbV; this.speed = v; this.alt = ny - fl;
+    if (this.gear) this.gear.visible = this.alt < 60;
+    this.ang += dt * this.spool * (this.cfg.gear ? 90 : 70); if (this.spin) this.spin.rotation.z = this.ang;
+    this.pose();
+  }
+  pose() { if (!this.mesh) return; this.mesh.position.set(this.x, this.y, this.z); this.mesh.rotation.set(0, this.h, 0); this.ud.body.rotation.set(-this.pitch, 0, this.roll, 'YXZ'); }
+  crash(v) { if (this.wrecked) return; this.wrecked = true; this.bump = 30 + v * 0.3; this.crashed = true; this.roll = clamp(this.roll, -0.3, 0.3); }
+  hud() { return Math.round(this.speed * 3.6) + ' KM/H · ' + Math.round(this.alt) + ' M UP · THROTTLE ' + Math.round(this.thr * 100) + '%' + (this.onGround && this.speed > 5 && this.speed < this.cfg.vr ? ' · LIFT-OFF ' + Math.round(this.cfg.vr * 3.6) : '') + (!this.onGround && this.speed < this.cfg.stall * 1.15 ? ' · STALL!' : ''); }
+}
+
 // ---- Where the rides are kept -----------------------------------------------------------------------------------------------------------------
 // spots: [{ kind, x, z, h }]. The bike stands on the road; the boats float; the helicopter sits on its pad. Each is built when its model has loaded
 // and shown only within a few hundred metres.
@@ -327,8 +422,8 @@ export class Rides {
   build(r) {
     if (r.mesh || !rideReady(r.kind)) return;
     if (r.kind === 'bike') { r.mesh = makeBike(); if (!r.mesh) return; r.mesh.name = 'bike'; r.mesh.position.set(r.x, groundAt(r.x, r.z).y, r.z); r.mesh.rotation.y = r.h; this.scene.add(r.mesh); return; }
-    r.craft = r.kind === 'heli' ? new Heli() : new Boat(r.kind); r.mesh = r.craft.mesh;
-    r.craft.place(r.x, r.z, r.h, r.kind === 'heli' ? r.craft.floor(r.x, r.z) : undefined); if (r.kind === 'heli') r.craft.spool = 0;
+    r.craft = r.kind === 'heli' ? new Heli() : KINDS[r.kind].plane ? new Plane(r.kind) : new Boat(r.kind); r.mesh = r.craft.mesh;
+    r.craft.place(r.x, r.z, r.h, r.kind === 'heli' || r.craft.cfg.plane ? r.craft.floor(r.x, r.z) : undefined); if (r.kind === 'heli') r.craft.spool = 0;
     this.scene.add(r.mesh);
   }
   // The ride you could take from where you stand: { ride, prompt } or null.
@@ -336,16 +431,27 @@ export class Rides {
     let best = null, bd = 1e9;
     for (const r of this.list) {
       if (r.taken || !r.mesh || !r.mesh.visible) continue;
-      const x = r.craft ? r.craft.x : r.x, z = r.craft ? r.craft.z : r.z, d = Math.hypot(w.x - x, w.z - z), reach = r.kind === 'bike' ? 2.2 : r.kind === 'heli' ? 8 : 16;
-      if (r.craft && r.craft.isCraft && r.kind !== 'heli' && !(groundAt(w.x, w.z).y > SEA_Y + 0.6)) continue;
+      const x = r.craft ? r.craft.x : r.x, z = r.craft ? r.craft.z : r.z, d = Math.hypot(w.x - x, w.z - z), reach = r.kind === 'bike' ? 2.2 : r.kind === 'heli' ? 8 : r.craft && r.craft.cfg.plane ? r.craft.span * 0.55 : 16;
+      if (r.craft && r.craft.wrecked) continue;
+      if (r.craft && r.craft.isCraft && r.kind !== 'heli' && !r.craft.cfg.plane && !(groundAt(w.x, w.z).y > SEA_Y + 0.6)) continue;
       if (r.kind === 'heli' && r.craft && Math.abs(w.y - r.craft.y) > 3) continue;                      // (a helicopter on a roof is not reached from the street under it)
       if (d < reach && d < bd) { bd = d; best = { ride: r, prompt: this.promptOf(r), buy: this.priceOf(r), d: r.kind === 'bike' ? d : Math.max(0.5, d * 0.2) }; }
     }
     return best;
   }
   // A helicopter on a roof: yours (bought), or someone else's (to steal, or to buy: its price, or 0 when it is not for sale).
-  promptOf(r) { return r.roof ? (this.owned.has(r.roof) ? 'FLY YOUR HELICOPTER' : 'STEAL THE HELICOPTER') : KINDS[r.kind].prompt; }
-  priceOf(r) { if (!r.roof || this.owned.has(r.roof)) return 0; const R = ROOFS.get(r.roof); return R ? R.price : 0; }
+  // A plane at the airfield: the same (owned under 'plane:' and its kind).
+  promptOf(r) { const k = KINDS[r.kind]; if (k.plane) return this.owned.has('plane:' + r.kind) ? 'FLY YOUR ' + (r.kind === 'jet' ? 'JET' : 'PLANE') : 'STEAL THE ' + (r.kind === 'jet' ? 'JET' : 'PLANE'); return r.roof ? (this.owned.has(r.roof) ? 'FLY YOUR HELICOPTER' : 'STEAL THE HELICOPTER') : k.prompt; }
+  priceOf(r) { const k = KINDS[r.kind]; if (k.plane) return this.owned.has('plane:' + r.kind) ? 0 : k.price; if (!r.roof || this.owned.has(r.roof)) return 0; const R = ROOFS.get(r.roof); return R ? R.price : 0; }
+  ownKey(r) { return KINDS[r.kind].plane ? 'plane:' + r.kind : r.roof; }
+  // A plane wrecked, or left far away: back on the apron, as new, when you are far from where it was.
+  planes(F, active) {
+    for (const r of this.list) {
+      const c = r.craft; if (!c || !c.cfg.plane || c === active) continue;
+      const moved = Math.hypot(c.x - r.home.x, c.z - r.home.z) > 5 || c.wrecked;
+      if (moved && Math.hypot(F.x - c.x, F.z - c.z) > 700 && Math.hypot(F.x - r.home.x, F.z - r.home.z) > 400) { c.wrecked = false; c.thr = 0; c.spool = 0; c.pitch = 0; c.roll = 0; c.v = 0; c.onGround = true; c.place(r.home.x, r.home.z, r.home.h, c.floor(r.home.x, r.home.z)); r.stolen = false; }
+    }
+  }
   // The helicopters on the roofs with a helipad (roofs.js): the nearest few within 650 m stand on their pads; one far away that nobody is flying goes
   // (and is back on its pad when you come near again, wherever it was left).
   roofs(F, active) {
@@ -366,7 +472,7 @@ export class Rides {
     }
   }
   update(dt, F, active) {
-    if ((this.roofT -= dt) <= 0) { this.roofT = 1; this.roofs(F, active); }
+    if ((this.roofT -= dt) <= 0) { this.roofT = 1; this.roofs(F, active); this.planes(F, active); }
     for (const r of this.list) {
       if (!r.mesh) continue; const x = r.craft ? r.craft.x : r.x, z = r.craft ? r.craft.z : r.z, d = Math.hypot(F.x - x, F.z - z);
       if (r.taken && r.kind === 'bike') continue;

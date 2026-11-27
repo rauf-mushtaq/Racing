@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Model viewer</title>
+<!-- Look at any glb: planeview.html?f=../assets/rides/plane.glb&az=40&el=15&d=1.6 -->
+<script type="importmap">{ "imports": { "three": "../vendor/three/build/three.module.js", "three/addons/": "../vendor/three/addons/" } }</script>
+<style>html, body { margin: 0; background: #2a2c30; overflow: hidden; } canvas { display: block; }</style>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+const q = new URLSearchParams(location.search), W = innerWidth, H = innerHeight;
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(W, H); r.toneMapping = THREE.ACESFilmicToneMapping; r.shadowMap.enabled = true; document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9fb4c8);
+const hdr = await new RGBELoader().loadAsync('../assets/hdr/venice_sunset_1k.hdr'); hdr.mapping = THREE.EquirectangularReflectionMapping; scene.environment = hdr;
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.5); sun.position.set(20, 30, 14); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -25, right: 25, top: 25, bottom: -25 }); scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(400, 400).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x55585c, roughness: 0.85 })); floor.receiveShadow = true; scene.add(floor);
+const L = new GLTFLoader(); const dr = new DRACOLoader(); dr.setDecoderPath('../assets/draco/'); L.setDRACOLoader(dr);
+const g = (await L.loadAsync(q.get('f'))).scene; g.traverse(o => { if (o.isMesh) { o.castShadow = true; } }); scene.add(g);
+const b = new THREE.Box3().setFromObject(g); g.position.y -= b.min.y; b.setFromObject(g);
+const c = b.getCenter(new THREE.Vector3()), s = b.getSize(new THREE.Vector3()), R = Math.max(s.x, s.y, s.z) * (+q.get('d') || 1.3);
+const az = (+q.get('az') || 40) * Math.PI / 180, el = (+q.get('el') || 15) * Math.PI / 180;
+const cam = new THREE.PerspectiveCamera(35, W / H, 0.1, 2000); cam.position.set(c.x + R * Math.cos(el) * Math.sin(az), c.y + R * Math.sin(el), c.z + R * Math.cos(el) * Math.cos(az)); cam.lookAt(c);
+r.render(scene, cam); window.size = [s.x, s.y, s.z].map(v => +v.toFixed(2)); window.done = true;
+</script></body></html>
