@@ -19,7 +19,7 @@ try {
   await P.click('button[data-m="free"]');
   await P.waitForFunction(() => window.__game.game.state === 'free', null, { timeout: 60000 });
   await step(P, 60);
-  await P.evaluate(() => { window.__freeze = true; const g = window.__game; g.officers.prepare(); });
+  await P.evaluate(() => { window.__freeze = true; const g = window.__game; g.officers.prepare(); g.brawl.clear(); g.brawl.enabled = false; });      // (no armed passers-by joining in: a shot from one would be a gun crime, which is not what this tests)
   await P.waitForFunction(() => window.__game.officers.ready, null, { timeout: 90000 }).catch(() => {});
   const inCar = await P.evaluate(() => { const g = window.__game, c = g.car; g.walker.place(c.x - Math.cos(c.h) * 1.6, c.z + Math.sin(c.h) * 1.6, c.h); g.tick(1 / 60); g.enterCar(); g.car.vx = 0; g.car.vz = 0; g.tick(1 / 60); return !g.game.onFoot; });
   check('(in the car to start)', inCar);
