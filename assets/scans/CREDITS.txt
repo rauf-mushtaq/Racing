@@ -12,6 +12,8 @@ wallbrick: "Red Brick 03" (red_brick_03) by Rob Tuytel
 wallplaster: "Painted Plaster Wall" (painted_plaster_wall) by Amal Kumar
 wallconcrete: "Concrete Wall 008" (concrete_wall_008) by Dario Barresi, Charlotte Baglioni
 wallstone: "Large Sandstone Blocks" (large_sandstone_blocks) by Rob Tuytel
+propgrain: "Leather White" (leather_white) by Rob Tuytel
+metalwear: "Blue Metal Plate" (blue_metal_plate) by Rob Tuytel
 in_vinyl: "Floor Tiles 08" (floor_tiles_08) by Rob Tuytel
 in_marble: "Marble 01" (marble_01) by Rob Tuytel
 in_granite: "Granite Tile" (granite_tile) by Charlotte Baglioni

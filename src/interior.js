@@ -4,7 +4,8 @@
 // the floor, and the bullets all work from the room's own list of boxes, never the city's. The streets round the door go on being simulated, so the police
 // really do arrive outside it.
 import * as THREE from 'three';
-import { scanSet } from './scans.js';
+import { scanSet, scanTex, SCANS } from './scans.js';
+import { scanProp } from './props.js';
 import { GB, circlePoly, mergeGeoms } from './geom.js';
 import { clamp, mulberry32 } from './util.js';
 import { attachSSR } from './ssr.js';
@@ -133,7 +134,12 @@ const SURFACES = {
 };
 // Each surface is drawn here, then the photo-scan of the real material takes its place when it has loaded (scans.js; those with one).
 const SCANNED = new Set(['vinyl', 'marble', 'granite', 'rubber', 'gymfloor', 'flags', 'ashlar', 'slab', 'showroom', 'oak', 'plaster', 'brick', 'concrete']);
-export function surface(name) { return SURF[name] || (SURF[name] = SCANNED.has(name) ? scanSet(SURFACES[name](), 'in_' + name) : SURFACES[name]()); }
+const POLISHED = new Set(['marble', 'granite', 'showroom']);          // (polished: the scan's colour and relief, but the drawn floor's mirror shine, not the scan's)
+export function surface(name) {
+  if (SURF[name]) return SURF[name];
+  const S = SURFACES[name](); if (!SCANNED.has(name)) return (SURF[name] = S);
+  return (SURF[name] = POLISHED.has(name) ? { ...scanSet({ map: S.map, normalMap: S.normalMap }, 'in_' + name), roughnessMap: S.roughnessMap } : scanSet(S, 'in_' + name));
+}
 // Which surfaces a kind of place has: [floor, walls, ceiling], and how the floor shines.
 const LOOK = {
   petrol: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }], shop: ['vinyl', 'plaster', 'ceiling', { clearcoat: 0.25, rough: 1 }],
@@ -210,6 +216,22 @@ function makeTextures() {
   for (const t of Object.values(TEX)) t.repeat.set(1, 1);
 }
 
+// ---- Scanned furniture (rooms-visit.js puts the scanned sofas and chairs in R.scanned): one instanced mesh of each in the room, each piece turned to
+// face its way, a sofa stretched to its width, and tinted a little towards the colour the room asked for.
+const SCAN_FIT = {};
+function scanFurniture(R) {
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), s = new THREE.Vector3(), c = new THREE.Color();
+  for (const [name, list] of Object.entries(R.scanned)) {
+    if (!list.length) continue; const F = SCAN_FIT[name] || (SCAN_FIT[name] = scanProp(name, true)); if (!F) continue;
+    const im = new THREE.InstancedMesh(F.g, F.mat, list.length);
+    list.forEach((it, i) => {
+      q.setFromAxisAngle(up, it.f); p.set(R.ox + it.x, R.oy + it.y, R.oz + it.z); s.set(it.sx, 1, 1); m4.compose(p, q, s); im.setMatrixAt(i, m4);
+      const k = Math.max(it.col.r, it.col.g, it.col.b, 0.01); c.setRGB(0.55 + 0.45 * it.col.r / k, 0.55 + 0.45 * it.col.g / k, 0.55 + 0.45 * it.col.b / k); im.setColorAt(i, c);
+    });
+    im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); R.loose.push(im);
+  }
+}
+
 // ---- A room under construction --------------------------------------------------------------------------------------------------------------------------
 // Everything is given in the room's own metres: the door is in the middle of the front wall (x = 0, z = 0) and the room runs back along +z.
 export const C = h => new THREE.Color(h);
@@ -217,7 +239,7 @@ export class Room {
   constructor(kind, ox, oz) {
     this.kind = kind; this.ox = ox; this.oz = oz; this.oy = STAGE_Y;
     this.gb = { floor: new GB(true), wall: new GB(true), ceil: new GB(true), prop: new GB(true), metal: new GB(true), emit: new GB(true), wood: new GB(true), turf: new GB(true), goods: new GB(true), books: new GB(true), screen: new GB(true), art: [] };      // (wood: oak boards and timber; turf: artificial grass; goods: packets on shelves; screen: a picture that glows)
-    this.boxes = []; this.circs = []; this.items = []; this.spots = []; this.cams = []; this.lasers = []; this.loose = []; this.lights = [];
+    this.boxes = []; this.circs = []; this.scanned = {}; this.items = []; this.spots = []; this.cams = []; this.lasers = []; this.loose = []; this.lights = [];
     this.W = 10; this.D = 8; this.H = 3; this.lift = 0;              // (lift: everything boxed or drummed in goes up by this much: furniture on a gallery)
   }
   // Boxes: x0, z0, x1, z1 across the floor, y0..y1 up. `solid` makes it a thing to walk round (and to be shot at).
@@ -409,6 +431,12 @@ export class Interior {
       glass: m(THREE.MeshPhysicalMaterial, { color: 0xd6ecf4, transparent: true, opacity: 0.2, roughness: 0.04, metalness: 0, envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false }),
       gem: m(THREE.MeshStandardMaterial, { color: 0xffffff, roughness: 0.02, metalness: 0.2, emissive: 0x6688aa, emissiveIntensity: 0.5, envMapIntensity: 2.4 }),
     };
+    // The furniture, the counters and the gym's machines: a scan's grain (leather, neutral grey) under each thing's own colour; the steel: the wear of a
+    // scanned metal plate (where it is rubbed bright and where it is dull). See tools/scans/textures.py.
+    if (SCANS.on) {
+      const P = this.mats.prop; P.map = scanTex('propgrain_diff.webp'); P.normalMap = scanTex('propgrain_nor.webp', false, '#8080ff'); P.roughnessMap = scanTex('propgrain_rough.webp', false); P.color.setScalar(1.25); P.normalScale.set(0.6, 0.6);
+      const Mt = this.mats.metal; Mt.roughnessMap = scanTex('metalwear_rough.webp', false); Mt.normalMap = scanTex('metalwear_nor.webp', false, '#8080ff'); Mt.normalScale.set(0.4, 0.4); Mt.roughness = 0.6;
+    }
     attachSSR(this.mats.floor, { range: 22, rough: 0.35, view: 30 });                              // (a polished floor shows the lights, the counters and the people)
     // Soft shadows under furniture and along the walls, the daylight spilling in at the door and the pools of light under the lamps (drawn with a transparency of their own at every corner).
     this.mats.shade = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide });
@@ -437,7 +465,7 @@ export class Interior {
   // Builds the room for a venue ({ kind, x, z, seed }) at the stage above its door.
   build(venue, plan) {
     this.dispose();
-    const R = new Room(venue.kind, Math.round(venue.x), Math.round(venue.z)); R.mats = this.mats; R.art = [TEX.art0, TEX.art1, TEX.art2, TEX.art3]; plan(R, venue); decorate(R, venue); plantMesh(R); this.room = R;
+    const R = new Room(venue.kind, Math.round(venue.x), Math.round(venue.z)); R.mats = this.mats; R.art = [TEX.art0, TEX.art1, TEX.art2, TEX.art3]; plan(R, venue); decorate(R, venue); plantMesh(R); scanFurniture(R); this.room = R;
     const g = new THREE.Group(); g.visible = false;
     if (R.gb.wood.count && !this.mats.wood.map) { const O = surface('oak'), wm = this.mats.wood; wm.map = O.map; wm.normalMap = O.normalMap; wm.roughnessMap = O.roughnessMap; wm.needsUpdate = true; }
     for (const k of ['floor', 'wall', 'ceil', 'prop', 'metal', 'emit', 'wood', 'turf', 'goods', 'books', 'screen']) {

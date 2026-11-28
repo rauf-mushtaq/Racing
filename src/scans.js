@@ -25,6 +25,8 @@ function image(file) {
 export function scan(t, file) {
   if (!t || !SCANS.on) return t;
   image(file).then(i => {
+    // (A texture already on the GPU keeps its size: one of another size has to be let go of, and made again from the scan.)
+    const w0 = t.image && t.image.width, h0 = t.image && t.image.height; if (t.version > 0 && (w0 !== i.width || h0 !== i.height)) t.dispose();
     if (t.isDataTexture) {
       const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; const g = c.getContext('2d', { willReadFrequently: true });
       g.translate(0, i.height); g.scale(1, -1); g.drawImage(i, 0, 0);
@@ -45,17 +47,18 @@ export function scanSet(set, name) {
 }
 // Every scan asked for so far, loaded (or failed): for the tests.
 export const scansSettled = () => Promise.allSettled([...loading.values()]);
-// A texture of a scan on its own (repeating), for surfaces that had no drawn texture.
-export function scanTex(file, srgb = true) {
-  const t = new THREE.Texture(); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-  if (SCANS.on) image(file).then(i => { t.image = i; t.needsUpdate = true; }).catch(e => console.warn(e.message));
-  return t;
+// A texture of a scan on its own (repeating), for surfaces that had no drawn texture: one pixel of `fill` (the colour that changes nothing: white for a
+// colour or a roughness, (128, 128, 255) for a normal map) until the scan comes, or for good with the scans off.
+export function scanTex(file, srgb = true, fill = '#ffffff') {
+  const c = document.createElement('canvas'); c.width = c.height = 1; const g = c.getContext('2d'); g.fillStyle = fill; g.fillRect(0, 0, 1, 1);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  return scan(t, file);
 }
 
 // ---- Scanned models (assets/scans/*.glb, made by tools/scans/models.sh) -------------------------------------------------------------------------------
 // Loaded once, before the props are made (city.js), so the props can be built from them; a model that does not load leaves the drawn one in its place.
 export const SCAN_MODELS = {};
-export async function loadScanModels(names = ['rock', 'hydrant', 'bench']) {
+export async function loadScanModels(names = ['rock', 'hydrant', 'bench', 'quiver', 'sofa', 'chair']) {
   if (!SCANS.on) return SCAN_MODELS;
   const [{ GLTFLoader }, { DRACOLoader }, { mergeGeometries }] = await Promise.all([import('three/addons/loaders/GLTFLoader.js'), import('three/addons/loaders/DRACOLoader.js'), import('three/addons/utils/BufferGeometryUtils.js')]);
   const L = new GLTFLoader(), d = new DRACOLoader(); d.setDecoderPath(new URL('../assets/draco/', import.meta.url).href); L.setDRACOLoader(d);

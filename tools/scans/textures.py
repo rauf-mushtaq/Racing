@@ -31,6 +31,22 @@ for name, (pid, maps) in SCANS.items():
         im.resize((1024, 1024), Image.LANCZOS).save(f'{out}/{name}_{tag}.webp', 'WEBP', quality=88 if m == 'n' else 82, method=6)
     info = json.load(urllib.request.urlopen(f'https://api.polyhaven.com/info/{pid}', timeout=30))
     credits.append(f"{name}: \"{info['name']}\" ({pid}) by {', '.join(info['authors'])}")
+# Neutral detail (interior.js: the furniture, the counters, the gym's machines, coloured each its own way): the scan's grain with its colour taken out
+# and its brightness set to 80 %, so a thing's own colour shows through it (the material is made 1.25 times as bright to make up for it). For metal,
+# only the scan's wear: where it is scratched and rubbed (the roughness) and its dents (the normals).
+from PIL import ImageOps, ImageStat
+for name, pid, maps in [('propgrain', 'leather_white', 'dnr'), ('metalwear', 'plate_wear', 'nr')]:
+    pid = {'plate_wear': 'blue_metal_plate'}.get(pid, pid)
+    for m in maps:
+        key, tag = KEYS[m]; src = f'{cache}/{pid}_{tag}_1k.jpg'
+        if not os.path.exists(src):
+            files = json.load(urllib.request.urlopen(f'https://api.polyhaven.com/files/{pid}', timeout=30)); urllib.request.urlretrieve(files[key]['1k']['jpg']['url'], src)
+        im = Image.open(src)
+        if m == 'd':
+            g = ImageOps.grayscale(im); mean = ImageStat.Stat(g).mean[0]; g = g.point(lambda v: max(0, min(255, round(204 + (v - mean) * 1.6)))); im = g.convert('RGB')
+        im = im.convert('L') if m == 'r' else im.convert('RGB')
+        im.resize((1024, 1024), Image.LANCZOS).save(f'{out}/{name}_{tag}.webp', 'WEBP', quality=86 if m == 'n' else 80, method=6)
+    info = json.load(urllib.request.urlopen(f'https://api.polyhaven.com/info/{pid}', timeout=30)); credits.append(f"{name}: \"{info['name']}\" ({pid}) by {', '.join(info['authors'])}")
 catalog = json.load(urllib.request.urlopen('https://api.polyhaven.com/assets?t=textures', timeout=60))
 done = {}
 for name, pid in INSIDE.items():

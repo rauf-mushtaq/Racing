@@ -15,7 +15,7 @@ export function initScatter(terrain, props) {
 
   terrain.onTile(tile => {
     const rnd = mulberry32(Math.imul(tile.tx + 500, 73856093) ^ Math.imul(tile.tz + 500, 19349663));
-    const L = { pine: [], snowPine: [], cactus: [], rock: [], shrub: [], tree: [], palm: [] }, n = Math.ceil(TILE / sp);
+    const L = { pine: [], snowPine: [], cactus: [], quiver: [], rock: [], shrub: [], tree: [], palm: [] }, n = Math.ceil(TILE / sp);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
       const x = tile.x0 + (i + rnd()) * sp, z = tile.z0 + (j + rnd()) * sp, r1 = rnd(), r2 = rnd();
       if (Math.abs(x) < EDGE + 16 && Math.abs(z) < EDGE + 16) continue;
@@ -34,7 +34,7 @@ export function initScatter(terrain, props) {
         if (r1 < 0.62 * line * clump) (rnd() < 0.3 + 0.7 * smooth(180, 430, h) ? L.snowPine : L.pine).push([x, h, z, sc * 1.1, r2]);
         else if (r1 > 0.97) L.rock.push([x, h, z, 1 + r2 * 2.6, r2]);
       } else if (cl.desert > 0.45) {
-        if (r1 < 0.026 * clump) L.cactus.push([x, h, z, sc, r2]);
+        if (r1 < 0.026 * clump) (r2 < 0.4 ? L.quiver : L.cactus).push([x, h, z, sc, r2]);            // (a quiver tree, scanned, or a cactus)
         else if (r1 < 0.07 * clump) L.rock.push([x, h, z, 0.8 + r2 * 2.4, r2]);
         else if (r1 < 0.2 * clump) L.shrub.push([x, h, z, 0.8 + r2 * 0.9, r2]);
       } else if (sh < 1100 && h < 14) {
@@ -58,6 +58,7 @@ export function initScatter(terrain, props) {
     const leaf = (cc, it) => cc.setRGB(0.8 + it[4] * 0.35, 0.88 + it[4] * 0.2, 0.75 + it[4] * 0.2);
     inst(P.geo.pine, P.mat.pine, L.pine, null, true); inst(P.geo.snowPine, P.mat.pine, L.snowPine, null, true);
     inst(P.geo.cactus, P.mat.cactus, L.cactus, null, true);
+    if (P.geo.quiver) inst(P.geo.quiver, P.mat.quiver, L.quiver.map(it => [it[0], it[1], it[2], it[3] * 1.6, it[4]]), null, true); else inst(P.geo.cactus, P.mat.cactus, L.quiver, null, true);
     inst(P.geo.rock, P.mat.rock, L.rock, (cc, it) => (cc.setRGB(1.1 - it[4] * 0.2, 0.95 - it[4] * 0.1, 0.8 - it[4] * 0.2)), true);
     inst(P.geo.bushCore, P.mat.bushCore, L.shrub, (cc, it) => cl2(cc, it, tile), false);          // (the core is tinted with the leaves: dry scrub is dry inside too)
     inst(P.geo.bushCards, P.mat.bushCards, L.shrub, (cc, it) => cl2(cc, it, tile), false);
@@ -66,7 +67,7 @@ export function initScatter(terrain, props) {
     tile.group.add(veg);
     // ... and solid trunks and rocks.
     const col = (list, r) => { for (const it of list) addCollider({ type: 'circ', x: it[0], z: it[2], r: r(it) }, tile.colliders); };
-    col(L.pine, it => 0.45 * it[3]); col(L.snowPine, it => 0.45 * it[3]); col(L.cactus, it => 0.5 * it[3]); col(L.rock, it => 0.8 * it[3]); col(L.tree, it => 0.5 * it[3]); col(L.palm, it => 0.4 * it[3]);
+    col(L.pine, it => 0.45 * it[3]); col(L.snowPine, it => 0.45 * it[3]); col(L.cactus, it => 0.5 * it[3]); col(L.quiver, it => 0.35 * it[3]); col(L.rock, it => 0.8 * it[3]); col(L.tree, it => 0.5 * it[3]); col(L.palm, it => 0.4 * it[3]);
     tile.disposers.push(() => removeColliders(tile.colliders));
   });
   // Scrub is dry in the desert and green elsewhere.

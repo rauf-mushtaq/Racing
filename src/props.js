@@ -178,9 +178,21 @@ function scanRock() {
 }
 // A scanned street prop (scans.js) at its real size: standing on y = 0, centred, its long side along x; `back` turns it so its tall part (a bench's
 // back) is at -z, as the drawn bench's is. Its own materials (an instanced mesh takes one per group).
-function scanProp(name, back = false) {
+// `one`: the scan holds two side by side (the hydrant: a clean one and a weathered one), and only the one on the -x side is kept.
+export function scanProp(name, back = false, one = false) {
   const S = SCAN_MODELS[name]; if (!S) return null;
-  const g = S.geo.clone(); g.computeBoundingBox(); let b = g.boundingBox;
+  let g = S.geo.clone(); g.computeBoundingBox(); let b = g.boundingBox;
+  if (one) {
+    const mid = (b.min.x + b.max.x) / 2, P = g.attributes.position, keep = [], groups = [];
+    for (const gr of (g.groups.length ? g.groups : [{ start: 0, count: P.count, materialIndex: 0 }])) {
+      const s0 = keep.length; for (let t = gr.start; t < gr.start + gr.count; t += 3) if ((P.getX(t) + P.getX(t + 1) + P.getX(t + 2)) / 3 < mid) keep.push(t);
+      if (keep.length > s0) groups.push({ start: s0 * 3, count: (keep.length - s0) * 3, materialIndex: gr.materialIndex });
+    }
+    const out = new THREE.BufferGeometry();
+    for (const k of Object.keys(g.attributes)) { const a = g.attributes[k], n = a.itemSize, arr = new Float32Array(keep.length * 3 * n); keep.forEach((t, i) => { for (let v = 0; v < 3; v++) for (let c = 0; c < n; c++) arr[(i * 3 + v) * n + c] = a.getComponent(t + v, c); }); out.setAttribute(k, new THREE.BufferAttribute(arr, n)); }
+    if (g.groups.length) for (const gr of groups) out.addGroup(gr.start, gr.count, gr.materialIndex);
+    g = out; g.computeBoundingBox(); b = g.boundingBox;
+  }
   if (b.max.z - b.min.z > b.max.x - b.min.x) { g.rotateY(Math.PI / 2); g.computeBoundingBox(); b = g.boundingBox; }
   g.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2); g.computeBoundingBox(); b = g.boundingBox;
   if (back) { const p = g.attributes.position, top = b.max.y * 0.7; let z = 0, n = 0; for (let i = 0; i < p.count; i++) if (p.getY(i) > top) { z += p.getZ(i); n++; } if (n && z / n > 0) g.rotateY(Math.PI); }
@@ -328,7 +340,9 @@ export function makeProps() {
     billFace: new THREE.MeshStandardMaterial({ map: billTex, emissiveMap: billTex, emissive: 0xffffff, emissiveIntensity: TOD.lampsOn ? 0.9 : 0.35, roughness: 0.6 }),
   };
   { const R = scanRock(); if (R) { geo.rock = R.g; mat.rock = R.mat; } }
-  for (const [k, back] of [['hydrant', false], ['bench', true]]) { const R = scanProp(k, back); if (R) { geo[k] = R.g; mat[k] = R.mat; } }
+  // The quiver tree of the desert (a scan; scatter.js plants it among the cacti), its leaves cut out rather than blended (so they sort and shadow).
+  { const R = scanProp('quiver'); if (R) { geo.quiver = R.g; mat.quiver = [].concat(R.mat).map(m => { if (m.transparent || m.alphaMode === 'BLEND' || m.opacity < 1 || m.blending !== THREE.NormalBlending || m.name.includes('leaf')) { m.transparent = false; m.alphaTest = 0.5; m.depthWrite = true; } m.side = THREE.DoubleSide; return m; }); if (mat.quiver.length === 1) mat.quiver = mat.quiver[0]; } }
+  for (const [k, back, one] of [['hydrant', false, true], ['bench', true, false]]) { const R = scanProp(k, back, one); if (R) { geo[k] = R.g; mat[k] = R.mat; } }
   windify(mat.treeCore, 0.2, 8, 0); windify(mat.treeCards, 0.2, 8, 0.05, 1.1); windify(mat.bushCards, 0.2, 8, 0.02, 0.7); windify(mat.bushBloom, 0.2, 8, 0.03, 0.6); windify(mat.palmTrunk, 0.42, 12, 0); windify(mat.palmFronds, 0.42, 12, 0.07, 1.3); windify(mat.pine, 0.13, 10, 0.02);
   return { geo, mat };
 }

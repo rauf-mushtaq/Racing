@@ -22,3 +22,6 @@ PY
 model namaqualand_boulder_02 rock 0.004
 model fire_hydrant hydrant 0.03
 model painted_wooden_bench bench 1
+model quiver_tree_01 quiver 0.03
+model sofa_02 sofa 1
+model dining_chair_02 chair 0.08

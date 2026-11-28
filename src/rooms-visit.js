@@ -4,13 +4,22 @@
 // set out as spots (visit.js): sitting (at desks, on sofas, in seats and pews), standing, or walking a route round the floor (and up the stairs).
 import * as THREE from 'three';
 import { C } from './interior.js';
+import { SCAN_MODELS } from './scans.js';
 import { kit, plant, glassBox, leafGeom, LEAF_GREENS } from './rooms.js';
 
+// The footprint of a kit's rectangle in room metres (for a solid footprint under a scanned piece).
+const rectOf = (K, u0, w0, u1, w1) => { const [ax, az] = K.P(u0, w0), [bx, bz] = K.P(u1, w1); return [Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz)]; };
 // ---- Furniture and fittings ------------------------------------------------------------------------------------------------------------------------------
 const OAK = C(0xffffff), STONE = C(0xeeebe4), GRAPH = C(0x2a2d32), STEEL = C(0xb9bec4), BLACK = C(0x151618), BRASS = C(0xc9a24a);
 // A sofa for someone facing f, w wide; returns where its sitters go ([x, z] in room metres).
+// (With the scans loaded, the sofas and chairs are the scanned leather sofa and upholstered chair, put in the same places: interior.js scanFurniture.)
 function sofa(R, x, z, f, w, col) {
   const K = kit(R, x, z, f), c2 = col.clone().multiplyScalar(1.12);
+  if (SCAN_MODELS.sofa) {
+    (R.scanned.sofa || (R.scanned.sofa = [])).push({ x, z, f, sx: w / 1.8, y: R.lift, col }); { const [x0, z0, x1, z1] = rectOf(K, -w / 2, -0.45, w / 2, 0.45); R.boxes.push({ x0: R.ox + x0, x1: R.ox + x1, z0: R.oz + z0, z1: R.oz + z1, y0: R.oy + R.lift, y1: R.oy + R.lift + 0.75 }); }
+    const out = []; for (let k = 0; k < Math.max(1, Math.floor(w / 0.75)); k++) out.push(K.P(-w / 2 + 0.5 + k * (w - 1) / Math.max(1, Math.floor(w / 0.75) - 1 || 1), 0.02));
+    return out;
+  }
   K.box('prop', -w / 2, -0.45, w / 2, 0.45, 0.08, 0.4, col, true);
   K.box('prop', -w / 2 + 0.14, -0.26, w / 2 - 0.14, 0.44, 0.4, 0.52, c2);
   K.box('prop', -w / 2, -0.47, w / 2, -0.24, 0.4, 0.92, col);
@@ -21,6 +30,7 @@ function sofa(R, x, z, f, w, col) {
 }
 function chair(R, x, z, f, col, metal = GRAPH) {
   const K = kit(R, x, z, f);
+  if (SCAN_MODELS.chair) { (R.scanned.chair || (R.scanned.chair = [])).push({ x, z, f, sx: 1, y: R.lift, col }); R.circs.push({ x: R.ox + x, z: R.oz + z, r: 0.28, y0: R.oy + R.lift, y1: R.oy + R.lift + 0.9 }); return; }
   K.box('prop', -0.22, -0.22, 0.22, 0.22, 0.42, 0.48, col); K.box('prop', -0.22, -0.26, 0.22, -0.2, 0.48, 0.92, col);
   for (const [u, v] of [[-0.19, -0.19], [0.19, -0.19], [-0.19, 0.19], [0.19, 0.19]]) K.box('metal', u - 0.015, v - 0.015, u + 0.015, v + 0.015, 0, 0.42, metal);
   R.circs.push({ x: R.ox + x, z: R.oz + z, r: 0.28, y0: R.oy + R.lift, y1: R.oy + R.lift + 0.9 });
